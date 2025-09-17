@@ -1,0 +1,85 @@
+{
+  "mcpServers": {
+    "payware": {
+      "command": "node",
+      "args": ["src/index.js"],
+      "cwd": "/mnt/d/git/payware/mcp",
+      "env": {
+        "NODE_ENV": "production",
+        "PAYWARE_SANDBOX_URL": "https://sandbox.payware.eu/api",
+        "PAYWARE_PRODUCTION_URL": "https://api.payware.eu/api"
+      },
+      "description": "payware MCP Server - Complete payment processing integration with 18+ operations, 6 languages, JWT authentication, and comprehensive code generation",
+      "capabilities": [
+        "payware_generate_code_example",
+        "payware_generate_documentation"
+      ]
+    }
+  },
+  "version": "1.0.0",
+  "metadata": {
+    "description": "MCP Configuration for payware Payment Processing Server",
+    "author": "payware Development Team",
+    "documentation": "https://docs.payware.eu",
+    "repository": "https://github.com/payware/mcp",
+    "supportedOperations": [
+      "authentication",
+      "create_transaction",
+      "get_transaction_status",
+      "process_transaction",
+      "cancel_transaction",
+      "create_product",
+      "get_product",
+      "list_products",
+      "obtain_token",
+      "get_token_info",
+      "generate_report",
+      "get_report_status",
+      "get_transaction_link",
+      "register_audio",
+      "get_audios",
+      "get_audio",
+      "update_audio",
+      "delete_audio"
+    ],
+    "supportedLanguages": [
+      "python",
+      "nodejs",
+      "php",
+      "java",
+      "csharp",
+      "curl"
+    ],
+    "supportedPartnerTypes": [
+      "merchant",
+      "isv",
+      "payment_institution"
+    ],
+    "features": [
+      "JWT Authentication with RS256",
+      "Content MD5 hashing",
+      "Comprehensive error handling",
+      "Production-ready code generation",
+      "Multiple partner type support",
+      "Framework-specific implementations",
+      "Sandbox and production environments"
+    ]
+  },
+  "installation": {
+    "prerequisites": [
+      "Node.js 16+",
+      "npm or yarn package manager"
+    ],
+    "setup": [
+      "npm install",
+      "Set up environment variables for API credentials",
+      "Configure private keys for JWT authentication",
+      "Test connection with sandbox environment"
+    ]
+  },
+  "usage": {
+    "codeGeneration": "Use payware_generate_code_example tool with operation, language, and partner_type parameters",
+    "documentation": "Use payware_generate_documentation tool for comprehensive integration guides",
+    "sandbox": "Always test with sandbox environment before production"
+  }
+}

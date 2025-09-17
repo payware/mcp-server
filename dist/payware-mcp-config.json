@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "payware": {
+      "command": "node",
+      "args": ["src/index.js"],
+      "cwd": "/mnt/d/git/payware/mcp",
+      "env": {
+        "NODE_ENV": "production"
+      }
+    }
+  }
+}
