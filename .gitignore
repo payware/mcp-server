@@ -29,3 +29,6 @@ test-*.js
 # Private keys
 keys/*.pem
 keys/*.key
+
+# Distribution folder (not needed)
+dist/
