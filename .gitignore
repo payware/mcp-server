@@ -26,5 +26,6 @@ test-*.js
 # Logs
 *.log
 
-# Internal docs (non-distributable)
-internal-docs/
+# Private keys
+keys/*.pem
+keys/*.key
