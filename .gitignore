@@ -27,4 +27,4 @@ test-*.js
 *.log
 
 # Internal docs (non-distributable)
-internal-docs/documentation/
+internal-docs/
