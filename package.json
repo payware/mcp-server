@@ -1,9 +1,12 @@
 {
-  "name": "payware-mcp-server",
+  "name": "@payware/mcp-server",
   "version": "1.0.0",
-  "description": "Minimal MCP server for payware API integration",
+  "description": "Official MCP server for payware payment API integration",
   "main": "src/index.js",
   "type": "module",
+  "bin": {
+    "payware-mcp": "./src/index.js"
+  },
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
@@ -27,10 +30,37 @@
   },
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "payware",
     "payments",
-    "api"
+    "payment-gateway",
+    "payment-processing",
+    "api",
+    "fintech",
+    "pos",
+    "terminal",
+    "merchant",
+    "isv",
+    "oauth2"
   ],
-  "author": "Claude Code",
-  "license": "MIT"
+  "author": "payware <support@payware.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/payware/mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/payware/mcp-server/issues"
+  },
+  "homepage": "https://github.com/payware/mcp-server#readme",
+  "files": [
+    "src/",
+    "keys/README.md",
+    "README.md",
+    "check-keys.js",
+    "mcp-config.json",
+    "payware-mcp-config.json",
+    ".env.example",
+    "MCP-SETUP.md"
+  ]
 }

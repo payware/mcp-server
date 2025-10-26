@@ -34,6 +34,403 @@ npm start
 4. Provide installation documentation
 5. Set up deprecation/migration paths for updates
 
+---
+
+## Step-by-Step NPM Publishing Guide
+
+### Prerequisites
+
+1. **NPM Account Setup**:
+   - Create account at https://www.npmjs.com/signup (✓ Already completed)
+   - Verify email address
+   - Enable two-factor authentication (2FA) for security
+
+2. **Login to NPM**:
+   ```bash
+   npm login
+   # Enter your username, password, and email
+   # Enter OTP if 2FA is enabled
+   ```
+
+3. **Verify Authentication**:
+   ```bash
+   npm whoami
+   # Should display your npm username
+   ```
+
+### Preparing Your Package
+
+#### 1. Update package.json
+
+Your current package.json should be updated with proper npm-ready metadata:
+
+```json
+{
+  "name": "@payware/mcp-server",
+  "version": "1.0.0",
+  "description": "Official MCP server for payware payment API integration",
+  "main": "src/index.js",
+  "type": "module",
+  "bin": {
+    "payware-mcp": "./src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "proxy": "node src/proxy-server.js",
+    "proxy:dev": "node --watch src/proxy-server.js",
+    "bridge": "node src/mcp-proxy.js",
+    "inspector": "npx @modelcontextprotocol/inspector node src/mcp-proxy.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.5.0",
+    "axios": "^1.6.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.2",
+    "express": "^5.1.0",
+    "http-proxy-middleware": "^3.0.5",
+    "jsonwebtoken": "^9.0.0",
+    "node-forge": "^1.3.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "payware",
+    "payments",
+    "payment-gateway",
+    "api",
+    "fintech",
+    "pos",
+    "terminal"
+  ],
+  "author": "payware <support@payware.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/payware/mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/payware/mcp-server/issues"
+  },
+  "homepage": "https://github.com/payware/mcp-server#readme",
+  "files": [
+    "src/",
+    "keys/README.md",
+    "README.md",
+    "check-keys.js",
+    "mcp-config.json",
+    "payware-mcp-config.json",
+    "claude-code-config.json",
+    ".env.example"
+  ]
+}
+```
+
+**Key Changes Needed**:
+- Change `name` from `"payware-mcp-server"` to `"@payware/mcp-server"` (requires npm organization)
+- OR use `"payware-mcp-server"` without @ (no organization needed)
+- Add `repository`, `bugs`, and `homepage` fields
+- Add `files` array to explicitly control what gets published
+- Expand `keywords` for better discoverability
+
+#### 2. Create .npmignore File
+
+Create a `.npmignore` file to exclude unnecessary files from the package:
+
+```bash
+# Create .npmignore in project root
+cat > .npmignore << 'EOF'
+# Development and testing files
+*.log
+npm-debug.log*
+yarn-debug.log*
+test-*.js
+debug-*.js
+
+# Environment and credentials
+.env
+*.pem
+keys/*.pem
+keys/*.key
+!keys/README.md
+
+# IDE and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Git files
+.git/
+.gitignore
+.gitattributes
+
+# Internal documentation
+internal-docs/
+
+# Distribution files
+dist/
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Dependencies (will be installed by users)
+node_modules/
+EOF
+```
+
+**Important**: The `files` field in package.json takes precedence over `.npmignore`. Only files listed in the `files` array will be included.
+
+#### 3. Test Package Contents
+
+Before publishing, verify what will be included in your package:
+
+```bash
+# See what files will be published
+npm pack --dry-run
+
+# This shows you the exact list of files that will be included
+# Review carefully to ensure no sensitive data is included
+```
+
+#### 4. Test Local Installation
+
+Create a test package and install it locally:
+
+```bash
+# Create a tarball of your package
+npm pack
+
+# This creates: payware-mcp-server-1.0.0.tgz (or @payware-mcp-server-1.0.0.tgz)
+
+# Test installation in a separate directory
+mkdir /tmp/test-install
+cd /tmp/test-install
+npm install /path/to/your/payware-mcp-server-1.0.0.tgz
+
+# Verify the package works
+npx payware-mcp --help
+# or
+node node_modules/@payware/mcp-server/src/index.js
+
+# Clean up
+cd -
+rm -rf /tmp/test-install
+```
+
+### Publishing to NPM
+
+#### Option A: Publishing to NPM Without Organization (Simpler)
+
+If you don't have an npm organization, use the package name without `@`:
+
+```bash
+# 1. Update package.json name to: "payware-mcp-server"
+
+# 2. Publish
+npm publish
+
+# That's it! Your package is now live at:
+# https://www.npmjs.com/package/payware-mcp-server
+```
+
+#### Option B: Publishing with NPM Organization (Recommended for Brand)
+
+To use `@payware/mcp-server`, you need to create an organization:
+
+```bash
+# 1. Create organization (one-time setup)
+npm org create payware
+# OR use the web interface: https://www.npmjs.com/org/create
+
+# 2. Verify organization
+npm org ls payware
+
+# 3. Update package.json name to: "@payware/mcp-server"
+
+# 4. Publish as public package (organizations default to private)
+npm publish --access public
+```
+
+**Cost Note**: Free npm accounts can create organizations and publish unlimited public packages.
+
+### Publishing Commands
+
+```bash
+# Before first publish, verify package contents
+npm pack --dry-run
+
+# Publish version 1.0.0
+npm publish --access public
+
+# Publish with tag (for beta/alpha versions)
+npm publish --tag beta --access public
+
+# Publish with OTP (if 2FA enabled)
+npm publish --otp=123456 --access public
+```
+
+### Post-Publication Verification
+
+```bash
+# 1. Verify package appears on npm
+npm view @payware/mcp-server
+# or
+npm view payware-mcp-server
+
+# 2. Check package metadata
+npm info @payware/mcp-server
+
+# 3. Test installation from npm
+mkdir /tmp/verify-publish
+cd /tmp/verify-publish
+npm install @payware/mcp-server
+npx payware-mcp --help
+
+# 4. View your package online
+# Visit: https://www.npmjs.com/package/@payware/mcp-server
+# or: https://www.npmjs.com/package/payware-mcp-server
+```
+
+### Publishing Updates
+
+When you make changes and want to publish a new version:
+
+```bash
+# 1. Update version (automatically updates package.json)
+npm version patch   # 1.0.0 -> 1.0.1 (bug fixes)
+npm version minor   # 1.0.0 -> 1.1.0 (new features)
+npm version major   # 1.0.0 -> 2.0.0 (breaking changes)
+
+# 2. Publish new version
+npm publish --access public
+
+# 3. Tag releases in git
+git push --tags
+```
+
+### Troubleshooting
+
+**Error: "Package name already taken"**
+```bash
+# Solution: Choose a different name or add a scope
+# Example: @your-username/mcp-server or payware-mcp-server-v2
+```
+
+**Error: "You must verify your email"**
+```bash
+# Solution: Check your email and verify your npm account
+```
+
+**Error: "You do not have permission to publish"**
+```bash
+# Solution 1: Login again
+npm logout
+npm login
+
+# Solution 2: If using organization, make sure you're a member
+npm org ls payware
+```
+
+**Error: "You must sign in with 2FA"**
+```bash
+# Solution: Provide OTP code
+npm publish --otp=123456 --access public
+```
+
+**Package published but not showing up**
+```bash
+# Wait 1-2 minutes for npm registry to update
+# Clear npm cache
+npm cache clean --force
+```
+
+### Security Best Practices
+
+1. **Enable 2FA**: Protect your npm account
+   ```bash
+   npm profile enable-2fa auth-and-writes
+   ```
+
+2. **Use .npmignore**: Ensure no secrets are published
+   - Never include `.env` files
+   - Never include private keys (`*.pem`, `*.key`)
+   - Exclude `internal-docs/`
+
+3. **Review Before Publishing**:
+   ```bash
+   # Always check what will be published
+   npm pack --dry-run
+   ```
+
+4. **Use npm tokens for CI/CD**:
+   ```bash
+   # Generate automation token for CI/CD pipelines
+   npm token create --read-only
+   ```
+
+### Automation (Optional)
+
+Create a `publish.sh` script for automated publishing:
+
+```bash
+#!/bin/bash
+set -e
+
+echo "🔍 Checking package contents..."
+npm pack --dry-run
+
+echo ""
+read -p "Ready to publish? (y/N) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "📦 Publishing to npm..."
+    npm publish --access public
+    echo "✅ Published successfully!"
+    echo "View at: https://www.npmjs.com/package/@payware/mcp-server"
+else
+    echo "❌ Publish cancelled"
+fi
+```
+
+Make it executable:
+```bash
+chmod +x publish.sh
+./publish.sh
+```
+
+### Quick Reference Commands
+
+```bash
+# Login
+npm login
+
+# Check what will be published
+npm pack --dry-run
+
+# Publish (without organization)
+npm publish
+
+# Publish (with organization)
+npm publish --access public
+
+# Update version and publish
+npm version patch && npm publish --access public
+
+# View published package
+npm view @payware/mcp-server
+
+# Unpublish (only within 72 hours)
+npm unpublish @payware/mcp-server@1.0.0
+```
+
 ### 2. GitHub Repository (Recommended Secondary)
 
 **Target Audience**: Open-source contributors, technical partners wanting transparency
