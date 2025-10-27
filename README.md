@@ -1,6 +1,6 @@
 # payware MCP Server
 
-Minimal MCP server for payware API integration. Enables quick merchant integration with payware APIs in sandbox environment.
+Minimal MCP server for payware API integration. Enables quick payment instution, merchant or independent software vendor integration with payware APIs in sandbox environment.
 
 ## Features
 
@@ -479,5 +479,6 @@ For issues related to:
 - **Key Issues**: Ensure public key is registered on payware partner portal
 
 ## License
+
 
 MIT License
