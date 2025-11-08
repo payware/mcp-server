@@ -1,0 +1,66 @@
+{
+  "name": "@payware/mcp-server",
+  "version": "1.0.0",
+  "description": "Official MCP server for payware payment API integration",
+  "main": "src/index.js",
+  "type": "module",
+  "bin": {
+    "payware-mcp": "./src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "proxy": "node src/proxy-server.js",
+    "proxy:dev": "node --watch src/proxy-server.js",
+    "bridge": "node src/mcp-proxy.js",
+    "inspector": "npx @modelcontextprotocol/inspector node src/mcp-proxy.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.5.0",
+    "axios": "^1.6.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.2",
+    "express": "^5.1.0",
+    "http-proxy-middleware": "^3.0.5",
+    "jsonwebtoken": "^9.0.0",
+    "node-forge": "^1.3.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "payware",
+    "payments",
+    "payment-gateway",
+    "payment-processing",
+    "api",
+    "fintech",
+    "pos",
+    "terminal",
+    "merchant",
+    "isv",
+    "oauth2"
+  ],
+  "author": "payware <support@payware.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/payware/mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/payware/mcp-server/issues"
+  },
+  "homepage": "https://github.com/payware/mcp-server#readme",
+  "files": [
+    "src/",
+    "keys/README.md",
+    "README.md",
+    "check-keys.js",
+    "mcp-config.json",
+    "payware-mcp-config.json",
+    ".env.example",
+    "MCP-SETUP.md"
+  ]
+}
