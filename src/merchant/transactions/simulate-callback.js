@@ -15,6 +15,7 @@ export function generateMockCallback(transactionId, status = 'CONFIRMED', option
     currency = 'EUR',
     payerAmount = null,
     payeeAmount = null,
+    paymentMethod = null,
     statusMessage = null,
     passbackParams = null
   } = options;
@@ -38,6 +39,7 @@ export function generateMockCallback(transactionId, status = 'CONFIRMED', option
     currency,
     status,
     statusMessage,
+    ...(paymentMethod && { paymentMethod }),
     created: currentTime - 300000, // Created 5 minutes ago (milliseconds)
     ...(status !== 'EXPIRED' && { finalized: currentTime })
   };
@@ -152,6 +154,11 @@ export const simulateCallbackTool = {
       statusMessage: {
         type: "string",
         description: "Custom status message for the transaction callback"
+      },
+      paymentMethod: {
+        type: "string",
+        enum: ["A2A", "CARD_FUNDED", "BNPL", "INSTANT_CREDIT"],
+        description: "Payment method chosen by customer. A2A = direct transfer. CARD_FUNDED = card-linked account. BNPL = buy now pay later. INSTANT_CREDIT = credit line."
       }
     },
     required: ["transactionId"],
@@ -166,7 +173,8 @@ export const simulateCallbackTool = {
       amount = '57.60',
       currency = 'EUR',
       fee = '0.00',
-      statusMessage
+      statusMessage,
+      paymentMethod
     } = args;
     
     if (!transactionId) {
@@ -178,7 +186,8 @@ export const simulateCallbackTool = {
       amount,
       currency,
       fee,
-      statusMessage
+      statusMessage,
+      paymentMethod
     });
     
     // Simulate callback delivery if URL provided

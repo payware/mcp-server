@@ -24,6 +24,8 @@ export async function processPITransaction({
   privateKey,
   // Delivery address for SHIPPABLE transactions
   deliveryAddress,
+  // Payment method for POI transactions (Payment Choice Architecture)
+  paymentMethod,
   useSandbox = true
 }) {
   if (!transactionId) {
@@ -56,6 +58,7 @@ export async function processPITransaction({
     friendlyName,
     ...(callbackUrl && { callbackUrl }),
     ...(passbackParams && { passbackParams }),
+    ...(paymentMethod && { paymentMethod }),
     trData: {
       ...(amount !== undefined && { amount: amount.toString() }),
       currency,
@@ -213,6 +216,12 @@ export const processPITransactionTool = {
         description: "RSA private key for JWT token creation. Uses environment-specific private key as default.",
         default: getPrivateKeySafe()
       },
+      // Payment method for POI transactions
+      paymentMethod: {
+        type: "string",
+        enum: ["A2A", "CARD_FUNDED", "BNPL", "INSTANT_CREDIT"],
+        description: "Payment method chosen by customer (for POI transactions only). A2A = direct transfer (lower fee, no rewards). CARD_FUNDED = card-linked account (higher fee, rewards eligible). BNPL = buy now pay later (installments). INSTANT_CREDIT = credit line approved at purchase."
+      },
       // Delivery address for SHIPPABLE transactions
       deliveryAddress: {
         type: "object",
@@ -290,6 +299,7 @@ export const processPITransactionTool = {
       timeToLive,
       partnerId = getPartnerIdSafe(),
       privateKey = getPrivateKeySafe(args.useSandbox ?? true),
+      paymentMethod,
       deliveryAddress,
       useSandbox = true
     } = args;
@@ -335,6 +345,7 @@ export const processPITransactionTool = {
       timeToLive,
       partnerId,
       privateKey,
+      paymentMethod,
       deliveryAddress,
       useSandbox
     });
@@ -353,6 +364,7 @@ export const processPITransactionTool = {
 - Friendly Name: ${friendlyName}
 ${amount ? `- Amount: ${amount} ${currency}` : ''}
 ${reasonL1 ? `- Reason: ${reasonL1}${reasonL2 ? ` (${reasonL2})` : ''}` : ''}
+${paymentMethod ? `- Payment Method: ${paymentMethod}` : ''}
 ${timeToLive ? `- Time to Live: ${timeToLive} seconds` : ''}
 ${callbackUrl ? `- Callback URL: ${callbackUrl}` : ''}
 ${passbackParams ? `- Passback Params: ${passbackParams}` : ''}

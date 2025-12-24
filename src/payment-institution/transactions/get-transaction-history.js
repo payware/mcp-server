@@ -166,7 +166,7 @@ ${tx.statusMessage ? `- Status Message: ${tx.statusMessage}` : ''}
 
 **Transaction Details:**
 - Amount: ${tx.amount || 'N/A'} ${tx.currency || 'N/A'}
-- Reason L1: ${tx.reasonL1 || 'N/A'}
+${tx.paymentMethod ? `- Payment Method: ${tx.paymentMethod}\n` : ''}- Reason L1: ${tx.reasonL1 || 'N/A'}
 ${tx.reasonL2 ? `- Reason L2: ${tx.reasonL2}` : ''}
 
 **Payee Information:**

@@ -27,6 +27,7 @@ export function generateMockPICallback(transactionId, callbackType = 'TRANSACTIO
     timeToLive = 600,
     initiatedBy = 'PEER',
     transactionType = 'DEFAULT',
+    paymentMethod = null,
     status = 'CONFIRMED',
     statusMessage = null,
     passbackParams = null
@@ -60,7 +61,8 @@ export function generateMockPICallback(transactionId, callbackType = 'TRANSACTIO
       ...(reasonL2 && { reasonL2 }),
       timeToLive,
       transactionType,
-      initiatedBy
+      initiatedBy,
+      ...(paymentMethod && { paymentMethod })
     };
   } else {
     // TRANSACTION_FINALIZED
@@ -73,6 +75,7 @@ export function generateMockPICallback(transactionId, callbackType = 'TRANSACTIO
       currency,
       status,
       ...(statusMessage && { statusMessage }),
+      ...(paymentMethod && { paymentMethod }),
       created: Date.now() - 300000, // Created 5 minutes ago (milliseconds)
       finalized: Date.now()
     };
@@ -202,6 +205,11 @@ export const simulatePICallbackTool = {
       statusMessage: {
         type: "string",
         description: "Status message (only for TRANSACTION_FINALIZED callbacks)"
+      },
+      paymentMethod: {
+        type: "string",
+        enum: ["A2A", "CARD_FUNDED", "BNPL", "INSTANT_CREDIT"],
+        description: "Payment method chosen by customer. A2A = direct transfer. CARD_FUNDED = card-linked account. BNPL = buy now pay later. INSTANT_CREDIT = credit line."
       }
     },
     required: ["transactionId"]
@@ -225,7 +233,8 @@ export const simulatePICallbackTool = {
       reasonL2,
       timeToLive = 600,
       status = 'CONFIRMED',
-      statusMessage
+      statusMessage,
+      paymentMethod
     } = args;
 
     if (!transactionId) {
@@ -248,6 +257,7 @@ export const simulatePICallbackTool = {
       timeToLive,
       initiatedBy: 'PEER',
       transactionType: 'DEFAULT',
+      paymentMethod,
       status,
       statusMessage
     });

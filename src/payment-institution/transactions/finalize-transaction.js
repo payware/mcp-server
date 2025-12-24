@@ -263,6 +263,7 @@ export const finalizeTransactionTool = {
 ${statusMessage ? `- Status Message: ${statusMessage}` : ''}
 ${amount ? `- Final Amount: ${amount} ${currency}` : ''}
 ${fee !== undefined ? `- Fee Collected: ${fee} ${currency}` : ''}
+${result.transaction.paymentMethod ? `- Payment Method: ${result.transaction.paymentMethod}` : ''}
 
 **Transaction Response:**
 \`\`\`json

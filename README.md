@@ -1,18 +1,41 @@
 # payware MCP Server
 
-Minimal MCP server for payware API integration. Enables quick merchant integration with payware APIs in sandbox environment.
+[![npm version](https://badge.fury.io/js/%40payware%2Fmcp-server.svg)](https://www.npmjs.com/package/@payware/mcp-server)
+
+Official MCP (Model Context Protocol) server for payware payment API integration. This server enables AI assistants to interact with payware APIs, automating integration workflows for all partner types.
+
+## Who Is This For?
+
+- **Merchants** - Accept payments, manage products, generate transaction reports
+- **ISVs (Independent Software Vendors)** - Build multi-merchant platforms with OAuth2 token management
+- **Payment Institutions** - Process A2A transfers, handle Payment Choice Architecture with multiple payment methods
+
+## What's New in v1.1.0
+
+- **Point of Interaction (POI)** - Full POI management: set prices, get status, generate QR codes, list and manage POIs
+- **Payment Choice Architecture** - Support for `paymentMethod` field (A2A, CARD_FUNDED, BNPL, INSTANT_CREDIT) in transaction processing
 
 ## Features
 
 ### 🔐 Authentication Tools
 - **RSA Key Generation**: Generate secure 2048-bit RSA key pairs
-- **JWT Token Creation**: Create properly formatted JWT tokens  
+- **JWT Token Creation**: Create properly formatted JWT tokens
 - **Sandbox Setup**: Configure sandbox authentication
 
 ### 💳 Transaction Tools
 - **Create Transaction**: Support PLAIN, QR, and BARCODE transactions
+- **Process Transaction**: Process transactions with Payment Choice Architecture support
 - **Transaction Status**: Check transaction status by ID
-- **Callback Simulation**: Test callback scenarios
+- **Transaction History**: Get finalized transaction details
+- **Callback Simulation**: Test callback scenarios for merchants and payment institutions
+
+### 📍 Point of Interaction (POI) Tools
+- **Set Price**: Configure POI with amount, currency, and payment details
+- **Cancel Price**: Clear active price from POI
+- **Get POI**: Retrieve POI details and current state
+- **Get Status**: Check POI transaction status
+- **Get QR Code**: Generate QR code for POI payments
+- **List POIs**: List all POIs for a merchant
 
 ### 🛠️ Utility Tools
 - **Advanced Code Generation**: Generate complete integration code across 8 languages (Python, Node.js, PHP, Java, C#, Go, Ruby, cURL) with 16+ framework support
@@ -25,8 +48,15 @@ Minimal MCP server for payware API integration. Enables quick merchant integrati
 
 ### 1. Installation
 
+**From npm (recommended):**
 ```bash
-cd payware/mcp
+npm install -g @payware/mcp-server
+```
+
+**From source:**
+```bash
+git clone https://github.com/payware/mcp-server.git
+cd mcp-server
 npm install
 ```
 
@@ -308,6 +338,14 @@ Generate production-ready code examples for any payware operation.
 - `create_product` - Create a new product
 - `get_product` - Get product details
 - `list_products` - List all products
+
+**POI Operations (isv):**
+- `set_price` - Set price on a Point of Interaction device
+- `cancel_price` - Cancel active price on POI
+- `get_poi` - Get POI details
+- `get_poi_status` - Get POI transaction status
+- `get_poi_qrcode` - Generate QR code for POI
+- `list_pois` - List all POIs for a merchant
 
 **OAuth2 Operations (isv only):**
 - `obtain_token` - Obtain OAuth2 access token

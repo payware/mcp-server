@@ -140,7 +140,8 @@ Requires ISV authentication with merchant partner ID and OAuth2 token.`,
           'CANCELLED': '🚫'
         };
         const emoji = statusEmojis[tx.status] || '❓';
-        return `  ${emoji} **${tx.id}** - ${tx.trData?.amount || '0.00'} ${tx.trData?.currency || 'EUR'} - ${tx.status} - ${tx.createdAt || 'N/A'}`;
+        const paymentInfo = tx.paymentMethod ? ` [${tx.paymentMethod}]` : '';
+        return `  ${emoji} **${tx.id}** - ${tx.trData?.amount || '0.00'} ${tx.trData?.currency || 'EUR'}${paymentInfo} - ${tx.status} - ${tx.createdAt || 'N/A'}`;
       };
 
       return {

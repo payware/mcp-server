@@ -33,6 +33,7 @@ export const PITransactionOperations = {
     sampleBody: {
       account: 'PI_ACCOUNT',
       friendlyName: 'Payment Institution Name',
+      paymentMethod: 'A2A',  // Optional: A2A, CARD_FUNDED, BNPL, INSTANT_CREDIT
       trData: {
         amount: '50.00',
         currency: 'EUR',

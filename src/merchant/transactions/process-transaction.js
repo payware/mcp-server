@@ -20,6 +20,7 @@ export async function processTransaction({
   callbackUrl,
   passbackParams,
   timeToLive = 120,
+  paymentMethod,
   partnerId,
   privateKey,
   useSandbox = true
@@ -55,6 +56,7 @@ export async function processTransaction({
     ...(shop && { shop }),
     ...(callbackUrl && { callbackUrl }),
     ...(passbackParams && { passbackParams }),
+    ...(paymentMethod && { paymentMethod }),
     trData: {
       amount: amount.toString(),
       currency,
@@ -201,6 +203,11 @@ export const processTransactionTool = {
         maximum: 600,
         default: 120
       },
+      paymentMethod: {
+        type: "string",
+        enum: ["A2A", "CARD_FUNDED", "BNPL", "INSTANT_CREDIT"],
+        description: "Payment method chosen by customer. A2A = direct transfer (lower fee, no rewards). CARD_FUNDED = card-linked account (higher fee, rewards eligible). BNPL = buy now pay later (installments). INSTANT_CREDIT = credit line approved at purchase."
+      },
       partnerId: {
         type: "string",
         description: "Partner ID from payware dashboard. Can use PAYWARE_PARTNER_ID env var as default.",
@@ -233,6 +240,7 @@ export const processTransactionTool = {
       callbackUrl,
       passbackParams,
       timeToLive = 120,
+      paymentMethod,
       partnerId = getPartnerIdSafe(),
       privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
@@ -270,6 +278,7 @@ export const processTransactionTool = {
       callbackUrl,
       passbackParams,
       timeToLive,
+      paymentMethod,
       partnerId,
       privateKey,
       useSandbox
@@ -287,7 +296,7 @@ export const processTransactionTool = {
 **Transaction Details:**
 - Amount: ${amount} ${currency}
 - Reason: ${reasonL1}${reasonL2 ? ` (${reasonL2})` : ''}
-- Time to Live: ${timeToLive} seconds
+${paymentMethod ? `- Payment Method: ${paymentMethod}\n` : ''}- Time to Live: ${timeToLive} seconds
 ${callbackUrl ? `- Callback URL: ${callbackUrl}` : ''}
 ${passbackParams ? `- Passback Params: ${passbackParams}` : ''}
 

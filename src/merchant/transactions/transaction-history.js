@@ -161,7 +161,7 @@ export const getTransactionHistoryTool = {
 - ID: ${result.transaction.transactionId || 'N/A'}
 - Initiated By: ${result.transaction.initiatedBy || 'N/A'}
 - Amount: ${result.transaction.amount ? `${result.transaction.amount} ${result.transaction.currency}` : 'N/A'}
-- Reason: ${result.transaction.reasonL1 || 'N/A'}${result.transaction.reasonL2 ? ` (${result.transaction.reasonL2})` : ''}
+${result.transaction.paymentMethod ? `- Payment Method: ${result.transaction.paymentMethod}\n` : ''}- Reason: ${result.transaction.reasonL1 || 'N/A'}${result.transaction.reasonL2 ? ` (${result.transaction.reasonL2})` : ''}
 
 **Parties:**
 - Payee: ${result.transaction.payeeFriendlyName || 'N/A'} (${result.transaction.payeeAccount || 'N/A'})

@@ -50,7 +50,8 @@ export const MerchantTransactionOperations = {
     method: 'POST',
     sampleBody: {
       account: 'MERCHANT_ACCOUNT_123',
-      friendlyName: 'My Store'
+      friendlyName: 'My Store',
+      paymentMethod: 'A2A'  // Optional: A2A, CARD_FUNDED, BNPL, INSTANT_CREDIT
     }
   },
 

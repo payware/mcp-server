@@ -159,7 +159,7 @@ export const getTransactionStatusTool = {
 - ID: ${result.transaction.id || 'N/A'}
 - Type: ${result.transaction.type || 'N/A'}
 - Amount: ${result.transaction.trData ? `${result.transaction.trData.amount} ${result.transaction.trData.currency}` : 'N/A'}
-- Description: ${result.transaction.description || 'N/A'}
+${result.transaction.paymentMethod ? `- Payment Method: ${result.transaction.paymentMethod}\n` : ''}- Description: ${result.transaction.description || 'N/A'}
 - Created: ${result.transaction.createdAt || 'N/A'}
 - Updated: ${result.transaction.updatedAt || 'N/A'}
 
