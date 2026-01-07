@@ -16,7 +16,7 @@ export async function getTransactionStatus({ transactionId, partnerId, privateKe
     throw new Error('Partner ID and private key are required for proper JWT creation');
   }
   
-  // Create JWT token without body (GET request - no contentMd5 required)
+  // Create JWT token without body (GET request - no contentSha256 required)
   const tokenData = createJWTToken(partnerId, privateKey, null);
   
   // Required headers as per payware API documentation

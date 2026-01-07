@@ -57,13 +57,13 @@ from cryptography.hazmat.primitives import serialization`;
         'typ': 'JWT'
     }
 
-    ${options.includeComments ? '# Add content MD5 for requests with body\n    ' : ''}body_string = None
+    ${options.includeComments ? '# Add content SHA-256 for requests with body\n    ' : ''}body_string = None
     if request_body:
         body_string = create_minimized_json(request_body)
-        content_md5 = base64.b64encode(
-            hashlib.md5(body_string.encode('utf-8')).digest()
+        content_sha256 = base64.b64encode(
+            hashlib.sha256(body_string.encode('utf-8')).digest()
         ).decode('utf-8')
-        header['contentMd5'] = content_md5
+        header['contentSha256'] = content_sha256
 
     ${options.includeComments ? '# Create JWT payload\n    ' : ''}payload = {
         'iss': partner_id,
@@ -75,7 +75,7 @@ from cryptography.hazmat.primitives import serialization`;
     return token, body_string
 
 def create_minimized_json(data):
-    ${options.includeComments ? '"""Create deterministic minimized JSON for MD5 calculation"""\n    ' : ''}def sort_dict(obj):
+    ${options.includeComments ? '"""Create deterministic minimized JSON for SHA-256 calculation"""\n    ' : ''}def sort_dict(obj):
         if isinstance(obj, dict):
             return {k: sort_dict(v) for k, v in sorted(obj.items())}
         elif isinstance(obj, list):
@@ -172,14 +172,14 @@ require('dotenv').config();`;
     typ: 'JWT'
   };
 
-  ${options.includeComments ? '// Add content MD5 for requests with body\n  ' : ''}let bodyString = null;
+  ${options.includeComments ? '// Add content SHA-256 for requests with body\n  ' : ''}let bodyString = null;
   if (requestBody) {
     bodyString = createMinimizedJSON(requestBody);
-    const contentMd5 = crypto
-      .createHash('md5')
+    const contentSha256 = crypto
+      .createHash('sha256')
       .update(bodyString, 'utf8')
       .digest('base64');
-    header.contentMd5 = contentMd5;
+    header.contentSha256 = contentSha256;
   }
 
   ${options.includeComments ? '// Create JWT payload\n  ' : ''}const payload = {
@@ -314,11 +314,11 @@ class PaywareAuth {
             'typ' => 'JWT'
         ];
 
-        ${options.includeComments ? '// Add content MD5 for requests with body\n        ' : ''}$bodyString = null;
+        ${options.includeComments ? '// Add content SHA-256 for requests with body\n        ' : ''}$bodyString = null;
         if ($requestBody) {
             $bodyString = self::createMinimizedJSON($requestBody);
-            $contentMd5 = base64_encode(md5($bodyString, true));
-            $header['contentMd5'] = $contentMd5;
+            $contentSha256 = base64_encode(hash('sha256', $bodyString, true));
+            $header['contentSha256'] = $contentSha256;
         }
 
         ${options.includeComments ? '// Create JWT payload\n        ' : ''}$payload = [
@@ -438,11 +438,11 @@ import java.security.MessageDigest;`;
         header.put("alg", "RS256");
         header.put("typ", "JWT");
 
-        ${options.includeComments ? '// Handle request body and MD5\n        ' : ''}String bodyString = null;
+        ${options.includeComments ? '// Handle request body and SHA-256\n        ' : ''}String bodyString = null;
         if (requestBody != null) {
             bodyString = createMinimizedJSON(requestBody);
-            String contentMd5 = calculateMD5(bodyString);
-            header.put("contentMd5", contentMd5);
+            String contentSha256 = calculateSHA256(bodyString);
+            header.put("contentSha256", contentSha256);
         }
 
         ${options.includeComments ? '// Create JWT payload\n        ' : ''}Map<String, Object> payload = new HashMap<>();
@@ -498,8 +498,8 @@ import java.security.MessageDigest;`;
         return node;
     }
 
-    private String calculateMD5(String input) throws Exception {
-        MessageDigest md = MessageDigest.getInstance("MD5");
+    private String calculateSHA256(String input) throws Exception {
+        MessageDigest md = MessageDigest.getInstance("SHA-256");
         byte[] digest = md.digest(input.getBytes("UTF-8"));
         return Base64.getEncoder().encodeToString(digest);
     }
@@ -655,13 +655,13 @@ using Microsoft.Extensions.Configuration;`;
             ["typ"] = "JWT"
         };
 
-        // Handle request body and MD5
+        // Handle request body and SHA-256
         string bodyString = null;
         if (requestBody != null)
         {
             bodyString = CreateMinimizedJSON(requestBody);
-            var contentMd5 = CalculateMD5(bodyString);
-            header["contentMd5"] = contentMd5;
+            var contentSha256 = CalculateSHA256(bodyString);
+            header["contentSha256"] = contentSha256;
         }
 
         // Create JWT payload
@@ -737,11 +737,11 @@ using Microsoft.Extensions.Configuration;`;
         return token;
     }
 
-    private string CalculateMD5(string input)
+    private string CalculateSHA256(string input)
     {
-        using var md5 = MD5.Create();
+        using var sha256 = SHA256.Create();
         var inputBytes = Encoding.UTF8.GetBytes(input);
-        var hashBytes = md5.ComputeHash(inputBytes);
+        var hashBytes = sha256.ComputeHash(inputBytes);
         return Convert.ToBase64String(hashBytes);
     }
 
@@ -857,7 +857,7 @@ func init() {
 package main
 
 import (
-    "crypto/md5"
+    "crypto/sha256"
     "crypto/rsa"
     "crypto/x509"
     "encoding/base64"
@@ -927,7 +927,7 @@ func (p *PaywareAuthenticator) CreateJWTToken(requestBody interface{}, useSandbo
         "typ": "JWT",
     }
 
-    // Handle request body and MD5
+    // Handle request body and SHA-256
     var bodyString string
     if requestBody != nil {
         bodyString, err = p.createMinimizedJSON(requestBody)
@@ -935,11 +935,11 @@ func (p *PaywareAuthenticator) CreateJWTToken(requestBody interface{}, useSandbo
             return nil, fmt.Errorf("failed to create minimized JSON: %w", err)
         }
 
-        contentMd5, err := p.calculateMD5(bodyString)
+        contentSha256, err := p.calculateSHA256(bodyString)
         if err != nil {
-            return nil, fmt.Errorf("failed to calculate MD5: %w", err)
+            return nil, fmt.Errorf("failed to calculate SHA-256: %w", err)
         }
-        header["contentMd5"] = contentMd5
+        header["contentSha256"] = contentSha256
     }
 
     // Create JWT claims
@@ -1027,8 +1027,8 @@ func (p *PaywareAuthenticator) sortObjectKeys(data interface{}) interface{} {
     }
 }
 
-func (p *PaywareAuthenticator) calculateMD5(input string) (string, error) {
-    hash := md5.Sum([]byte(input))
+func (p *PaywareAuthenticator) calculateSHA256(input string) (string, error) {
+    hash := sha256.Sum256([]byte(input))
     return base64.StdEncoding.EncodeToString(hash[:]), nil
 }
 
@@ -1165,12 +1165,12 @@ require 'dotenv/load'`;
       typ: 'JWT'
     }
 
-    # Handle request body and MD5
+    # Handle request body and SHA-256
     body_string = nil
     if request_body
       body_string = create_minimized_json(request_body)
-      content_md5 = calculate_md5(body_string)
-      header[:contentMd5] = content_md5
+      content_sha256 = calculate_sha256(body_string)
+      header[:contentSha256] = content_sha256
     end
 
     # Create JWT payload
@@ -1219,8 +1219,8 @@ require 'dotenv/load'`;
     end
   end
 
-  def calculate_md5(input)
-    digest = Digest::MD5.digest(input)
+  def calculate_sha256(input)
+    digest = Digest::SHA256.digest(input)
     Base64.encode64(digest).strip
   end
 
@@ -1330,12 +1330,12 @@ create_jwt_token() {
     # Create JWT header
     local header='{"alg":"RS256","typ":"JWT"}'
 
-    # Handle request body and MD5
+    # Handle request body and SHA-256
     local body_string=""
     if [ -n "$request_body" ]; then
         body_string=$(echo "$request_body" | jq -S -c .)
-        local content_md5=$(echo -n "$body_string" | openssl dgst -md5 -binary | base64)
-        header=$(echo "$header" | jq --arg md5 "$content_md5" '. + {contentMd5: $md5}')
+        local content_sha256=$(echo -n "$body_string" | openssl dgst -sha256 -binary | base64)
+        header=$(echo "$header" | jq --arg sha256 "$content_sha256" '. + {contentSha256: $sha256}')
     fi
 
     # Create JWT payload

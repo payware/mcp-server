@@ -281,14 +281,14 @@ def create_isv_jwt_token(merchant_partner_id, oauth2_token, request_body=None, u
         'typ': 'JWT'
     }
 
-    # Add content MD5 for requests with body
+    # Add content SHA-256 for requests with body
     body_string = None
     if request_body:
         body_string = create_minimized_json(request_body)
-        content_md5 = base64.b64encode(
-            hashlib.md5(body_string.encode('utf-8')).digest()
+        content_sha256 = base64.b64encode(
+            hashlib.sha256(body_string.encode('utf-8')).digest()
         ).decode('utf-8')
-        header['contentMd5'] = content_md5
+        header['contentSha256'] = content_sha256
 
     # Create JWT payload for ISV
     payload = {
@@ -507,15 +507,15 @@ function createISVJWTToken(merchantPartnerId, oauth2Token, requestBody = null, u
     typ: 'JWT'
   };
 
-  // Add content MD5 for requests with body
+  // Add content SHA-256 for requests with body
   let bodyString = null;
   if (requestBody) {
     bodyString = createMinimizedJSON(requestBody);
-    const contentMd5 = crypto
-      .createHash('md5')
+    const contentSha256 = crypto
+      .createHash('sha256')
       .update(bodyString, 'utf8')
       .digest('base64');
-    header.contentMd5 = contentMd5;
+    header.contentSha256 = contentSha256;
   }
 
   // Create JWT payload for ISV

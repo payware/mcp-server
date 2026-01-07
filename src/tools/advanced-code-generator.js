@@ -8,7 +8,7 @@
  *
  * Features:
  * - Framework-specific code generation with proper patterns
- * - JWT authentication with contentMd5 for all languages
+ * - JWT authentication with contentSha256 (SHA-256) for all languages
  * - Production-ready error handling and validation
  * - Comprehensive documentation generation
  * - Multi-partner type support with operation-specific logic
@@ -362,8 +362,8 @@ def ${operation.replace('-', '_')}_example(${needsId ? "resource_id='example_123
     ${opDef.sampleBody ? `${includeComments ? '# Request payload' : ''}
     payload = ${JSON.stringify(opDef.sampleBody, null, 4)}
 
-    ${includeComments ? '# CRITICAL: Use deterministic JSON serialization for both MD5 and HTTP body' : ''}
-    ${includeComments ? '# This prevents ERR_INVALID_MD5 authentication errors' : ''}
+    ${includeComments ? '# CRITICAL: Use deterministic JSON serialization for both SHA-256 hash and HTTP body' : ''}
+    ${includeComments ? '# This prevents ERR_INVALID_CONTENT_HASH authentication errors' : ''}
     ${includeComments ? '# Import: from core.utils.json_serializer import create_deterministic_json' : ''}
     json_body = json.dumps(payload, sort_keys=True, separators=(',', ':'))` : `${includeComments ? '# No request body required' : ''}`}
 
@@ -379,7 +379,7 @@ def ${operation.replace('-', '_')}_example(${needsId ? "resource_id='example_123
 
     ${includeErrorHandling ? 'try:' : ''}
         ${includeComments ? '# Execute API request' : ''}
-        ${includeComments && opDef.sampleBody ? '# CRITICAL: Send the EXACT same json_body used for JWT contentMd5' : ''}
+        ${includeComments && opDef.sampleBody ? '# CRITICAL: Send the EXACT same json_body used for JWT contentSha256' : ''}
         response = requests.${opDef.method.toLowerCase()}(
             url,
             headers=headers${opDef.sampleBody ? ',\n            data=json_body' : ''}
@@ -410,7 +410,7 @@ def create_jwt_token(json_body_string=None):
     ${includeComments ? '    ' : ''}
     ${includeComments ? '    CRITICAL: json_body_string must be the exact same string' : ''}
     ${includeComments ? '    that will be sent in the HTTP request body to ensure' : ''}
-    ${includeComments ? '    MD5 hash consistency and prevent ERR_INVALID_MD5 errors.' : ''}
+    ${includeComments ? '    SHA-256 hash consistency and prevent ERR_INVALID_CONTENT_HASH errors.' : ''}
     ${includeComments ? '    """' : ''}
     ${includeComments ? '    import json' : ''}
     ${includeComments ? '    import jwt  # PyJWT library' : ''}
@@ -425,11 +425,11 @@ def create_jwt_token(json_body_string=None):
     ${includeComments ? '    # JWT header' : ''}
     ${includeComments ? '    headers = {"alg": "RS256", "typ": "JWT"}' : ''}
     ${includeComments ? '    ' : ''}
-    ${includeComments ? '    # Add contentMd5 to header if request body exists' : ''}
+    ${includeComments ? '    # Add contentSha256 to header if request body exists' : ''}
     ${includeComments ? '    if json_body_string:' : ''}
-    ${includeComments ? '        # CRITICAL: Calculate MD5 from exact same string sent in HTTP request' : ''}
-    ${includeComments ? '        md5_hash = hashlib.md5(json_body_string.encode("utf-8")).digest()' : ''}
-    ${includeComments ? '        headers["contentMd5"] = base64.b64encode(md5_hash).decode("ascii")' : ''}
+    ${includeComments ? '        # CRITICAL: Calculate SHA-256 from exact same string sent in HTTP request' : ''}
+    ${includeComments ? '        sha256_hash = hashlib.sha256(json_body_string.encode("utf-8")).digest()' : ''}
+    ${includeComments ? '        headers["contentSha256"] = base64.b64encode(sha256_hash).decode("ascii")' : ''}
     ${includeComments ? '    ' : ''}
     ${includeComments ? '    # JWT payload' : ''}
     ${includeComments ? '    payload = {' : ''}
@@ -481,8 +481,8 @@ async function ${operation.replace('-', '_')}Example(${needsId ? "resourceId = '
     ${opDef.sampleBody ? `${includeComments ? '// Request payload' : ''}
     const payload = ${JSON.stringify(opDef.sampleBody, null, 4)};
 
-    ${includeComments ? '// CRITICAL: Use deterministic JSON serialization for both MD5 and HTTP body' : ''}
-    ${includeComments ? '// This prevents ERR_INVALID_MD5 authentication errors' : ''}
+    ${includeComments ? '// CRITICAL: Use deterministic JSON serialization for both SHA-256 and HTTP body' : ''}
+    ${includeComments ? '// This prevents ERR_INVALID_CONTENT_HASH authentication errors' : ''}
     ${includeComments ? '// Import: const { createDeterministicJSON } = require(\'./core/utils/json-serializer\');' : ''}
     const jsonBody = JSON.stringify(payload, Object.keys(payload).sort());` : `${includeComments ? '// No request body required' : ''}`}
 
@@ -498,7 +498,7 @@ async function ${operation.replace('-', '_')}Example(${needsId ? "resourceId = '
 
     ${includeErrorHandling ? 'try {' : ''}
         ${includeComments ? '// Execute API request' : ''}
-        ${includeComments && opDef.sampleBody ? '// CRITICAL: Send same jsonBody used for JWT contentMd5' : ''}
+        ${includeComments && opDef.sampleBody ? '// CRITICAL: Send same jsonBody used for JWT contentSha256' : ''}
         const response = await axios.${opDef.method.toLowerCase()}(
             url,
             ${opDef.sampleBody ? 'jsonBody,' : 'undefined,'}
@@ -528,7 +528,7 @@ function createJWTToken(jsonBodyString = null) {
     ${includeComments ? ' * ' : ''}
     ${includeComments ? ' * CRITICAL: jsonBodyString must be the exact same string' : ''}
     ${includeComments ? ' * that will be sent in the HTTP request body to ensure' : ''}
-    ${includeComments ? ' * MD5 hash consistency and prevent ERR_INVALID_MD5 errors.' : ''}
+    ${includeComments ? ' * SHA-256 hash consistency and prevent ERR_INVALID_CONTENT_HASH errors.' : ''}
     ${includeComments ? ' */' : ''}
     ${includeComments ? '    const jwt = require("jsonwebtoken");' : ''}
     ${includeComments ? '    const crypto = require("crypto");' : ''}
@@ -540,11 +540,11 @@ function createJWTToken(jsonBodyString = null) {
     ${includeComments ? '    // JWT header' : ''}
     ${includeComments ? '    const header = { alg: "RS256", typ: "JWT" };' : ''}
     ${includeComments ? '    ' : ''}
-    ${includeComments ? '    // Add contentMd5 to header if request body exists' : ''}
+    ${includeComments ? '    // Add contentSha256 to header if request body exists' : ''}
     ${includeComments ? '    if (jsonBodyString) {' : ''}
-    ${includeComments ? '        // CRITICAL: Calculate MD5 from exact same string sent in HTTP request' : ''}
-    ${includeComments ? '        const md5Hash = crypto.createHash("md5").update(jsonBodyString, "utf8").digest("base64");' : ''}
-    ${includeComments ? '        header.contentMd5 = md5Hash;' : ''}
+    ${includeComments ? '        // CRITICAL: Calculate SHA-256 from exact same string sent in HTTP request' : ''}
+    ${includeComments ? '        const sha256Hash = crypto.createHash("sha256").update(jsonBodyString, "utf8").digest("base64");' : ''}
+    ${includeComments ? '        header.contentSha256 = sha256Hash;' : ''}
     ${includeComments ? '    }' : ''}
     ${includeComments ? '    ' : ''}
     ${includeComments ? '    // JWT payload' : ''}
@@ -792,8 +792,8 @@ class PaywareClient
         ${opDef.sampleBody ? `${includeComments ? '// Request payload' : ''}
         $payload = ${this.generatePHPArray(opDef.sampleBody, '        ')};
 
-        ${includeComments ? '// CRITICAL: Use deterministic JSON serialization for both MD5 and HTTP body' : ''}
-        ${includeComments ? '// This prevents ERR_INVALID_MD5 authentication errors' : ''}
+        ${includeComments ? '// CRITICAL: Use deterministic JSON serialization for both SHA-256 and HTTP body' : ''}
+        ${includeComments ? '// This prevents ERR_INVALID_CONTENT_HASH authentication errors' : ''}
         ${includeComments ? '// Note: Implement createDeterministicJSON() function with ksort()' : ''}
         ksort($payload);
         $requestBody = json_encode($payload, JSON_UNESCAPED_SLASHES);` : `${includeComments ? '// No request body required' : ''}`}
@@ -823,7 +823,7 @@ class PaywareClient
                 CURLOPT_SSL_VERIFYHOST => 2
             ]);
 
-            ${opDef.sampleBody ? `${includeComments ? '// CRITICAL: Send same requestBody used for JWT contentMd5' : ''}
+            ${opDef.sampleBody ? `${includeComments ? '// CRITICAL: Send same requestBody used for JWT contentSha256' : ''}
             curl_setopt($ch, CURLOPT_POSTFIELDS, $requestBody);` : ''}
 
             ${includeComments ? '// Execute request' : ''}
@@ -864,7 +864,7 @@ class PaywareClient
 
     /**
      * Create JWT token for payware API authentication
-     * @param string|null $requestBody Request body for content MD5
+     * @param string|null $requestBody Request body for content SHA-256
      * @return string JWT token
      */
     private function createJWTToken($requestBody = null)
@@ -872,16 +872,16 @@ class PaywareClient
         ${includeComments ? '/**' : '/*'}
          ${includeComments ? ' * CRITICAL: requestBody must be the exact same string' : ''}
          ${includeComments ? ' * that will be sent in the HTTP request body to ensure' : ''}
-         ${includeComments ? ' * MD5 hash consistency and prevent ERR_INVALID_MD5 errors.' : ''}
+         ${includeComments ? ' * SHA-256 hash consistency and prevent ERR_INVALID_CONTENT_HASH errors.' : ''}
          ${includeComments ? ' */' : '*/'}
 
         ${includeComments ? '// JWT header' : ''}
         $header = ['alg' => 'RS256', 'typ' => 'JWT'];
 
-        ${includeComments ? '// Add contentMd5 to header if request body exists' : ''}
+        ${includeComments ? '// Add contentSha256 to header if request body exists' : ''}
         if ($requestBody !== null) {
-            ${includeComments ? '// CRITICAL: Calculate MD5 from exact same string sent in HTTP request' : ''}
-            $header['contentMd5'] = base64_encode(md5($requestBody, true));
+            ${includeComments ? '// CRITICAL: Calculate SHA-256 from exact same string sent in HTTP request' : ''}
+            $header['contentSha256'] = base64_encode(hash('sha256', $requestBody, true));
         }
 
         ${includeComments ? '// JWT payload' : ''}
@@ -1411,8 +1411,8 @@ EOF` : '# No request body required'}
 # Authentication (placeholder - implement JWT token creation)
 JWT_TOKEN="your-jwt-token"
 
-# Content-MD5 for payware API (if request body exists)
-${opDef.sampleBody ? `CONTENT_MD5=$(echo -n "$REQUEST_BODY" | openssl dgst -md5 -binary | base64)` : ''}
+# Content-SHA256 for payware API (if request body exists)
+${opDef.sampleBody ? `CONTENT_SHA256=$(echo -n "$REQUEST_BODY" | openssl dgst -sha256 -binary | base64)` : ''}
 
 echo "🚀 Executing ${opDef.description}..."
 echo "URL: $URL"
@@ -1423,7 +1423,7 @@ curl -X ${opDef.method} "$URL" \\
   -H "Authorization: Bearer $JWT_TOKEN" \\
   -H "Content-Type: application/json" \\
   -H "Api-Version: 1" \\
-  ${opDef.sampleBody ? '-H "Content-MD5: $CONTENT_MD5" \\' : ''}
+  ${opDef.sampleBody ? '-H "Content-SHA256: $CONTENT_SHA256" \\' : ''}
   ${includeErrorHandling ? '-f -s -S \\' : '-v \\'}
   ${opDef.sampleBody ? '-d "$REQUEST_BODY"' : ''}` : `
 curl -X ${opDef.method} "$URL" \\
@@ -1465,10 +1465,10 @@ def create_jwt_token(request_body=None):
 YOUR_PRIVATE_KEY_HERE
 -----END RSA PRIVATE KEY-----"""
 
-    # Create content MD5 for request body
-    content_md5 = ""
+    # Create content SHA-256 for request body
+    content_sha256 = ""
     if request_body:
-        content_md5 = base64.b64encode(hashlib.md5(request_body.encode()).digest()).decode()
+        content_sha256 = base64.b64encode(hashlib.sha256(request_body.encode()).digest()).decode()
 
     # JWT payload
     payload = {
@@ -1476,7 +1476,7 @@ YOUR_PRIVATE_KEY_HERE
         "aud": "payware.eu",
         "iat": int(datetime.now(timezone.utc).timestamp()),
         "exp": int(datetime.now(timezone.utc).timestamp()) + 300,
-        "contentMd5": content_md5
+        "contentSha256": content_sha256
     }
 
     # Create JWT token
@@ -1500,10 +1500,10 @@ function createJWTToken(requestBody = null) {
 YOUR_PRIVATE_KEY_HERE
 -----END RSA PRIVATE KEY-----\`;
 
-    ${includeComments ? '// Create content MD5' : ''} for request body
-    let contentMd5 = "";
+    ${includeComments ? '// Create content SHA-256' : ''} for request body
+    let contentSha256 = "";
     if (requestBody) {
-        contentMd5 = crypto.createHash('md5').update(requestBody).digest('base64');
+        contentSha256 = crypto.createHash('sha256').update(requestBody).digest('base64');
     }
 
     // JWT payload
@@ -1512,7 +1512,7 @@ YOUR_PRIVATE_KEY_HERE
         aud: "payware.eu",
         iat: Math.floor(Date.now() / 1000),
         exp: Math.floor(Date.now() / 1000) + 300,
-        contentMd5: contentMd5
+        contentSha256: contentSha256
     };
 
     // Create JWT token
@@ -1543,12 +1543,12 @@ public class PaywareAuth {
             String partnerId = "YOUR_PARTNER_ID";
             String privateKeyPEM = "-----BEGIN RSA PRIVATE KEY-----\\nYOUR_PRIVATE_KEY_HERE\\n-----END RSA PRIVATE KEY-----";
 
-            ${includeComments ? '// Create content MD5' : ''}
-            String contentMd5 = "";
+            ${includeComments ? '// Create content SHA-256' : ''}
+            String contentSha256 = "";
             if (requestBody != null) {
-                MessageDigest md = MessageDigest.getInstance("MD5");
+                MessageDigest md = MessageDigest.getInstance("SHA-256");
                 byte[] digest = md.digest(requestBody.getBytes());
-                contentMd5 = Base64.getEncoder().encodeToString(digest);
+                contentSha256 = Base64.getEncoder().encodeToString(digest);
             }
 
             // JWT payload
@@ -1557,7 +1557,7 @@ public class PaywareAuth {
             claims.put("aud", "payware.eu");
             claims.put("iat", new Date().getTime() / 1000);
             claims.put("exp", (new Date().getTime() / 1000) + 300);
-            claims.put("contentMd5", contentMd5);
+            claims.put("contentSha256", contentSha256);
 
             // Note: You'll need to implement private key loading
             // PrivateKey privateKey = loadPrivateKey(privateKeyPEM);
@@ -1592,14 +1592,14 @@ public class PaywareAuth
 YOUR_PRIVATE_KEY_HERE
 -----END RSA PRIVATE KEY-----";
 
-        ${includeComments ? '// Create content MD5' : ''}
-        var contentMd5 = "";
+        ${includeComments ? '// Create content SHA-256' : ''}
+        var contentSha256 = "";
         if (!string.IsNullOrEmpty(requestBody))
         {
-            using (var md5 = MD5.Create())
+            using (var sha256 = SHA256.Create())
             {
-                var hash = md5.ComputeHash(Encoding.UTF8.GetBytes(requestBody));
-                contentMd5 = Convert.ToBase64String(hash);
+                var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(requestBody));
+                contentSha256 = Convert.ToBase64String(hash);
             }
         }
 
@@ -1610,7 +1610,7 @@ YOUR_PRIVATE_KEY_HERE
             new Claim("aud", "payware.eu"),
             new Claim("iat", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer),
             new Claim("exp", DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer),
-            new Claim("contentMd5", contentMd5)
+            new Claim("contentSha256", contentSha256)
         };
 
         // Note: You'll need to implement RSA key loading
@@ -1639,10 +1639,10 @@ function createJWTToken($requestBody = null) {
 YOUR_PRIVATE_KEY_HERE
 -----END RSA PRIVATE KEY-----";
 
-    ${includeComments ? '// Create content MD5' : ''}
-    $contentMd5 = "";
+    ${includeComments ? '// Create content SHA-256' : ''}
+    $contentSha256 = "";
     if ($requestBody !== null) {
-        $contentMd5 = base64_encode(md5($requestBody, true));
+        $contentSha256 = base64_encode(hash('sha256', $requestBody, true));
     }
 
     // JWT payload
@@ -1651,7 +1651,7 @@ YOUR_PRIVATE_KEY_HERE
         'aud' => 'payware.eu',
         'iat' => time(),
         'exp' => time() + 300,
-        'contentMd5' => $contentMd5
+        'contentSha256' => $contentSha256
     ];
 
     // Create JWT token
@@ -1673,10 +1673,10 @@ PRIVATE_KEY_FILE="path/to/private-key.pem"
 # Function to create JWT token (simplified)
 create_jwt_token() {
     local request_body="\$1"
-    local content_md5=""
+    local content_sha256=""
 
     if [ -n "\$request_body" ]; then
-        content_md5=\$(echo -n "\$request_body" | openssl dgst -md5 -binary | base64)
+        content_sha256=\$(echo -n "\$request_body" | openssl dgst -sha256 -binary | base64)
     fi
 
     echo "your-jwt-token" # Placeholder - implement JWT creation with openssl

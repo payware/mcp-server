@@ -241,7 +241,7 @@ ${formatted.request.trData.reasonL2 ? `- Description L2: ${formatted.request.trD
 ${formatted.request.callbackUrl ? `- Callback URL: ${formatted.request.callbackUrl}` : ''}
 
 **Usage:**
-Use the minimized JSON format for API calls to ensure MD5 consistency:
+Use the minimized JSON format for API calls to ensure SHA-256 consistency:
 \`\`\`javascript
 const response = await fetch('https://sandbox.payware.eu/api/transactions', {
   method: 'POST',
@@ -249,11 +249,11 @@ const response = await fetch('https://sandbox.payware.eu/api/transactions', {
     'Authorization': 'Bearer YOUR_JWT_TOKEN',
     'Content-Type': 'application/json'
   },
-  body: '${minimizedJSON}'  // Use pre-minimized string for MD5 consistency
+  body: '${minimizedJSON}'  // Use pre-minimized string for SHA-256 consistency
 });
 \`\`\`
 
-**⚠️ Important:** Always use the minimized JSON format to ensure the MD5 hash in your JWT token matches the request body.
+**⚠️ Important:** Always use the minimized JSON format to ensure the SHA-256 hash in your JWT token matches the request body.
 
 **Formatted:** ${formatted.formatted}
 **Timestamp:** ${formatted.timestamp}`

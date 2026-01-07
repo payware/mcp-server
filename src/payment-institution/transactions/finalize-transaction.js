@@ -59,10 +59,10 @@ export async function finalizeTransaction({
     })
   };
 
-  // Convert to deterministic minimized JSON for MD5 calculation
+  // Convert to deterministic minimized JSON for SHA-256 calculation
   const minimizedBodyString = createMinimizedJSON(requestBody);
 
-  // Create JWT token with contentMd5 for the request body (PATCH requires contentMd5)
+  // Create JWT token with contentSha256 for the request body (PATCH requires contentSha256)
   const tokenData = createJWTToken(partnerId, privateKey, minimizedBodyString);
 
   // Required headers as per payware API documentation
@@ -74,7 +74,7 @@ export async function finalizeTransaction({
 
   try {
     const baseUrl = useSandbox ? getSandboxUrl() : getProductionUrl();
-    // Send the exact minimized JSON string that was used for MD5 calculation
+    // Send the exact minimized JSON string that was used for SHA-256 calculation
     const response = await axios.patch(`${baseUrl}/transactions/${transactionId}`, minimizedBodyString, {
       headers,
       // Tell axios to send the string as-is, don't serialize it again

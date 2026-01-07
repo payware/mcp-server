@@ -80,11 +80,11 @@ async function createOAuth2JWT({ isvPartnerId, privateKey, requestBody, audience
     typ: 'JWT'
   };
 
-  // Add contentMd5 to header if request body exists
+  // Add contentSha256 to header if request body exists (SHA-256 is preferred over MD5)
   if (requestBody) {
     // Use standard JSON.stringify to match axios serialization (preserves property order)
     const bodyString = JSON.stringify(requestBody);
-    header.contentMd5 = crypto.default.createHash('md5').update(bodyString, 'utf8').digest('base64');
+    header.contentSha256 = crypto.default.createHash('sha256').update(bodyString, 'utf8').digest('base64');
   }
 
   // JWT Payload for OAuth2 requests

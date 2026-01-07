@@ -110,10 +110,10 @@ export async function createPITransaction({
     ...(type === 'BARCODE' && Object.keys(barOptions).length > 0 && { barOptions })
   };
 
-  // Convert to deterministic minimized JSON as required by payware API for MD5 calculation
+  // Convert to deterministic minimized JSON as required by payware API for SHA-256 calculation
   const minimizedBodyString = createMinimizedJSON(requestBody);
 
-  // Create JWT token with contentMd5 for the request body (POST requires contentMd5)
+  // Create JWT token with contentSha256 for the request body (POST requires contentSha256)
   const tokenData = createJWTToken(partnerId, privateKey, minimizedBodyString);
 
   // Required headers as per payware API documentation
@@ -125,8 +125,8 @@ export async function createPITransaction({
 
   try {
     const baseUrl = useSandbox ? getSandboxUrl() : getProductionUrl();
-    // Send the exact minimized JSON string that was used for MD5 calculation
-    // This ensures the server calculates the same MD5 hash
+    // Send the exact minimized JSON string that was used for SHA-256 calculation
+    // This ensures the server calculates the same SHA-256 hash
     const response = await axios.post(`${baseUrl}/transactions`, minimizedBodyString, {
       headers,
       // Tell axios to send the string as-is, don't serialize it again

@@ -4,14 +4,14 @@
  */
 
 import { createDeterministicJSON, validateJSONConsistency } from '../core/utils/json-serializer.js';
-import { generateContentMd5 } from '../core/auth/jwt-token.js';
+import { generateContentSha256 } from '../core/auth/jwt-token.js';
 
 /**
  * Format JSON with deterministic serialization tool
  */
 export const formatJSONDeterministicTool = {
   name: "payware_utils_format_json_deterministic",
-  description: "Format JSON payload with deterministic key sorting for consistent MD5 calculation and payware API compliance",
+  description: "Format JSON payload with deterministic key sorting for consistent SHA-256 calculation and payware API compliance",
   inputSchema: {
     type: "object",
     properties: {
@@ -24,9 +24,9 @@ export const formatJSONDeterministicTool = {
         description: "Show comparison between standard and deterministic JSON",
         default: true
       },
-      calculateMD5: {
+      calculateSHA256: {
         type: "boolean",
-        description: "Calculate MD5 hash for JWT contentMd5 usage",
+        description: "Calculate SHA-256 hash for JWT contentSha256 usage",
         default: true
       },
       validateConsistency: {
@@ -43,7 +43,7 @@ export const formatJSONDeterministicTool = {
     const {
       payload,
       showComparison = true,
-      calculateMD5 = true,
+      calculateSHA256 = true,
       validateConsistency = false
     } = args;
 
@@ -57,8 +57,8 @@ export const formatJSONDeterministicTool = {
       const prettyJson = JSON.stringify(payload, null, 2);
       const deterministicJson = createDeterministicJSON(payload);
 
-      // Calculate MD5 hash
-      const md5Hash = calculateMD5 ? generateContentMd5(payload) : null;
+      // Calculate SHA-256 hash
+      const sha256Hash = calculateSHA256 ? generateContentSha256(payload) : null;
 
       // Get key ordering information
       const originalKeys = Object.keys(payload);
@@ -115,27 +115,27 @@ ${isAlreadySorted ?
   '- ✅ Your object keys are already in sorted order' :
   `- ❌ Keys will be reordered: ${originalKeys.join(' → ')} becomes ${sortedKeys.join(' → ')}`}
 - ✅ Deterministic JSON ensures consistent serialization across platforms
-- ✅ Required for accurate MD5 hash calculation in JWT tokens
+- ✅ Required for accurate SHA-256 hash calculation in JWT tokens
 ` : ''}
 
 ## ✅ **payware API Ready JSON**
 
-Use this exact JSON string for both JWT MD5 calculation and HTTP request body:
+Use this exact JSON string for both JWT SHA-256 calculation and HTTP request body:
 
 \`\`\`json
 ${deterministicJson}
 \`\`\`
 
-${calculateMD5 ? `## 🔒 **MD5 Hash for JWT**
+${calculateSHA256 ? `## 🔒 **SHA-256 Hash for JWT**
 
-**contentMd5**: \`${md5Hash}\`
+**contentSha256**: \`${sha256Hash}\`
 
 **Usage in JWT Header**:
 \`\`\`json
 {
   "alg": "RS256",
   "typ": "JWT",
-  "contentMd5": "${md5Hash}"
+  "contentSha256": "${sha256Hash}"
 }
 \`\`\`
 ` : ''}
@@ -187,22 +187,22 @@ ${consistencyTest ? `## 🧪 **Consistency Validation**
 
 **All Match**: ${consistencyTest.allMatch ? '✅ Consistent' : '❌ Inconsistent'}
 
-${!consistencyTest.allMatch ? '⚠️ **Warning**: Inconsistent serialization detected. This could cause MD5 mismatches.' : ''}
+${!consistencyTest.allMatch ? '⚠️ **Warning**: Inconsistent serialization detected. This could cause SHA-256 mismatches.' : ''}
 ` : ''}
 
 ## ⚠️ **PAYWARE Critical Requirements**
 
-1. **Same String Requirement**: The EXACT same compact JSON string must be used for both JWT contentMd5 and HTTP request body
+1. **Same String Requirement**: The EXACT same compact JSON string must be used for both JWT contentSha256 and HTTP request body
 2. **Compact Format**: No extra whitespace (spaces, newlines) in JSON
 3. **Consistent Serialization**: Use deterministic serialization to prevent variations
-4. **MD5 Consistency**: Any difference will cause ERR_INVALID_MD5 authentication failures
+4. **SHA-256 Consistency**: Any difference will cause ERR_INVALID_CONTENT_HASH authentication failures
 
 Note: Sorted keys are our METHOD to guarantee requirement #1, not a payware requirement itself.
 
 ## 🔗 **Next Steps**
 
 1. Use the deterministic JSON above in your API request
-2. Include the MD5 hash in your JWT header${calculateMD5 ? ` (\`${md5Hash}\`)` : ''}
+2. Include the SHA-256 hash in your JWT header${calculateSHA256 ? ` (\`${sha256Hash}\`)` : ''}
 3. Send the exact same JSON string in your HTTP request body
 4. Verify with \`payware_authentication_validate_jwt\` tool
 
@@ -211,7 +211,7 @@ Note: Sorted keys are our METHOD to guarantee requirement #1, not a payware requ
 - Tool: payware_utils_format_json_deterministic
 - Keys Processed: ${originalKeys.length}
 - Sorting Required: ${!isAlreadySorted}
-- MD5 Calculated: ${calculateMD5}
+- SHA-256 Calculated: ${calculateSHA256}
 - Executed: ${new Date().toISOString()}
 - Status: ✅ Complete`
         }]
@@ -228,10 +228,10 @@ Note: Sorted keys are our METHOD to guarantee requirement #1, not a payware requ
 - Invalid JSON structure
 - Circular references in payload
 - Non-serializable values (functions, undefined, etc.)
-- Different JSON strings used for JWT MD5 vs HTTP body
+- Different JSON strings used for JWT SHA-256 vs HTTP body
 
-**Debug Steps for MD5 Errors**:
-1. Verify the SAME string is used for JWT contentMd5 and HTTP body
+**Debug Steps for SHA-256 Errors**:
+1. Verify the SAME string is used for JWT contentSha256 and HTTP body
 2. Check for extra whitespace or formatting differences
 3. Ensure consistent property ordering (use deterministic serialization)
 4. Validate that objects are properly serializable

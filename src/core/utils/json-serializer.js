@@ -2,7 +2,7 @@
  * JSON Consistency Utilities for payware API
  *
  * CORE REQUIREMENT: The exact same compact JSON string must be used for
- * both JWT contentMd5 calculation and HTTP request body to prevent MD5 mismatches.
+ * both JWT contentSha256 calculation and HTTP request body to prevent hash mismatches.
  *
  * SOLUTION: We use deterministic serialization (sorted keys) to guarantee
  * consistent JSON output regardless of object property insertion order.
@@ -15,10 +15,10 @@
  * Create consistent compact JSON string for payware API requests
  *
  * CORE REQUIREMENT: payware API requires that the exact same compact JSON string
- * is used for both JWT contentMd5 calculation and the HTTP request body.
+ * is used for both JWT contentSha256 calculation and the HTTP request body.
  *
  * SOLUTION: This function uses deterministic serialization with sorted keys
- * to guarantee the same output every time, preventing MD5 mismatch errors.
+ * to guarantee the same output every time, preventing hash mismatch errors.
  *
  * @param {Object} obj - Object to serialize
  * @returns {string} Compact JSON string with sorted keys (no whitespace)
@@ -72,7 +72,7 @@ function sortObjectKeys(obj) {
  *
  * payware REQUIRES:
  * 1. JSON must be compact (no extra whitespace)
- * 2. The EXACT same string must be used for JWT contentMd5 and HTTP body
+ * 2. The EXACT same string must be used for JWT contentSha256 and HTTP body
  *
  * This function ensures both requirements by using deterministic serialization.
  *
@@ -86,7 +86,7 @@ export function createMinimizedJSON(requestBody) {
 /**
  * Validate that two objects produce the same JSON string
  *
- * This is crucial for payware API because the JWT contentMd5 and HTTP body
+ * This is crucial for payware API because the JWT contentSha256 and HTTP body
  * must use the exact same string. This function helps test that requirement.
  *
  * @param {Object} obj1 - First object

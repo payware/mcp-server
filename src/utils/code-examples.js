@@ -2,7 +2,7 @@
  * Generate code examples for different programming languages
  *
  * PAYWARE REQUIREMENT: All examples must demonstrate using the EXACT same
- * compact JSON string for both JWT contentMd5 calculation and HTTP body.
+ * compact JSON string for both JWT contentSha256 calculation and HTTP body.
  *
  * Examples use deterministic serialization to guarantee this consistency.
  */
@@ -41,7 +41,7 @@ with open('private_key.pem', 'r') as f:
 def create_deterministic_json(data):
     """Create consistent compact JSON for payware API
 
-    REQUIREMENT: The exact same string must be used for JWT contentMd5 and HTTP body.
+    REQUIREMENT: The exact same string must be used for JWT contentSha256 and HTTP body.
     SOLUTION: Sort keys to guarantee consistent output across all platforms.
     """
     # Sort keys recursively to ensure deterministic output
@@ -66,11 +66,11 @@ def create_jwt_token(request_body=None):
         'typ': 'JWT'
     }
 
-    # Add content MD5 for POST requests
+    # Add content SHA-256 for POST requests
     if request_body:
         body_string = create_deterministic_json(request_body)
-        content_md5 = base64.b64encode(hashlib.md5(body_string.encode('utf-8')).digest()).decode('utf-8')
-        header['contentMd5'] = content_md5
+        content_sha256 = base64.b64encode(hashlib.sha256(body_string.encode('utf-8')).digest()).decode('utf-8')
+        header['contentSha256'] = content_sha256
 
     # JWT payload
     payload = {
@@ -106,8 +106,8 @@ def create_transaction():
         'Api-Version': '1'
     }
 
-    # CRITICAL: Send the EXACT same string used for JWT contentMd5 calculation
-    # This prevents ERR_INVALID_MD5 authentication errors
+    # CRITICAL: Send the EXACT same string used for JWT contentSha256 calculation
+    # This prevents ERR_INVALID_CONTENT_HASH authentication errors
     response = requests.post(f"{SANDBOX_URL}/transactions", data=deterministic_body, headers=headers)
     return response.json()
 
@@ -161,9 +161,9 @@ def create_jwt_token(request_body=None):
         'typ': 'JWT'
     }
 
-    # Add content MD5 for requests with body
+    # Add content SHA-256 for requests with body
     if request_body:
-        # PAYWARE REQUIREMENT: Same string for JWT MD5 and HTTP body
+        # PAYWARE REQUIREMENT: Same string for JWT SHA-256 and HTTP body
         # SOLUTION: Use deterministic serialization (sorted keys)
         def sort_dict(obj):
             if isinstance(obj, dict):
@@ -175,8 +175,8 @@ def create_jwt_token(request_body=None):
 
         sorted_data = sort_dict(request_body)
         body_string = json.dumps(sorted_data, separators=(',', ':'))
-        content_md5 = base64.b64encode(hashlib.md5(body_string.encode('utf-8')).digest()).decode('utf-8')
-        header['contentMd5'] = content_md5
+        content_sha256 = base64.b64encode(hashlib.sha256(body_string.encode('utf-8')).digest()).decode('utf-8')
+        header['contentSha256'] = content_sha256
 
     # JWT payload
     payload = {
@@ -233,7 +233,7 @@ def create_transaction(jwt_token):
         }
     }
 
-    # PAYWARE REQUIREMENT: Same string for JWT MD5 and HTTP body
+    # PAYWARE REQUIREMENT: Same string for JWT SHA-256 and HTTP body
     # SOLUTION: Use deterministic serialization (sorted keys)
     def sort_dict(obj):
         if isinstance(obj, dict):
@@ -254,7 +254,7 @@ def create_transaction(jwt_token):
 
     return response.json()
 
-# Note: JWT token must include contentMd5 hash for the request body
+# Note: JWT token must include contentSha256 hash for the request body
 # Use the auth_only example to create a proper token with body hash`;
 
     default:
@@ -290,7 +290,7 @@ const SANDBOX_URL = 'https://sandbox.payware.eu/api';
 const PRIVATE_KEY = fs.readFileSync('private_key.pem', 'utf8');
 
 function createDeterministicJSON(data) {
-  // PAYWARE REQUIREMENT: Same compact JSON for JWT MD5 and HTTP body
+  // PAYWARE REQUIREMENT: Same compact JSON for JWT SHA-256 and HTTP body
   // SOLUTION: Sort keys to guarantee consistent output
   function sortObject(obj) {
     if (Array.isArray(obj)) {
@@ -318,12 +318,12 @@ function createJWTToken(requestBody = null) {
     typ: 'JWT'
   };
 
-  // Add content MD5 for POST requests
+  // Add content SHA-256 for POST requests
   let deterministicBody = null;
   if (requestBody) {
     deterministicBody = createDeterministicJSON(requestBody);
-    const contentMd5 = crypto.createHash('md5').update(deterministicBody, 'utf8').digest('base64');
-    header.contentMd5 = contentMd5;
+    const contentSha256 = crypto.createHash('sha256').update(deterministicBody, 'utf8').digest('base64');
+    header.contentSha256 = contentSha256;
   }
 
   // JWT payload
@@ -361,8 +361,8 @@ async function createTransaction() {
   };
 
   try {
-    // CRITICAL: Send the EXACT same string used for JWT contentMd5 calculation
-    // This prevents ERR_INVALID_MD5 authentication errors
+    // CRITICAL: Send the EXACT same string used for JWT contentSha256 calculation
+    // This prevents ERR_INVALID_CONTENT_HASH authentication errors
     const response = await axios.post(\`\${SANDBOX_URL}/transactions\`, deterministicBody, {
       headers,
       // Tell axios to send the string as-is, don't serialize it again
@@ -429,9 +429,9 @@ function createJWTToken(requestBody = null) {
     typ: 'JWT'
   };
 
-  // Add content MD5 for requests with body
+  // Add content SHA-256 for requests with body
   if (requestBody) {
-    // PAYWARE REQUIREMENT: Same string for JWT MD5 and HTTP body
+    // PAYWARE REQUIREMENT: Same string for JWT SHA-256 and HTTP body
     // SOLUTION: Use deterministic serialization (sorted keys)
     function sortObject(obj) {
       if (Array.isArray(obj)) {
@@ -448,8 +448,8 @@ function createJWTToken(requestBody = null) {
 
     const sortedData = sortObject(requestBody);
     const bodyString = JSON.stringify(sortedData);
-    const contentMd5 = crypto.createHash('md5').update(bodyString, 'utf8').digest('base64');
-    header.contentMd5 = contentMd5;
+    const contentSha256 = crypto.createHash('sha256').update(bodyString, 'utf8').digest('base64');
+    header.contentSha256 = contentSha256;
   }
 
   // JWT payload
@@ -617,7 +617,7 @@ ${code}
 - Includes required \`Api-Version: 1\` header
 - Uses proper request body structure with \`trData\` and \`trOptions\`
 - JWT includes \`aud: 'https://payware.eu'\` claim
-- POST requests include \`contentMd5\` hash in JWT header
+- POST requests include \`contentSha256\` hash in JWT header
 - Amount format uses decimal strings (e.g., '10.00')
 - Uses \`reasonL1\`/\`reasonL2\` instead of \`description\`
 

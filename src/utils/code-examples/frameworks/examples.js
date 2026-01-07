@@ -722,12 +722,12 @@ class PaywareService
             'typ' => 'JWT'
         ];
 
-        // Add content MD5 for requests with body
+        // Add content SHA-256 for requests with body
         $bodyString = null;
         if ($requestBody) {
             $bodyString = $this->createMinimizedJSON($requestBody);
-            $contentMd5 = base64_encode(md5($bodyString, true));
-            $header['contentMd5'] = $contentMd5;
+            $contentSha256 = base64_encode(hash('sha256', $bodyString, true));
+            $header['contentSha256'] = $contentSha256;
         }
 
         // Create JWT payload
@@ -747,7 +747,7 @@ class PaywareService
     }
 
     /**
-     * Create minimized JSON for deterministic MD5
+     * Create minimized JSON for deterministic SHA-256
      */
     protected function createMinimizedJSON($data)
     {

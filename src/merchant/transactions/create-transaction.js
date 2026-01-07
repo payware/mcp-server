@@ -99,10 +99,10 @@ export async function createTransaction({
     ...(type === 'BARCODE' && Object.keys(barOptions).length > 0 && { barOptions })
   };
   
-  // Convert to deterministic minimized JSON as required by payware API for MD5 calculation
+  // Convert to deterministic minimized JSON as required by payware API for SHA-256 calculation
   const minimizedBodyString = createMinimizedJSON(requestBody);
-  
-  // Create JWT token with contentMd5 for the request body (POST requires contentMd5)
+
+  // Create JWT token with contentSha256 for the request body (POST requires contentSha256)
   const tokenData = createJWTToken(partnerId, privateKey, minimizedBodyString);
   
   // Required headers as per payware API documentation
@@ -114,8 +114,8 @@ export async function createTransaction({
   
   try {
     
-    // Send the exact minimized JSON string that was used for MD5 calculation
-    // This ensures the server calculates the same MD5 hash
+    // Send the exact minimized JSON string that was used for SHA-256 calculation
+    // This ensures the server calculates the same SHA-256 hash
     const baseUrl = useSandbox ? getSandboxUrl() : getProductionUrl();
     const response = await axios.post(`${baseUrl}/transactions`, minimizedBodyString, {
       headers,
@@ -130,15 +130,15 @@ export async function createTransaction({
       timestamp: new Date().toISOString()
     };
   } catch (error) {
-    // Provide helpful error message for MD5 mismatches
+    // Provide helpful error message for hash mismatches
     let enhancedMessage = error.response?.data?.message || error.message;
 
-    if (error.response?.data?.code === 'ERR_INVALID_MD5' ||
-        enhancedMessage?.includes('MD5') ||
-        enhancedMessage?.includes('contentMd5')) {
-      enhancedMessage = `MD5 Mismatch Error: The contentMd5 in JWT header doesn't match the request body.
+    if (error.response?.data?.code === 'ERR_INVALID_CONTENT_HASH' ||
+        enhancedMessage?.includes('SHA-256') ||
+        enhancedMessage?.includes('contentSha256')) {
+      enhancedMessage = `Hash Mismatch Error: The contentSha256 in JWT header doesn't match the request body.
 
-Cause: Different JSON strings were used for JWT contentMd5 calculation and HTTP body.
+Cause: Different JSON strings were used for JWT contentSha256 calculation and HTTP body.
 Solution: Ensure the EXACT same compact JSON string is used for both purposes.
 
 Original error: ${enhancedMessage}`;
@@ -151,8 +151,8 @@ Original error: ${enhancedMessage}`;
         status: error.response?.status,
         code: error.response?.data?.code,
         details: error.response?.data,
-        helpUrl: error.response?.data?.code === 'ERR_INVALID_MD5' ?
-          'https://github.com/payware/mcp-server#md5-consistency' : undefined
+        helpUrl: error.response?.data?.code === 'ERR_INVALID_CONTENT_HASH' ?
+          'https://github.com/payware/mcp-server#sha256-consistency' : undefined
       },
       timestamp: new Date().toISOString()
     };

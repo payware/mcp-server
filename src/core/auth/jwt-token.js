@@ -5,14 +5,36 @@ import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { createDeterministicJSON } from '../utils/json-serializer.js';
 
 /**
- * Generate MD5 hash for JWT contentMd5 header
+ * Generate SHA-256 hash for JWT contentSha256 header (PREFERRED)
  *
- * PAYWARE REQUIREMENT: The MD5 hash must be calculated from the EXACT same
+ * PAYWARE REQUIREMENT: The SHA-256 hash must be calculated from the EXACT same
  * compact JSON string that will be sent as the HTTP request body.
  *
  * CRITICAL: Any difference in whitespace, property order, or formatting
- * between the string used for MD5 and the HTTP body will cause authentication
- * failures with ERR_INVALID_MD5 errors.
+ * between the string used for hash and the HTTP body will cause authentication
+ * failures with ERR_INVALID_CONTENT_HASH errors.
+ *
+ * @param {Object|string} body - Request body (object will be consistently serialized)
+ * @returns {string} Base64 encoded SHA-256 hash for JWT contentSha256 header
+ */
+export function generateContentSha256(body) {
+  if (!body) return null;
+
+  // CRITICAL: Use deterministic JSON serialization with sorted keys
+  // This ensures consistent hashes regardless of property order
+  const bodyString = typeof body === 'string' ? body : createDeterministicJSON(body);
+
+  // Generate SHA-256 hash as raw binary and encode in base64
+  const hash = crypto.createHash('sha256');
+  hash.update(bodyString, 'utf8');
+  return hash.digest('base64');
+}
+
+/**
+ * Generate MD5 hash for JWT contentMd5 header (DEPRECATED - use generateContentSha256)
+ *
+ * @deprecated Use generateContentSha256 instead. MD5 is still supported by the server
+ * for backwards compatibility but is deprecated.
  *
  * @param {Object|string} body - Request body (object will be consistently serialized)
  * @returns {string} Base64 encoded MD5 hash for JWT contentMd5 header
@@ -20,8 +42,6 @@ import { createDeterministicJSON } from '../utils/json-serializer.js';
 export function generateContentMd5(body) {
   if (!body) return null;
 
-  // CRITICAL: Use deterministic JSON serialization with sorted keys
-  // This ensures consistent MD5 hashes regardless of property order
   const bodyString = typeof body === 'string' ? body : createDeterministicJSON(body);
 
   // Generate MD5 hash as raw binary and encode in base64
@@ -31,17 +51,17 @@ export function generateContentMd5(body) {
 }
 
 /**
- * Generate the exact JSON string for both JWT MD5 and HTTP request body
+ * Generate the exact JSON string for both JWT content hash and HTTP request body
  *
  * PAYWARE REQUIREMENT: The same compact JSON string must be used for:
- * 1. JWT contentMd5 calculation (passed to generateContentMd5)
+ * 1. JWT contentSha256 calculation (passed to generateContentSha256)
  * 2. HTTP request body (sent to payware API)
  *
  * This function guarantees consistency by using deterministic serialization.
  * Any mismatch between these two uses will result in authentication failure.
  *
  * @param {Object} payload - Request payload object
- * @returns {string} Compact JSON string for both MD5 and HTTP body
+ * @returns {string} Compact JSON string for both hash calculation and HTTP body
  */
 export function serializePayload(payload) {
   if (!payload) return null;
@@ -71,11 +91,11 @@ export function createJWTToken(partnerId, privateKey, requestBody = null) {
     typ: 'JWT'
   };
   
-  // Add contentMd5 to header if request body exists (for POST/PUT/PATCH)
+  // Add contentSha256 to header if request body exists (for POST/PUT/PATCH)
   // CRITICAL: The requestBody here must be the EXACT same string that will
-  // be sent as the HTTP request body, otherwise MD5 will not match
+  // be sent as the HTTP request body, otherwise hash will not match
   if (requestBody) {
-    header.contentMd5 = generateContentMd5(requestBody);
+    header.contentSha256 = generateContentSha256(requestBody);
   }
   
   // JWT Payload (as per documentation)
@@ -95,7 +115,7 @@ export function createJWTToken(partnerId, privateKey, requestBody = null) {
     partnerId,
     audience: 'https://payware.eu',
     issuedAt: new Date(now * 1000).toISOString(),
-    contentMd5: header.contentMd5 || null,
+    contentSha256: header.contentSha256 || null,
     hasBody: !!requestBody
   };
 }
@@ -125,7 +145,7 @@ export function createRequestSignature(method, path, body, privateKey) {
  */
 export const validateJWTTokenTool = {
   name: "payware_authentication_validate_jwt",
-  description: "Validate and debug JWT token structure, decode payload/headers, verify MD5 calculation, and check RS256 signature format for payware API compliance",
+  description: "Validate and debug JWT token structure, decode payload/headers, verify content hash (SHA-256/MD5) calculation, and check RS256 signature format for payware API compliance",
   inputSchema: {
     type: "object",
     properties: {
@@ -135,7 +155,7 @@ export const validateJWTTokenTool = {
       },
       expectedPayload: {
         type: "object",
-        description: "Expected request body (optional - for MD5 validation)"
+        description: "Expected request body (optional - for content hash validation)"
       }
     },
     required: ["jwtToken"],
@@ -159,6 +179,11 @@ export const validateJWTTokenTool = {
 
       const { header, payload } = decoded;
 
+      // Determine which hash type is used
+      const hasContentSha256 = !!header.contentSha256;
+      const hasContentMd5 = !!header.contentMd5;
+      const hasContentHash = hasContentSha256 || hasContentMd5;
+
       // Validation results
       const validation = {
         structure: true,
@@ -167,19 +192,31 @@ export const validateJWTTokenTool = {
         audience: payload.aud === 'https://payware.eu',
         issuer: !!payload.iss,
         issuedAt: !!payload.iat,
-        contentMd5: header.contentMd5 ? true : false
+        contentHash: hasContentHash
       };
 
-      // MD5 validation if expected payload provided
-      let md5Validation = null;
-      if (expectedPayload && header.contentMd5) {
-        const calculatedMd5 = generateContentMd5(expectedPayload);
-        md5Validation = {
-          provided: header.contentMd5,
-          calculated: calculatedMd5,
-          matches: header.contentMd5 === calculatedMd5,
-          deterministicJson: createDeterministicJSON(expectedPayload)
-        };
+      // Content hash validation if expected payload provided
+      let hashValidation = null;
+      if (expectedPayload && hasContentHash) {
+        if (hasContentSha256) {
+          const calculatedSha256 = generateContentSha256(expectedPayload);
+          hashValidation = {
+            type: 'SHA-256 (preferred)',
+            provided: header.contentSha256,
+            calculated: calculatedSha256,
+            matches: header.contentSha256 === calculatedSha256,
+            deterministicJson: createDeterministicJSON(expectedPayload)
+          };
+        } else if (hasContentMd5) {
+          const calculatedMd5 = generateContentMd5(expectedPayload);
+          hashValidation = {
+            type: 'MD5 (deprecated)',
+            provided: header.contentMd5,
+            calculated: calculatedMd5,
+            matches: header.contentMd5 === calculatedMd5,
+            deterministicJson: createDeterministicJSON(expectedPayload)
+          };
+        }
       }
 
       // Check for common issues
@@ -189,11 +226,14 @@ export const validateJWTTokenTool = {
       if (!validation.audience) issues.push("Audience should be 'https://payware.eu'");
       if (!validation.issuer) issues.push("Missing issuer (iss) claim");
       if (!validation.issuedAt) issues.push("Missing issued at (iat) claim");
-      if (md5Validation && !md5Validation.matches) {
-        issues.push("MD5 hash mismatch - ensure deterministic JSON serialization with sorted keys");
+      if (hasContentMd5 && !hasContentSha256) {
+        issues.push("Using deprecated MD5 hash - consider upgrading to SHA-256 (contentSha256)");
+      }
+      if (hashValidation && !hashValidation.matches) {
+        issues.push("Content hash mismatch - ensure deterministic JSON serialization with sorted keys");
       }
 
-      const overallValid = Object.values(validation).every(v => v) && (!md5Validation || md5Validation.matches);
+      const overallValid = Object.values(validation).every(v => v) && (!hashValidation || hashValidation.matches);
 
       return {
         content: [{
@@ -222,26 +262,26 @@ ${validation.type ? '✅' : '❌'} **Type**: JWT ${validation.type ? '(correct)'
 ${validation.audience ? '✅' : '❌'} **Audience**: https://payware.eu ${validation.audience ? '(correct)' : `(found: ${payload.aud})`}
 ${validation.issuer ? '✅' : '❌'} **Issuer**: ${payload.iss || 'Missing'}
 ${validation.issuedAt ? '✅' : '❌'} **Issued At**: ${payload.iat ? new Date(payload.iat * 1000).toISOString() : 'Missing'}
-${validation.contentMd5 ? '✅' : 'ℹ️'} **Content MD5**: ${header.contentMd5 || 'Not present (OK for GET requests)'}
+${validation.contentHash ? '✅' : 'ℹ️'} **Content Hash**: ${header.contentSha256 ? `SHA-256: ${header.contentSha256}` : header.contentMd5 ? `MD5 (deprecated): ${header.contentMd5}` : 'Not present (OK for GET requests)'}
 
-${md5Validation ? `## MD5 Hash Validation
+${hashValidation ? `## Content Hash Validation
 
-${md5Validation.matches ? '✅' : '❌'} **MD5 Match**: ${md5Validation.matches ? 'Correct' : 'Mismatch detected'}
-**Provided**: \`${md5Validation.provided}\`
-**Calculated**: \`${md5Validation.calculated}\`
+${hashValidation.matches ? '✅' : '❌'} **${hashValidation.type} Match**: ${hashValidation.matches ? 'Correct' : 'Mismatch detected'}
+**Provided**: \`${hashValidation.provided}\`
+**Calculated**: \`${hashValidation.calculated}\`
 
 **Deterministic JSON Used**:
 \`\`\`json
-${md5Validation.deterministicJson}
+${hashValidation.deterministicJson}
 \`\`\`
 
-${!md5Validation.matches ? `
-⚠️ **MD5 Mismatch Debugging**:
+${!hashValidation.matches ? `
+⚠️ **Hash Mismatch Debugging**:
 
-PAYWARE REQUIREMENT: The EXACT same compact JSON string must be used for both JWT contentMd5 and HTTP body.
+PAYWARE REQUIREMENT: The EXACT same compact JSON string must be used for both JWT content hash and HTTP body.
 
 **Common Causes**:
-1. Different JSON strings used for JWT MD5 vs HTTP body
+1. Different JSON strings used for JWT hash vs HTTP body
 2. Extra whitespace or formatting differences
 3. Property order variations between serializations
 
@@ -268,7 +308,7 @@ ${issues.includes("Type should be 'JWT'") ? '- Set JWT type to "JWT"\n' : ''}
 ${issues.includes("Audience should be 'https://payware.eu'") ? '- Set audience to "https://payware.eu" (not just "payware")\n' : ''}
 ${issues.includes("Missing issuer (iss) claim") ? '- Add your partner ID as the issuer claim\n' : ''}
 ${issues.includes("Missing issued at (iat) claim") ? '- Add current Unix timestamp as issued at claim\n' : ''}
-${issues.some(i => i.includes('MD5 hash mismatch')) ? '- Use deterministic JSON serialization with sorted keys\n- Ensure same JSON string for MD5 and HTTP body\n' : ''}
+${issues.some(i => i.includes('hash mismatch')) ? '- Use deterministic JSON serialization with sorted keys\n- Ensure same JSON string for hash calculation and HTTP body\n' : ''}
 ` : '## ✅ No Issues Found\n\nYour JWT token is properly formatted for payware API usage.'}
 
 ## Technical Details
@@ -324,7 +364,7 @@ ${issues.some(i => i.includes('MD5 hash mismatch')) ? '- Use deterministic JSON 
  */
 export const testJWTTokenTool = {
   name: "payware_authentication_test_jwt",
-  description: "Test JWT token creation process with detailed step-by-step breakdown, showing deterministic JSON serialization, MD5 calculation, and final JWT structure",
+  description: "Test JWT token creation process with detailed step-by-step breakdown, showing deterministic JSON serialization, SHA-256 hash calculation, and final JWT structure",
   inputSchema: {
     type: "object",
     properties: {
@@ -334,7 +374,7 @@ export const testJWTTokenTool = {
       },
       requestPayload: {
         type: "object",
-        description: "Sample request payload to demonstrate MD5 calculation"
+        description: "Sample request payload to demonstrate SHA-256 hash calculation"
       },
       showPrivateKey: {
         type: "boolean",
@@ -387,27 +427,27 @@ ${deterministicJson}
 
 **Key Sorting**: [${sortedKeys.join(', ')}]`);
 
-      // Step 2: MD5 Calculation
-      const md5Hash = generateContentMd5(requestPayload);
+      // Step 2: SHA-256 Calculation
+      const sha256Hash = generateContentSha256(requestPayload);
 
-      steps.push(`**Step 2: MD5 Hash Calculation**
+      steps.push(`**Step 2: SHA-256 Hash Calculation**
 Using deterministic JSON string:
 \`\`\`
 ${deterministicJson}
 \`\`\`
 
-MD5 hash (Base64): \`${md5Hash}\`
+SHA-256 hash (Base64): \`${sha256Hash}\`
 
 **Process**:
-1. Create MD5 hash from UTF-8 bytes of deterministic JSON
+1. Create SHA-256 hash from UTF-8 bytes of deterministic JSON
 2. Encode hash as Base64
-3. Include in JWT header as \`contentMd5\``);
+3. Include in JWT header as \`contentSha256\``);
 
       // Step 3: JWT Header Construction
       const jwtHeader = {
         alg: 'RS256',
         typ: 'JWT',
-        contentMd5: md5Hash
+        contentSha256: sha256Hash
       };
 
       steps.push(`**Step 3: JWT Header Construction**
@@ -418,7 +458,7 @@ ${JSON.stringify(jwtHeader, null, 2)}
 **Requirements**:
 - Algorithm: RS256 (RSA with SHA-256)
 - Type: JWT
-- Content MD5: ${md5Hash}`);
+- Content SHA-256: ${sha256Hash}`);
 
       // Step 4: JWT Payload Construction
       const now = Math.floor(Date.now() / 1000);
@@ -498,18 +538,19 @@ ${deterministicJson}
 ## 🔑 **Key Insights**
 
 1. **Deterministic JSON is Critical**: Property order MUST be sorted
-2. **MD5 Consistency**: Same JSON string for both MD5 and HTTP body
+2. **Hash Consistency**: Same JSON string for both SHA-256 hash and HTTP body
 3. **Audience Requirement**: Must be "https://payware.eu" (include https://)
 4. **RS256 Algorithm**: RSA with SHA-256 signature
-5. **Content MD5 in Header**: Not in payload, but in JWT header
+5. **Content Hash in Header**: Not in payload, but in JWT header (use contentSha256)
 
 ## 🐛 **Common Mistakes to Avoid**
 
 ❌ Using \`JSON.stringify()\` without sorted keys
-❌ Different JSON for MD5 vs HTTP request
+❌ Different JSON for hash calculation vs HTTP request
 ❌ Setting audience to "payware" instead of "https://payware.eu"
-❌ Putting contentMd5 in payload instead of header
+❌ Putting contentSha256 in payload instead of header
 ❌ Using wrong algorithm (HS256 instead of RS256)
+❌ Using deprecated contentMd5 instead of contentSha256
 
 ---
 **Execution Info:**
@@ -567,7 +608,7 @@ export const createJWTTokenTool = {
       },
       requestBody: {
         type: "object",
-        description: "Request body (for POST/PUT/PATCH requests that need contentMd5)"
+        description: "Request body (for POST/PUT/PATCH requests that need contentSha256)"
       }
     },
     additionalProperties: false
@@ -619,14 +660,14 @@ ${tokenData.token}
 - Issued At (iat): ${tokenData.issuedAt}
 - Algorithm: RS256
 - Type: JWT
-${tokenData.contentMd5 ? `- Content MD5: ${tokenData.contentMd5}` : '- Content MD5: Not included (no request body)'}
+${tokenData.contentSha256 ? `- Content SHA-256: ${tokenData.contentSha256}` : '- Content SHA-256: Not included (no request body)'}
 
 **JWT Structure (Decoded):**
 **Header:**
 \`\`\`json
 {
   "alg": "RS256",
-  "typ": "JWT"${tokenData.contentMd5 ? `,\n  "contentMd5": "${tokenData.contentMd5}"` : ''}
+  "typ": "JWT"${tokenData.contentSha256 ? `,\n  "contentSha256": "${tokenData.contentSha256}"` : ''}
 }
 \`\`\`
 
@@ -653,7 +694,7 @@ Content-Type: application/json
 - ✅ Issuer: Your Partner ID
 - ✅ Audience: https://payware.eu
 - ✅ Issued At: Unix timestamp
-${tokenData.contentMd5 ? '- ✅ Content MD5: Included for request body' : '- ℹ️ Content MD5: Not needed for GET requests'}
+${tokenData.contentSha256 ? '- ✅ Content SHA-256: Included for request body' : '- ℹ️ Content SHA-256: Not needed for GET requests'}
 
 **📝 Private Key Formats Supported:**
 - ✅ Full PEM format with headers/footers
@@ -663,9 +704,9 @@ ${tokenData.contentMd5 ? '- ✅ Content MD5: Included for request body' : '- ℹ
 ## ⚠️ **CRITICAL AUTHENTICATION REQUIREMENTS**
 
 ### JSON Body Consistency Rule
-${tokenData.contentMd5 ? `**Your contentMd5 (${tokenData.contentMd5}) MUST match the exact bytes sent in HTTP request.**
+${tokenData.contentSha256 ? `**Your contentSha256 (${tokenData.contentSha256}) MUST match the exact bytes sent in HTTP request.**
 
-❌ **Common Error Causing ERR_INVALID_MD5:**
+❌ **Common Error Causing ERR_INVALID_CONTENT_HASH:**
 \`\`\`python
 # Wrong - different serialization formats!
 jwt_token = create_jwt(json.dumps(payload))  # One format
@@ -674,18 +715,18 @@ requests.post(url, json=payload)            # Different format!
 
 ✅ **Correct Implementation:**
 \`\`\`python
-# Same serialization for both MD5 and HTTP body
+# Same serialization for both hash and HTTP body
 json_body = json.dumps(payload, separators=(',', ':'))  # Compact format
 jwt_token = create_jwt(json_body)
 requests.post(url, data=json_body, headers=headers)
 \`\`\`
-` : '**No request body - No MD5 consistency concerns for GET requests.**'}
+` : '**No request body - No hash consistency concerns for GET requests.**'}
 
 ### Troubleshooting Authentication Errors
 
-**ERR_INVALID_MD5** - MD5 hash mismatch:
-- Cause: JWT contentMd5 doesn't match HTTP request body bytes
-- Fix: Use identical JSON serialization for both MD5 calculation and HTTP request
+**ERR_INVALID_CONTENT_HASH** - Content hash mismatch:
+- Cause: JWT contentSha256 doesn't match HTTP request body bytes
+- Fix: Use identical JSON serialization for both hash calculation and HTTP request
 - Common issue: \`requests.post(json=data)\` vs \`requests.post(data=json_string)\`
 
 **ERR_INVALID_SIGNATURE** - JWT signature validation failed:
@@ -718,7 +759,7 @@ const response = await axios.post(url, jsonBody, {headers: {'Authorization': \`B
 - Do not share or log this token
 - Generate new token for each request with different body
 - Ensure your public key is registered with payware
-- **Critical:** Always use matching JSON serialization for MD5 and HTTP body`
+- **Critical:** Always use matching JSON serialization for SHA-256 hash and HTTP body`
       }]
     };
     } catch (error) {

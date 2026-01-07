@@ -155,13 +155,13 @@ ${JSON.stringify(config, null, 2)}
 
 **Required Headers (All Requests):**
 ${Object.entries(config.headers).map(([key, value]) => `- ${key}: ${value}`).join('\n')}
-- Authorization: Bearer {JWT_TOKEN} (with contentMd5 for POST/PATCH)
+- Authorization: Bearer {JWT_TOKEN} (with contentSha256 for POST/PATCH)
 
 **JWT Requirements:**
 - Algorithm: RS256
 - Issuer (iss): Your Partner ID
 - Audience (aud): https://payware.eu
-- Content-MD5: Required in JWT header for POST/PATCH requests
+- Content-SHA256: Required in JWT header for POST/PATCH requests
 - Private Key: RSA 2048-bit minimum
 
 **Required Fields for Transaction Creation:**

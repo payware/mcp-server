@@ -37,8 +37,8 @@ export async function getSoundbiteTransaction({
     contentType: 'application/octet-stream'
   });
 
-  // For multipart/form-data requests, we don't calculate contentMd5 the same way
-  // The JWT token is created without content MD5 for multipart uploads
+  // For multipart/form-data requests, we don't calculate contentSha256 the same way
+  // The JWT token is created without content SHA-256 for multipart uploads
   const tokenData = createJWTToken(partnerId, privateKey, null);
 
   // Required headers as per payware API documentation
@@ -98,7 +98,7 @@ export const soundbiteTransactionTool = {
 **API Request:**
 - Uses multipart/form-data content type
 - File uploaded as form field named 'file'
-- JWT authentication without contentMd5 (multipart upload)`,
+- JWT authentication without contentSha256 (multipart upload)`,
   inputSchema: {
     type: "object",
     properties: {

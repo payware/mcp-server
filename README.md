@@ -10,10 +10,11 @@ Official MCP (Model Context Protocol) server for payware payment API integration
 - **ISVs (Independent Software Vendors)** - Build multi-merchant platforms with OAuth2 token management
 - **Payment Institutions** - Process A2A transfers, handle Payment Choice Architecture with multiple payment methods
 
-## What's New in v1.1.0
+## What's New in v1.2.0
 
-- **Point of Interaction (POI)** - Full POI management: set prices, get status, generate QR codes, list and manage POIs
-- **Payment Choice Architecture** - Support for `paymentMethod` field (A2A, CARD_FUNDED, BNPL, INSTANT_CREDIT) in transaction processing
+- **SHA-256 Authentication** - Upgraded from MD5 to SHA-256 for JWT content hashing (`contentSha256` header)
+- **Updated Error Codes** - New error codes: `ERR_INVALID_CONTENT_HASH`, `ERR_MISSING_CONTENT_HASH`
+- **Backward Compatibility** - Deprecated MD5 functions retained for legacy support
 
 ## Features
 
@@ -375,7 +376,7 @@ Generate comprehensive API documentation with code examples.
 - `outputFormat` (optional): markdown, html, json (default: markdown)
 
 #### `payware_utils_format_request`
-Format and validate API requests with deterministic JSON serialization for MD5 consistency.
+Format and validate API requests with deterministic JSON serialization for SHA-256 consistency.
 
 **Parameters:**
 - `type` (required): transaction, headers, or curl
@@ -386,7 +387,7 @@ Format and validate API requests with deterministic JSON serialization for MD5 c
 - `method` (optional): HTTP method (default: POST)
 
 #### `payware_utils_format_json_deterministic`
-Format JSON with deterministic property ordering for consistent MD5 calculation.
+Format JSON with deterministic property ordering for consistent SHA-256 calculation.
 
 **Parameters:**
 - `data` (required): Object to serialize
@@ -395,7 +396,7 @@ Format JSON with deterministic property ordering for consistent MD5 calculation.
 #### `payware_utils_server_info`
 Get MCP server information and configuration.
 
-**Note:** All transaction data is serialized using consistent property ordering to prevent MD5 mismatch errors.
+**Note:** All transaction data is serialized using consistent property ordering to prevent content hash mismatch errors.
 
 ## Dependencies
 
@@ -435,12 +436,12 @@ Get MCP server information and configuration.
 - Validate all input parameters
 - Implement rate limiting and monitoring
 
-### JSON Serialization & MD5 Consistency
-⚠️ **CRITICAL**: payware API requires deterministic JSON serialization for MD5 calculation
+### JSON Serialization & SHA-256 Consistency
+⚠️ **CRITICAL**: payware API requires deterministic JSON serialization for SHA-256 calculation
 
 - **Property Order**: JSON objects must have consistent property ordering
 - **Minimized Format**: No whitespace or formatting in request bodies
-- **MD5 Calculation**: Must be calculated from the exact same JSON string sent to API
+- **SHA-256 Calculation**: Must be calculated from the exact same JSON string sent to API
 - **Implementation**: This server uses deterministic JSON serialization to ensure consistency
 
 **Example of correct JSON format:**
@@ -449,9 +450,9 @@ Get MCP server information and configuration.
 ```
 
 **Why this matters:**
-- Different property orders produce different MD5 hashes
-- MD5 mismatch results in `ContentMd5 mismatch` errors
-- Server validates that JWT contentMd5 matches request body MD5
+- Different property orders produce different SHA-256 hashes
+- Hash mismatch results in `ERR_INVALID_CONTENT_HASH` errors
+- Server validates that JWT `contentSha256` matches request body SHA-256
 
 ## Troubleshooting
 
@@ -463,11 +464,11 @@ Get MCP server information and configuration.
    - **Verification**: Use `openssl rsa -in privateKey.pem -pubout` to extract public key from private key
    - **Status**: ✅ Resolved - Keys must be properly registered on payware partner portal
 
-2. **ContentMd5 Mismatch Error**
+2. **Content Hash Mismatch Error (ERR_INVALID_CONTENT_HASH)**
    - **Root Cause**: Inconsistent JSON property ordering
    - **Solution**: Use deterministic JSON serialization (implemented in this server)
-   - **Symptoms**: Server logs show different expected vs actual MD5 hashes
-   - **Prevention**: Always use `createMinimizedJSON()` from `/src/utils/json-serializer.js`
+   - **Symptoms**: Server logs show different expected vs actual SHA-256 hashes
+   - **Prevention**: Always use `createMinimizedJSON()` from `/src/core/utils/json-serializer.js`
    - **Status**: ✅ Fixed - Deterministic JSON serialization implemented
 
 3. **Transaction Creation Failed**
@@ -500,7 +501,7 @@ Get MCP server information and configuration.
 - JWT token creation with RS256 algorithm
 - Transaction creation (POST /api/transactions)
 - Transaction cancellation (PATCH /api/transactions/{id})
-- Deterministic JSON serialization for MD5 consistency
+- Deterministic JSON serialization for SHA-256 consistency
 - Public/private key pair validation
 
 **🧪 Test Results:**

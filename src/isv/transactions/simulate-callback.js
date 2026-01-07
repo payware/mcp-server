@@ -35,13 +35,13 @@ export async function simulateCallback({ transactionId, merchantPartnerId, oauth
     oauth2Token
   });
 
-  // Use the same JSON serialization method as the JWT factory for MD5 calculation
+  // Use the same JSON serialization method as the JWT factory for SHA-256 calculation
   const { createMinimizedJSON } = await import('../../core/utils/json-serializer.js');
   const minimizedBodyString = createMinimizedJSON(requestBody);
 
   try {
     const baseUrl = useSandbox ? getSandboxUrl() : getProductionUrl();
-    // Send the exact minimized JSON string that was used for MD5 calculation
+    // Send the exact minimized JSON string that was used for SHA-256 calculation
     const response = await axios.post(`${baseUrl}/transactions/${transactionId}/simulate-callback`, minimizedBodyString, {
       headers: {
         'Authorization': `Bearer ${jwtData.token}`,

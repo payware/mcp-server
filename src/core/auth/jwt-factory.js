@@ -99,7 +99,7 @@ async function createISVJWT({ isvPartnerId, merchantPartnerId, oauth2Token, priv
  * Create JWT token with custom payload (for ISV use case)
  * @param {Object} payload - Custom JWT payload
  * @param {string} privateKey - Private key for signing
- * @param {Object} requestBody - Request body for content MD5
+ * @param {Object} requestBody - Request body for content SHA-256
  * @returns {Object} JWT token data
  */
 async function createJWTTokenWithCustomPayload(payload, privateKey, requestBody) {
@@ -116,11 +116,11 @@ async function createJWTTokenWithCustomPayload(payload, privateKey, requestBody)
     typ: 'JWT'
   };
 
-  // Add contentMd5 to header if request body exists
+  // Add contentSha256 to header if request body exists (SHA-256 is preferred over MD5)
   if (requestBody) {
     const { createMinimizedJSON } = await import('../utils/json-serializer.js');
     const bodyString = createMinimizedJSON(requestBody);
-    header.contentMd5 = crypto.default.createHash('md5').update(bodyString, 'utf8').digest('base64');
+    header.contentSha256 = crypto.default.createHash('sha256').update(bodyString, 'utf8').digest('base64');
   }
 
   const token = jwt.default.sign(payload, normalizedKey, {
@@ -134,7 +134,7 @@ async function createJWTTokenWithCustomPayload(payload, privateKey, requestBody)
     audience: payload.aud,
     subject: payload.sub,
     issuedAt: new Date(payload.iat * 1000).toISOString(),
-    contentMd5: header.contentMd5 || null,
+    contentSha256: header.contentSha256 || null,
     hasBody: !!requestBody,
     isISV: true
   };

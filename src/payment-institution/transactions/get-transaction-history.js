@@ -21,7 +21,7 @@ export async function getPITransactionHistory({
     throw new Error('Partner ID and private key are required for proper JWT creation');
   }
 
-  // Create JWT token for GET request (no contentMd5 needed for GET)
+  // Create JWT token for GET request (no contentSha256 needed for GET)
   const tokenData = createJWTToken(partnerId, privateKey, null);
 
   // Required headers as per payware API documentation
