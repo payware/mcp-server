@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { apiErrorResult } from '../../shared/api-errors.js';
 
 /**
  * Finalize a transaction as a payment institution via payware API
@@ -88,16 +89,7 @@ export async function finalizeTransaction({
       timestamp: new Date().toISOString()
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        message: error.response?.data?.message || error.message,
-        status: error.response?.status,
-        code: error.response?.data?.code,
-        details: error.response?.data
-      },
-      timestamp: new Date().toISOString()
-    };
+    return apiErrorResult(error);
   }
 }
 
@@ -119,6 +111,7 @@ export const finalizeTransactionTool = {
 - Currency must match the processing currency of the transaction
 - Amount/fee required for CONFIRMED status
 - StatusMessage required for CANCELLED/DECLINED/FAILED status
+- **fee**: payware calculates it, the institution executes it. Echo the \`fee\` from the process response verbatim - do not recompute it from \`feeFixed\`/\`feeRate\` and do not re-round it, or the call is rejected with ERR_FEE_MISMATCH.
 
 **API Request Structure:**
 \`\`\`json
@@ -155,7 +148,7 @@ export const finalizeTransactionTool = {
       },
       fee: {
         type: ["number", "string"],
-        description: "Fee amount collected by payment institution (required for CONFIRMED status, use 0 for no fee)",
+        description: "The payware transaction fee. Echo back the `fee` value from the process/get response EXACTLY - payware calculates the fee and the institution executes it. Do not recompute it from feeFixed/feeRate and do not re-round it; it already carries the currency's smallest payable unit (2 decimals for EUR/USD, 0 for JPY, 3 for KWD). A recomputed value is rejected with ERR_FEE_MISMATCH. Required for CONFIRMED status; use 0 when no fee applies.",
         minimum: 0,
         maximum: 9999999999999.99
       },

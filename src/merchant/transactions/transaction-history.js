@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { apiErrorResult } from '../../shared/api-errors.js';
 
 /**
  * Get transaction history from payware API (for completed/expired transactions)
@@ -37,17 +38,17 @@ export async function getTransactionHistory({ transactionId, partnerId, privateK
       timestamp: new Date().toISOString()
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        message: error.response?.data?.message || error.message,
-        status: error.response?.status,
-        code: error.response?.data?.errorCode,
-        details: error.response?.data,
-        throttled: error.response?.status === 415
-      },
-      timestamp: new Date().toISOString()
-    };
+    const result = apiErrorResult(error);
+    // 429, not 415. The server's rate limiter answers TOO_MANY_REQUESTS
+    // (PartnerApiRateLimitFilter); 415 is an unsupported content type, which retrying can never
+    // fix. Labelling a genuine 415 "throttled" told integrators to retry a request that is
+    // permanently malformed, while a real throttle was reported as a hard failure.
+    //
+    // Kept as its own flag on top of apiErrorResult's `retryable`: `throttled` says specifically
+    // "slow down", where `retryable` is also true for a 503, which means "payware is missing
+    // configuration" and calls for a different response. apiErrorResult supplies retryAfterSeconds.
+    result.error.throttled = error.response?.status === 429;
+    return result;
   }
 }
 
@@ -90,12 +91,29 @@ function formatTransactionHistory(transaction) {
  */
 export const getTransactionHistoryTool = {
   name: "payware_operations_get_transaction_history", 
-  description: `Get history of completed/finalized transactions with final statuses (throttled endpoint).
+  description: `Get history of completed/finalized transactions with final statuses.
 
 **Endpoint:** GET /transactions-history/{transactionId}
 **Use Case:** Retrieve transactions with final statuses: CONFIRMED, DECLINED, FAILED, EXPIRED, CANCELLED.
-**⚠️ THROTTLED:** This endpoint may return HTTP 415 Too Many Requests - implement retry logic.
-**Note:** For ACTIVE transactions, use 'payware_transactions_get_transaction_status' instead.`,
+**Note:** For ACTIVE transactions, use 'payware_transactions_get_transaction_status' instead.
+
+📦 **This is where the delivery address lives.** For a SHIPPABLE transaction, \`deliveryAddress\`
+(fullName, streetAddressLine1/2, zipCode, city, region, country, phoneNumber, email) is returned
+here and **only** here. It was removed from the finalized callback on 2026-08-07: a callback is
+delivered to whatever certificate the merchant's endpoint happens to present, which is an acceptable
+trade for a transaction id and an amount and not one for a shopper's home address. This endpoint is
+JWT-authenticated, tenant-scoped and runs over a verified channel. So the pattern is: the callback
+tells you the shipment is ready, and this call gives you the address to ship to.
+
+⚠️ **Requires Standard or Premium.** This endpoint was ungated until 2026-08-21 and is now on the
+same plan gate as the rest of the transaction surface, so a **Basic** merchant - or an ISV acting on
+behalf of one - now gets **403**. If reading history started failing without a code change, this is
+why. Financial institutions are unaffected; banks are always Premium.
+
+⏱️ **Rate limited, like every payware endpoint.** A 429 carries \`ERR_RATE_LIMIT_EXCEEDED\` and a
+\`Retry-After\` header, in seconds; the request was not processed, so the identical request is safe to
+retry once the window passes. The failure result exposes this as \`error.throttled\`,
+\`error.retryable\` and \`error.retryAfterSeconds\`.`,
   inputSchema: {
     type: "object",
     properties: {
@@ -237,7 +255,7 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 
 **Common Issues:**
 1. **ERR_MISSING_TRANSACTION**: Transaction ID not found
-2. **Too Many Requests (415)**: API rate limit exceeded
+2. **Too Many Requests (429)**: API rate limit exceeded
 3. **ERR_METHOD_NOT_ALLOWED**: HTTP method issue
 
 **Troubleshooting:**

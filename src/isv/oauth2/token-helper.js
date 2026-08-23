@@ -63,7 +63,7 @@ Use this when you need a token but aren't sure if one exists or what it is.`,
 **Option 1: Try creating a token**
 Use: \`payware_oauth2_obtain_token\`
 - If successful: New token will be clearly displayed
-- If error "ERR_TOKEN_EXISTS": A token already exists
+- On failure the server names the reason (e.g. client not found, client disabled)
 
 **Option 2: Check a known token**
 Use: \`payware_oauth2_get_token_info\` with your saved token
@@ -84,7 +84,10 @@ Use: \`payware_oauth2_get_token_info\` with your saved token
     // Try to create a token
     const result = await obtainTokenTool.handler({ clientId, clientSecret, useSandbox });
 
-    // Check if the result indicates an ERR_TOKEN_EXISTS error
+    // Dead since the server stopped throwing ERR_TOKEN_EXISTS - the exception was deleted as
+    // never-thrown - and kept only so the guidance below has a home if one-token-per-merchant is
+    // ever enforced again. Matching on the substring of a rendered message was always fragile:
+    // it also fires on any text that merely mentions the code.
     if (result.content?.[0]?.text?.includes('ERR_TOKEN_EXISTS')) {
       return {
         content: [{

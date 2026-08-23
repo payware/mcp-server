@@ -3,6 +3,7 @@ import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { describeApiError } from '../api-errors.js';
 
 /**
  * Available report types from the Data API documentation
@@ -147,7 +148,7 @@ export async function generateReport({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to generate report: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'generate report');
   }
 }
 
@@ -181,7 +182,7 @@ export async function getReportStatus({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to get report status: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'get report status');
   }
 }
 
@@ -222,7 +223,7 @@ export async function exportReport({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to export report: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'export report');
   }
 }
 
@@ -256,7 +257,7 @@ export async function getExportStatus({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to get export status: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'get export status');
   }
 }
 
@@ -295,7 +296,7 @@ export async function downloadExport({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to download export: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'download export');
   }
 }
 
@@ -331,7 +332,7 @@ export async function cancelReport({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to cancel report: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'cancel report');
   }
 }
 
@@ -367,7 +368,7 @@ export async function cancelExport({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to cancel export: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'cancel export');
   }
 }
 
@@ -396,7 +397,7 @@ export async function listReports({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to list reports: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'list reports');
   }
 }
 
@@ -430,7 +431,7 @@ export async function getReportRequests({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to get report requests: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'get report requests');
   }
 }
 
@@ -464,6 +465,6 @@ export async function getExportList({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to get export list: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'get export list');
   }
 }

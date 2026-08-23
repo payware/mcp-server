@@ -29,3 +29,7 @@ test-*.js
 # Private keys
 keys/*.pem
 keys/*.key
+
+# Claude Code scratch
+.claude/reviews/
+.claude/worktrees/

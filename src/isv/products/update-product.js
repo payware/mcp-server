@@ -74,7 +74,7 @@ export const updateProductTool = {
       },
       regularPrice: {
         type: "string",
-        description: "Product regular price (positive number with max 2 decimals)"
+        description: "Product regular price as a decimal string. Zero or positive, at most 12 integer digits, and no more decimals than the currency's minor unit (0 for JPY, 2 for EUR, 3 for KWD, 8 for BTC). Returned as a string too."
       },
       currency: {
         type: "string",

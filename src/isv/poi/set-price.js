@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { apiErrorResult } from '../../shared/api-errors.js';
 
 /**
  * Set price on a POI via ISV authentication
@@ -72,16 +73,7 @@ export async function setPOIPrice({ poiId, amount, currency, reasonL1, reasonL2,
       timestamp: new Date().toISOString()
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        message: error.response?.data?.message || error.message,
-        status: error.response?.status,
-        code: error.response?.data?.code,
-        details: error.response?.data
-      },
-      timestamp: new Date().toISOString()
-    };
+    return apiErrorResult(error);
   }
 }
 
@@ -114,7 +106,7 @@ The POI will transition to READY state and wait for a customer scan until the TT
       },
       currency: {
         type: "string",
-        description: "ISO 4217 currency code (e.g., 'EUR', 'USD', 'BGN')"
+        description: "ISO 4217 currency code (e.g., 'EUR', 'USD', 'GBP')"
       },
       reasonL1: {
         type: "string",

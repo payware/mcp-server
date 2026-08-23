@@ -152,27 +152,29 @@ def get_oauth2_token(merchant_partner_id, use_sandbox=True):
     config = load_isv_config()
     base_url = config['sandbox_url'] if use_sandbox else config['production_url']
 
-    # Prepare OAuth2 token request
+    # OAuth2 token request: JSON body, camelCase fields, no scope parameter.
+    # clientId is the merchant's partnerId; clientSecret is that merchant's secret, base64-encoded.
     token_data = {
-        'grant_type': 'client_credentials',
-        'client_id': config['oauth_client_id'],
-        'client_secret': config['oauth_client_secret'],
-        'scope': f'merchant:{merchant_partner_id}'
+        'grantType': 'client_credentials',
+        'clientId': merchant_partner_id,
+        'clientSecret': base64.b64encode(config['merchant_secret'].encode()).decode()
     }
 
     try:
+        # OAuth2 endpoints are served from the host root, not under /api
         response = requests.post(
-            f"{base_url}/oauth2/token",
-            data=token_data,
-            headers={'Content-Type': 'application/x-www-form-urlencoded'}
+            f"{base_url.replace('/api', '')}/oauth2/tokens",
+            json=token_data,
+            headers={'Content-Type': 'application/json'}
         )
 
         if response.status_code == 200:
             token_response = response.json()
             return {
-                'access_token': token_response['access_token'],
-                'token_type': token_response['token_type'],
-                'expires_in': token_response.get('expires_in'),
+                'access_token': token_response['accessToken'],
+                'token_type': token_response['tokenType'],
+                'status': token_response.get('status'),
+                'expires_in': token_response.get('expiresIn'),
                 'scope': token_response.get('scope')
             }
         else:
@@ -505,27 +507,28 @@ async function getOAuth2Token(merchantPartnerId, useSandbox = true) {
   const baseUrl = useSandbox ? config.sandboxUrl : config.productionUrl;
 
   const tokenData = new URLSearchParams({
-    grant_type: 'client_credentials',
-    client_id: config.oauthClientId,
-    client_secret: config.oauthClientSecret,
-    scope: \`merchant:\${merchantPartnerId}\`
+    grantType: 'client_credentials',
+    clientId: merchantPartnerId,
+    clientSecret: Buffer.from(config.merchantSecret).toString('base64')
   });
 
   try {
+    // JSON body, camelCase fields, no scope - and /oauth2/tokens is served from the host root
     const response = await axios.post(
-      \`\${baseUrl}/oauth2/token\`,
+      \`\${baseUrl.replace('/api', '')}/oauth2/tokens\`,
       tokenData,
       {
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
+          'Content-Type': 'application/json'
         }
       }
     );
 
     return {
-      accessToken: response.data.access_token,
-      tokenType: response.data.token_type,
-      expiresIn: response.data.expires_in,
+      accessToken: response.data.accessToken,
+      tokenType: response.data.tokenType,
+      status: response.data.status,
+      expiresIn: response.data.expiresIn,
       scope: response.data.scope
     };
 

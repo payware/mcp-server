@@ -13,7 +13,10 @@
     "proxy": "node src/proxy-server.js",
     "proxy:dev": "node --watch src/proxy-server.js",
     "bridge": "node src/mcp-proxy.js",
-    "inspector": "npx @modelcontextprotocol/inspector node src/mcp-proxy.js"
+    "inspector": "npx @modelcontextprotocol/inspector node src/mcp-proxy.js",
+    "test": "node --test \"tests/*.test.js\"",
+    "test:watch": "node --test --watch \"tests/*.test.js\"",
+    "check": "node --check src/index.js && npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^0.5.0",

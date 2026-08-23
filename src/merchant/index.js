@@ -20,6 +20,12 @@ import { merchantProductTools } from './products/index.js';
 // Deep links tools
 import { merchantDeepLinksTools } from './deep-links/index.js';
 
+// Logs tools (Premium feature)
+import { merchantLogsTools } from './logs/index.js';
+
+// Shop tools - needed before any call that takes a shop / shopCode
+import { merchantShopTools } from './shops/index.js';
+
 // Shared utility tools
 import { getServerInfoTool } from '../utils/server-info.js';
 
@@ -48,7 +54,13 @@ export const merchantTools = [
   ...merchantProductTools,
 
   // Deep links management
-  ...merchantDeepLinksTools
+  ...merchantDeepLinksTools,
+
+  // Logs management (Premium feature)
+  ...merchantLogsTools,
+
+  // Shop lookup
+  ...merchantShopTools
 ];
 
 /**
@@ -82,6 +94,14 @@ export function getMerchantTools() {
     // Deep links tools keep their deep_links grouping
     else if (tool.name.startsWith('payware_deep_links_')) {
       newName = tool.name; // Keep deep_links grouping
+    }
+    // Logs tools keep their logs grouping
+    else if (tool.name.startsWith('payware_logs_')) {
+      newName = tool.name; // Keep logs grouping
+    }
+    // Shop tools keep their shops grouping
+    else if (tool.name.startsWith('payware_shops_')) {
+      newName = tool.name; // Keep shops grouping
     }
 
     return {

@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { apiErrorResult } from '../../shared/api-errors.js';
 
 /**
  * Process a transaction via payware API (for merchants accepting payments)
@@ -97,16 +98,7 @@ export async function processTransaction({
       timestamp: new Date().toISOString()
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        message: error.response?.data?.message || error.message,
-        status: error.response?.status,
-        code: error.response?.data?.errorCode,
-        details: error.response?.data
-      },
-      timestamp: new Date().toISOString()
-    };
+    return apiErrorResult(error);
   }
 }
 

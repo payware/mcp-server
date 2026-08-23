@@ -22,6 +22,11 @@ export async function createTransaction({
   partnerId,
   privateKey,
   passbackParams,
+  // POS terminal producer attribution. Optional, and independent of everything else on the request:
+  // it selects a revenue share out of payware's own fee and never changes what the merchant pays.
+  producerPartnerId,
+  terminalId,
+  terminalManufacturer,
   // QR Options
   qrFormat,
   qrBorder,
@@ -55,7 +60,31 @@ export async function createTransaction({
   if (!partnerId || !privateKey) {
     throw new Error('Partner ID and private key are required for proper JWT creation');
   }
-  
+
+  // Refuse an empty producerPartnerId here rather than letting it reach the server.
+  // The server rejects an unrecognised producer id outright - a misconfigured terminal fails on its
+  // first sale, deliberately, so that an installer sees it - and an empty string is unrecognised.
+  // Sending one turns "no producer arrangement" into a failed transaction, when the correct way to
+  // say that is to omit the field entirely.
+  if (producerPartnerId !== undefined && String(producerPartnerId).trim() === '') {
+    throw new Error(
+      'producerPartnerId must not be empty. Omit the field entirely when there is no POS terminal ' +
+      'producer arrangement - an unrecognised value (including an empty string) is rejected by the ' +
+      'server and fails the transaction.'
+    );
+  }
+
+  for (const [field, value] of [['terminalId', terminalId], ['terminalManufacturer', terminalManufacturer]]) {
+    if (value === undefined || value === null) continue;
+    if (String(value).length > 64) {
+      throw new Error(`${field} cannot exceed 64 characters`);
+    }
+    // The server rejects control characters in both fields; catching it here names the field.
+    if (/[\u0000-\u001F\u007F]/.test(String(value))) {
+      throw new Error(`${field} must not contain control characters`);
+    }
+  }
+
   // Build QR options if applicable
   const qrOptions = {};
   if (type === 'QR') {
@@ -82,9 +111,12 @@ export async function createTransaction({
     ...(friendlyName && { friendlyName }),
     ...(shop && { shop }),
     ...(callbackUrl && { callbackUrl }),
-    ...(passbackParams && { 
-      passbackParams: typeof passbackParams === 'string' ? passbackParams : JSON.stringify(passbackParams) 
+    ...(passbackParams && {
+      passbackParams: typeof passbackParams === 'string' ? passbackParams : JSON.stringify(passbackParams)
     }),
+    ...(producerPartnerId && { producerPartnerId }),
+    ...(terminalId && { terminalId }),
+    ...(terminalManufacturer && { terminalManufacturer }),
     trData: {
       amount: amount !== undefined ? amount.toString() : '0.00',
       currency,
@@ -133,7 +165,7 @@ export async function createTransaction({
     // Provide helpful error message for hash mismatches
     let enhancedMessage = error.response?.data?.message || error.message;
 
-    if (error.response?.data?.code === 'ERR_INVALID_CONTENT_HASH' ||
+    if (error.response?.data?.errorCode === 'ERR_INVALID_CONTENT_HASH' ||
         enhancedMessage?.includes('SHA-256') ||
         enhancedMessage?.includes('contentSha256')) {
       enhancedMessage = `Hash Mismatch Error: The contentSha256 in JWT header doesn't match the request body.
@@ -149,9 +181,9 @@ Original error: ${enhancedMessage}`;
       error: {
         message: enhancedMessage,
         status: error.response?.status,
-        code: error.response?.data?.code,
+        code: error.response?.data?.errorCode,
         details: error.response?.data,
-        helpUrl: error.response?.data?.code === 'ERR_INVALID_CONTENT_HASH' ?
+        helpUrl: error.response?.data?.errorCode === 'ERR_INVALID_CONTENT_HASH' ?
           'https://github.com/payware/mcp-server#sha256-consistency' : undefined
       },
       timestamp: new Date().toISOString()
@@ -168,6 +200,7 @@ export const createTransactionTool = {
 
 📋 **ROOT LEVEL** (Transaction metadata):
 - shop, account, friendlyName, callbackUrl, passbackParams
+- producerPartnerId, terminalId, terminalManufacturer (POS terminal producer attribution - see below)
 
 💰 **TRANSACTION DATA** (trData object):
 - amount, currency, reasonL1, reasonL2
@@ -204,7 +237,33 @@ export const createTransactionTool = {
   },
   "qrOptions": { ... }
 }
-\`\`\``,
+\`\`\`
+
+🏭 **POS TERMINAL PRODUCER ATTRIBUTION** (optional, root level)
+
+Only relevant if the transaction originates on a POS terminal whose producer has a revenue-share
+agreement with payware. Three fields, all optional:
+
+- \`producerPartnerId\` - the 8-character partnerId payware issued to the terminal producer.
+  **An unrecognised value fails the transaction with a 400** (\`ERR_INVALID_PRODUCER_ID\`) - it is
+  deliberately not ignored, so that a terminal configured with the wrong id fails on its first sale
+  where an installer can see it. **Omit the field entirely when there is no producer arrangement;
+  never send an empty string.**
+- \`terminalId\` - the producer's own identifier for the physical terminal. Max 64 chars, no control
+  characters. payware records it and never interprets it: no format, no uniqueness enforcement, and
+  nothing about pricing or attribution depends on it.
+- \`terminalManufacturer\` - device manufacturer as the terminal reports it. Max 64 chars, no control
+  characters. Recorded for provenance; a mismatch is surfaced in settlement review, never blocked.
+
+Two things worth knowing:
+1. **It never changes what the merchant is charged.** The producer's share comes out of payware's own
+   fee, not out of a higher price for the merchant, whose fee always follows the fee hierarchy.
+2. **None of the three is returned.** They do not appear in the create response, in \`get_transaction_status\`,
+   in transaction history, or in any callback. What a producer earned is visible on their own
+   dashboard and settlements - attribution is recorded against the fee, not against the transaction.
+
+If an ISV's software made the call, the ISV is attributed and the producer is not, even when the
+ISV's software is running on that producer's hardware.`,
   inputSchema: {
     type: "object",
     properties: {
@@ -257,8 +316,22 @@ export const createTransactionTool = {
       },
       callbackUrl: {
         type: "string",
-        description: "📋 ROOT LEVEL: HTTPS URL to receive transaction status callbacks (must be https://)",
+        description: "📋 ROOT LEVEL: HTTPS URL to receive transaction status callbacks. Must be https://, must present a publicly-trusted TLS certificate, and must resolve to a public address - internal/private addresses are rejected (ERR_UNRESOLVABLE_CALLBACK_URL).",
         format: "uri"
+      },
+      producerPartnerId: {
+        type: "string",
+        description: "🏭 ROOT LEVEL: partnerId of the POS terminal producer whose terminal produced this transaction. Must be a partner registered with payware and flagged as a producer - an unrecognised value REJECTS the transaction (400 ERR_INVALID_PRODUCER_ID) rather than being ignored. Omit entirely when there is no producer arrangement; never send an empty string. Selects the producer's revenue share out of payware's own fee and never changes what the merchant is charged. Not returned in any response or callback."
+      },
+      terminalId: {
+        type: "string",
+        description: "🏭 ROOT LEVEL: Opaque identifier of the physical terminal, scoped to the producer's own estate. payware assumes no format and enforces no uniqueness; it is recorded for provenance and never affects attribution or pricing. Make it unique within your own estate anyway - that is what lets you answer 'which terminal produced this sale' later. Not returned in any response or callback.",
+        maxLength: 64
+      },
+      terminalManufacturer: {
+        type: "string",
+        description: "🏭 ROOT LEVEL: Device manufacturer as reported by the terminal. Recorded for provenance; a mismatch against the expected producer is surfaced in settlement review and never blocks the transaction. Not returned in any response or callback.",
+        maxLength: 64
       },
       partnerId: {
         type: "string",
@@ -355,6 +428,10 @@ export const createTransactionTool = {
       partnerId = getPartnerIdSafe(),
       privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       passbackParams,
+      // POS terminal producer attribution
+      producerPartnerId,
+      terminalId,
+      terminalManufacturer,
       // QR Options
       qrFormat,
       qrBorder,
@@ -396,6 +473,9 @@ export const createTransactionTool = {
       partnerId,
       privateKey,
       passbackParams,
+      producerPartnerId,
+      terminalId,
+      terminalManufacturer,
       // QR Options
       qrFormat,
       qrBorder,

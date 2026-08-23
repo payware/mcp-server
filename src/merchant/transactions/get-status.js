@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { apiErrorResult } from '../../shared/api-errors.js';
 
 /**
  * Get transaction status from payware API
@@ -37,16 +38,7 @@ export async function getTransactionStatus({ transactionId, partnerId, privateKe
       timestamp: new Date().toISOString()
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        message: error.response?.data?.message || error.message,
-        status: error.response?.status,
-        code: error.response?.data?.code,
-        details: error.response?.data
-      },
-      timestamp: new Date().toISOString()
-    };
+    return apiErrorResult(error);
   }
 }
 
@@ -79,7 +71,44 @@ export const getTransactionStatusTool = {
 
 **Endpoint:** GET /transactions/{transactionId}
 **Use Case:** Check status of ACTIVE transactions only. This endpoint only returns transactions with ACTIVE status.
-**Note:** For transactions with final statuses (CONFIRMED, DECLINED, FAILED, EXPIRED, CANCELLED), use 'payware_transactions_get_history' instead.`,
+**Note:** For transactions with final statuses (CONFIRMED, DECLINED, FAILED, EXPIRED, CANCELLED), use 'payware_transactions_get_history' instead.
+
+🛍️ **Product-originated transactions carry a nested \`product\` object.** Since 2026-07-22 the
+presentation fields are grouped under \`product\` rather than sitting flat on the response - the old
+top-level \`imageUrl\` is gone. Discriminate a product-originated transaction by the **presence of the
+object**, not by probing individual fields:
+
+\`\`\`json
+{ "transactionId": "pw7e4rCToG", "amount": "57.60", "currency": "EUR",
+  "product": { "productId": "pr7e4rCToG", "type": "ITEM", "name": "Cotton T-shirt, black",
+               "shortDescription": "...", "longDescription": "...",
+               "imageUrl": "https://...", "imageDigest": "9f86d081...", "imageContentType": "image/png",
+               "imageBytes": 20480, "termsUrl": "https://...", "termsText": "...",
+               "regularPrice": "63.36", "shippable": false, "quickPay": true, "shopName": "My shop" } }
+\`\`\`
+
+Three things about that object:
+
+- **\`imageDigest\` is an obligation, not decoration.** It is the SHA-256 payware pinned for the image
+  at \`imageUrl\`. Fetch the image, verify its bytes against this digest before rendering it to a
+  payer, and fall back to a neutral placeholder on mismatch. Present only when \`imageUrl\` is the
+  product's own image.
+- **\`regularPrice\` is display-only, and appears only when there is a genuine saving** - i.e. when it
+  is higher than the transaction \`amount\`. The top-level \`amount\` and \`currency\` are authoritative
+  and are what the payer pays; the object does not repeat them.
+- **Availability follows the merchant's plan.** \`imageUrl\` and \`termsUrl\` are Standard and above;
+  \`termsText\` and the descriptions are universal. A missing field is a plan boundary, not an error.
+
+For a \`pr\`/\`ps\` product identifier the values are resolved live; for the resulting \`pw\` transaction
+they are the snapshot frozen at creation, so the response always reflects what the payer could have
+been shown at scan time.
+
+💰 **Amounts follow the currency, not a fixed two decimals.** \`amount\`, \`fee\`, \`payerAmount\` and
+\`payeeAmount\` are decimal strings at the smallest unit their own currency can be paid in - none for
+JPY, two for EUR, eight for BTC. Parse them with a decimal type; never compare them as strings, and
+never assume two places. \`feeRate\` carries up to six decimals and \`feeFixed\` full stored precision:
+both are informational, and recomputing the fee from them and submitting that at finalize is rejected
+with ERR_FEE_MISMATCH. Echo \`fee\` back unchanged instead.`,
   inputSchema: {
     type: "object",
     properties: {

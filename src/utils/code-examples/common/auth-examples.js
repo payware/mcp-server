@@ -106,20 +106,20 @@ ${options.includeComments ? '# ISV-specific OAuth2 authentication\n' : ''}def ge
     if not client_id or not client_secret:
         raise ValueError("Missing OAuth2 credentials")
 
-    ${options.includeComments ? '# OAuth2 token request\n    ' : ''}token_data = {
-        'grant_type': 'client_credentials',
-        'client_id': client_id,
-        'client_secret': client_secret,
-        'scope': f'merchant:{merchant_partner_id}'
+    ${options.includeComments ? '# OAuth2 token request: JSON, camelCase, no scope - and /oauth2/tokens is\n    # served from the host root, not under /api\n    ' : ''}token_data = {
+        'grantType': 'client_credentials',
+        'clientId': merchant_partner_id,
+        'clientSecret': base64.b64encode(merchant_secret.encode()).decode()
     }
 
     response = requests.post(
-        f"{get_api_base_url()}/oauth2/token",
-        data=token_data
+        f"{get_api_base_url().replace('/api', '')}/oauth2/tokens",
+        json=token_data,
+        headers={'Content-Type': 'application/json'}
     )
 
     if response.status_code == 200:
-        return response.json()['access_token']
+        return response.json()['accessToken']
     else:
         raise Exception(f"OAuth2 token request failed: {response.text}")` : ''}`;
   }
@@ -238,20 +238,21 @@ ${options.includeComments ? '// ISV-specific OAuth2 authentication\n' : ''}async
     throw new Error('Missing OAuth2 credentials');
   }
 
+  // JSON, camelCase, no scope - and /oauth2/tokens is served from the host root, not under /api
   const tokenData = {
-    grant_type: 'client_credentials',
-    client_id: clientId,
-    client_secret: clientSecret,
-    scope: \`merchant:\${merchantPartnerId}\`
+    grantType: 'client_credentials',
+    clientId: merchantPartnerId,
+    clientSecret: Buffer.from(merchantSecret).toString('base64')
   };
 
   try {
     const response = await axios.post(
-      \`\${getAPIBaseURL()}/oauth2/token\`,
-      tokenData
+      \`\${getAPIBaseURL().replace('/api', '')}/oauth2/tokens\`,
+      tokenData,
+      { headers: { 'Content-Type': 'application/json' } }
     );
 
-    return response.data.access_token;
+    return response.data.accessToken;
   } catch (error) {
     throw new Error(\`OAuth2 token request failed: \${error.response?.data || error.message}\`);
   }
@@ -528,23 +529,23 @@ import java.security.MessageDigest;`;
             throw new IllegalArgumentException("Missing OAuth2 credentials");
         }
 
-        ${options.includeComments ? '// Create form data\n        ' : ''}FormBody formBody = new FormBody.Builder()
-            .add("grant_type", "client_credentials")
-            .add("client_id", clientId)
-            .add("client_secret", clientSecret)
-            .add("scope", "merchant:" + merchantPartnerId)
-            .build();
+        ${options.includeComments ? '// JSON body, camelCase, no scope\n        ' : ''}ObjectNode body = objectMapper.createObjectNode();
+        body.put("grantType", "client_credentials");
+        body.put("clientId", merchantPartnerId);
+        body.put("clientSecret", Base64.getEncoder().encodeToString(merchantSecret.getBytes()));
 
+        // /oauth2/tokens is served from the host root, not under /api
         Request request = new Request.Builder()
-            .url(getAPIBaseURL(true) + "/oauth2/token")
-            .post(formBody)
+            .url(getAPIBaseURL(true).replace("/api", "") + "/oauth2/tokens")
+            .post(RequestBody.create(objectMapper.writeValueAsString(body),
+                    MediaType.parse("application/json")))
             .build();
 
         try (Response response = httpClient.newCall(request).execute()) {
             if (response.isSuccessful()) {
                 String responseBody = response.body().string();
                 JsonNode jsonResponse = objectMapper.readTree(responseBody);
-                return jsonResponse.get("access_token").asText();
+                return jsonResponse.get("accessToken").asText();
             } else {
                 throw new RuntimeException("OAuth2 token request failed: " + response.code());
             }
@@ -778,21 +779,22 @@ using Microsoft.Extensions.Configuration;`;
             throw new ArgumentException("Missing OAuth2 credentials");
         }
 
-        var formData = new FormUrlEncodedContent(new[]
+        // JSON body, camelCase, no scope
+        var body = new StringContent(JsonConvert.SerializeObject(new
         {
-            new KeyValuePair<string, string>("grant_type", "client_credentials"),
-            new KeyValuePair<string, string>("client_id", clientId),
-            new KeyValuePair<string, string>("client_secret", clientSecret),
-            new KeyValuePair<string, string>("scope", $"merchant:{merchantPartnerId}")
-        });
+            grantType = "client_credentials",
+            clientId = merchantPartnerId,
+            clientSecret = Convert.ToBase64String(Encoding.UTF8.GetBytes(merchantSecret))
+        }), Encoding.UTF8, "application/json");
 
-        var response = await _httpClient.PostAsync($"{GetAPIBaseURL()}/oauth2/token", formData);
+        // /oauth2/tokens is served from the host root, not under /api
+        var response = await _httpClient.PostAsync($"{GetAPIBaseURL().Replace("/api", "")}/oauth2/tokens", body);
 
         if (response.IsSuccessStatusCode)
         {
             var responseContent = await response.Content.ReadAsStringAsync();
             var jsonResponse = JObject.Parse(responseContent);
-            return jsonResponse["access_token"]?.ToString();
+            return jsonResponse["accessToken"]?.ToString();
         }
         else
         {
@@ -1053,19 +1055,24 @@ func (p *PaywareAuthenticator) GetOAuth2Token(merchantPartnerID string) (string,
         return "", fmt.Errorf("missing OAuth2 credentials")
     }
 
-    data := url.Values{}
-    data.Set("grant_type", "client_credentials")
-    data.Set("client_id", p.config.OAuthClientID)
-    data.Set("client_secret", p.config.OAuthClientSecret)
-    data.Set("scope", "merchant:"+merchantPartnerID)
-
-    req, err := http.NewRequest("POST", p.GetAPIBaseURL(true)+"/oauth2/token", strings.NewReader(data.Encode()))
+    // JSON body, camelCase, no scope
+    body, err := json.Marshal(map[string]string{
+        "grantType":    "client_credentials",
+        "clientId":     merchantPartnerID,
+        "clientSecret": base64.StdEncoding.EncodeToString([]byte(p.config.MerchantSecret)),
+    })
     if err != nil {
         return "", err
     }
 
-    req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-    req.Header.Set("Api-Version", "1")
+    // /oauth2/tokens is served from the host root, not under /api
+    baseURL := strings.Replace(p.GetAPIBaseURL(true), "/api", "", 1)
+    req, err := http.NewRequest("POST", baseURL+"/oauth2/tokens", bytes.NewReader(body))
+    if err != nil {
+        return "", err
+    }
+
+    req.Header.Set("Content-Type", "application/json")
 
     resp, err := p.client.Do(req)
     if err != nil {
@@ -1240,17 +1247,16 @@ require 'dotenv/load'`;
   def get_oauth2_token(merchant_partner_id)
     raise 'Missing OAuth2 credentials' if @oauth_client_id.nil? || @oauth_client_secret.nil?
 
+    # JSON, camelCase, no scope - and /oauth2/tokens is served from the host root, not under /api
     response = HTTParty.post(
-      "#{api_base_url}/oauth2/token",
+      "#{api_base_url.sub('/api', '')}/oauth2/tokens",
       body: {
-        grant_type: 'client_credentials',
-        client_id: @oauth_client_id,
-        client_secret: @oauth_client_secret,
-        scope: "merchant:#{merchant_partner_id}"
-      },
+        grantType: 'client_credentials',
+        clientId: merchant_partner_id,
+        clientSecret: Base64.strict_encode64(@merchant_secret)
+      }.to_json,
       headers: {
-        'Content-Type' => 'application/x-www-form-urlencoded',
-        'Api-Version' => '1'
+        'Content-Type' => 'application/json'
       }
     )
 
@@ -1388,16 +1394,13 @@ get_oauth2_token() {
         return 1
     fi
 
+    # JSON, camelCase, no scope - and /oauth2/tokens is served from the host root, not under /api
     local response=$(curl -s -X POST \\
-        "$(get_api_base_url)/oauth2/token" \\
-        -H "Content-Type: application/x-www-form-urlencoded" \\
-        -H "Api-Version: 1" \\
-        -d "grant_type=client_credentials" \\
-        -d "client_id=$PAYWARE_OAUTH_CLIENT_ID" \\
-        -d "client_secret=$PAYWARE_OAUTH_CLIENT_SECRET" \\
-        -d "scope=merchant:$merchant_partner_id")
+        "$(get_api_base_url | sed 's|/api$||')/oauth2/tokens" \\
+        -H "Content-Type: application/json" \\
+        -d "{\\"grantType\\":\\"client_credentials\\",\\"clientId\\":\\"$merchant_partner_id\\",\\"clientSecret\\":\\"$(printf '%s' "$PAYWARE_MERCHANT_SECRET" | base64)\\"}")
 
-    echo "$response" | jq -r '.access_token'
+    echo "$response" | jq -r '.accessToken'
 }` : ''}
 
 # Example usage function

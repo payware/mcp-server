@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { apiErrorResult } from '../../shared/api-errors.js';
 
 /**
  * Get POI details via ISV authentication
@@ -51,16 +52,7 @@ export async function getPOI({ poiId, merchantPartnerId, oauth2Token, useSandbox
       timestamp: new Date().toISOString()
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        message: error.response?.data?.message || error.message,
-        status: error.response?.status,
-        code: error.response?.data?.code,
-        details: error.response?.data
-      },
-      timestamp: new Date().toISOString()
-    };
+    return apiErrorResult(error);
   }
 }
 

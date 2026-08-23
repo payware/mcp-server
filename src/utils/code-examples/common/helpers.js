@@ -176,10 +176,13 @@ export const CommonTemplates = {
       delete_transaction_link: '/deeplinks/transactions/{id}',
       delete_product_link: '/deeplinks/products/{id}',
 
-      // OAuth2 endpoints (ISV only)
-      obtain_token: '/oauth2/token',
-      get_token_info: '/oauth2/token/info',
-      create_token_simple: '/oauth2/token/simple',
+      // OAuth2 endpoints (ISV only). Plural /tokens, and served from the host root rather than
+      // under /api. The singular paths that used to be listed here - /oauth2/token,
+      // /oauth2/token/info, /oauth2/token/simple - do not exist on any payware environment.
+      obtain_token: '/oauth2/tokens',
+      get_token_info: '/oauth2/tokens/{token}',
+      rotate_token: '/oauth2/tokens/{token}/rotate',
+      list_active_tokens: '/oauth2/tokens',
 
       // Payment Institution specific
       create_pi_transaction: '/transactions',

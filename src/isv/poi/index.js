@@ -9,11 +9,14 @@ import { getPOIStatusTool } from './get-status.js';
 import { setPOIPriceTool } from './set-price.js';
 import { cancelPOIPriceTool } from './cancel-price.js';
 import { getPOIQRCodeTool } from './get-qrcode.js';
+import { createPOITool, createPOIBatchTool } from './create.js';
 
 /**
  * All POI tools for ISV
  */
 export const isvPOITools = [
+  createPOITool,
+  createPOIBatchTool,
   listPOIsTool,
   getPOITool,
   getPOIStatusTool,
@@ -23,6 +26,8 @@ export const isvPOITools = [
 ];
 
 export {
+  createPOITool,
+  createPOIBatchTool,
   listPOIsTool,
   getPOITool,
   getPOIStatusTool,

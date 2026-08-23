@@ -30,10 +30,19 @@ export function generateMockPICallback(transactionId, callbackType = 'TRANSACTIO
     paymentMethod = null,
     status = 'CONFIRMED',
     statusMessage = null,
-    passbackParams = null
+    passbackParams = null,
+    // The fee breakdown. Present on BOTH payloads whenever the transaction has a fee configuration -
+    // FINALIZED gained them on 2026-08-21, having previously carried the total without the two
+    // numbers that produced it. Both are INFORMATIONAL: recomputing the fee from them and submitting
+    // that at finalize is rejected with ERR_FEE_MISMATCH. Echo `fee` back unchanged instead.
+    feeFixed = '0.1000',
+    feeRate = '0.0150',
+    // Pass fee: null to model the anomaly the server reports by OMITTING the property - a
+    // transaction with no recorded fee. Deliberately distinguishable from a genuine '0.00'.
+    fee: feeOverride = undefined
   } = options;
 
-  // Calculate fee like Java implementation: |payerAmount - amount| or |payeeAmount - amount|
+  // Calculate fee like the server: |payerAmount - amount| or |payeeAmount - amount|.
   const transactionAmount = parseFloat(amount);
   let fee = '0.60'; // Default fee
   if (payerAmount !== null) {
@@ -41,15 +50,27 @@ export function generateMockPICallback(transactionId, callbackType = 'TRANSACTIO
   } else if (payeeAmount !== null) {
     fee = Math.abs(parseFloat(payeeAmount) - transactionAmount).toFixed(2);
   }
+  if (feeOverride !== undefined) {
+    fee = feeOverride;
+  }
+
+  // The server's payloads are @JsonInclude(NON_NULL): a property with no value is ABSENT from the
+  // JSON rather than sent as null. Emitting "passbackParams": null here taught integrators to expect
+  // a shape the server never sends.
+  const feeFields = {
+    ...(fee !== null && fee !== undefined && { fee }),
+    ...(feeFixed !== null && feeFixed !== undefined && { feeFixed }),
+    ...(feeRate !== null && feeRate !== undefined && { feeRate })
+  };
 
   // Build payload based on callback type (matching Java implementation exactly)
   if (callbackType === 'TRANSACTION_PROCESSED') {
     return {
       callbackType,
       transactionId,
-      passbackParams,
+      ...(passbackParams !== null && passbackParams !== undefined && { passbackParams }),
       amount,
-      fee,
+      ...feeFields,
       currency,
       payeeBIC,
       payeeAccount,
@@ -65,19 +86,24 @@ export function generateMockPICallback(transactionId, callbackType = 'TRANSACTIO
       ...(paymentMethod && { paymentMethod })
     };
   } else {
-    // TRANSACTION_FINALIZED
+    // TRANSACTION_FINALIZED.
+    //
+    // transactionType and initiatedBy are deliberately NOT here: the server's finalized builder
+    // never sets them, so @JsonInclude(NON_NULL) drops them. An institution that needs either for a
+    // finalized transaction reads it from GET /transactions-history/{transactionId}.
     return {
       callbackType,
       transactionId,
-      passbackParams,
+      ...(passbackParams !== null && passbackParams !== undefined && { passbackParams }),
       amount,
-      fee,
+      ...feeFields,
       currency,
       status,
       ...(statusMessage && { statusMessage }),
       ...(paymentMethod && { paymentMethod }),
       created: Date.now() - 300000, // Created 5 minutes ago (milliseconds)
-      finalized: Date.now()
+      // Absent on EXPIRED: the expiry sweep transitions status in bulk and sets no finalized moment.
+      ...(status !== 'EXPIRED' && { finalized: Date.now() })
     };
   }
 }
@@ -152,6 +178,16 @@ export const simulatePICallbackTool = {
         description: "Fee amount charged by payment institution (e.g., '0.60')",
         default: "0.60"
       },
+      feeFixed: {
+        type: "string",
+        description: "Fixed fee component of the applicable fee configuration. Informational, for reconciliation - do not recompute the fee from it. Present on both callback types since 2026-08-21. Pass null to model a transaction with no fee configuration, where it is omitted.",
+        default: "0.1000"
+      },
+      feeRate: {
+        type: "string",
+        description: "Variable rate of the applicable fee configuration, e.g. '0.0150' = 1.5%. Informational, same as feeFixed.",
+        default: "0.0150"
+      },
       payeeBIC: {
         type: "string",
         description: "Payee's BIC code",
@@ -222,7 +258,9 @@ export const simulatePICallbackTool = {
       callbackUrl,
       amount = '57.00',
       currency = 'EUR',
-      fee = '0.60',
+      fee,
+      feeFixed = '0.1000',
+      feeRate = '0.0150',
       payeeBIC = 'SBBICID1',
       payeeAccount = 'M-1W-1account2',
       payeeFriendlyName = 'payware',
@@ -246,6 +284,8 @@ export const simulatePICallbackTool = {
       amount,
       currency,
       fee,
+      feeFixed,
+      feeRate,
       payeeBIC,
       payeeAccount,
       payeeFriendlyName,

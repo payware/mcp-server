@@ -20,6 +20,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Publishing an untested package is how a broken tool reaches every integrator at once, and
+      # npm has no unpublish after 72 hours. Gating the publish on the suite costs ~20 seconds.
+      - name: Run tests
+        run: npm test
+
       - name: Publish to npm
         run: npm publish --access public
         env:

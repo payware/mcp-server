@@ -28,6 +28,13 @@ import { isvDeepLinksTools } from './deep-links/index.js';
 // POI tools
 import { isvPOITools } from './poi/index.js';
 
+// Shop tools
+import { isvShopTools } from './shops/index.js';
+
+// Merchant onboarding: invitations, and the reference data their forms need
+import { isvInvitationTools } from './invitations/index.js';
+import { isvReferenceTools } from './reference/index.js';
+
 // Import shared tools
 import { sharedTools } from '../shared/index.js';
 
@@ -61,7 +68,16 @@ export const isvTools = [
   ...isvDeepLinksTools,
 
   // POI management
-  ...isvPOITools
+  ...isvPOITools,
+
+  // Shop lookup - needed before any call that takes a shopCode
+  ...isvShopTools,
+
+  // Merchant onboarding. These come BEFORE a merchant exists, so they authenticate as the ISV
+  // itself rather than on behalf of anyone - they are how the merchantPartnerId + oauth2Token pair
+  // that every other tool here requires comes into existence in the first place.
+  ...isvInvitationTools,
+  ...isvReferenceTools
 ];
 
 /**
@@ -103,6 +119,18 @@ export function getISVTools() {
     // POI tools keep their poi grouping
     else if (tool.name.startsWith('payware_poi_')) {
       newName = tool.name; // Keep poi grouping
+    }
+    // Shop tools keep their shops grouping
+    else if (tool.name.startsWith('payware_shops_')) {
+      newName = tool.name; // Keep shops grouping
+    }
+    // Merchant onboarding (invitations) keeps its isv grouping
+    else if (tool.name.startsWith('payware_isv_')) {
+      newName = tool.name; // Keep isv grouping
+    }
+    // Reference data keeps its reference grouping
+    else if (tool.name.startsWith('payware_reference_')) {
+      newName = tool.name; // Keep reference grouping
     }
 
     return {

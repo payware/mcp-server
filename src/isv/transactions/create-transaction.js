@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { describeApiError } from '../../shared/api-errors.js';
 
 /**
  * Create a transaction via payware API on behalf of a merchant (ISV)
@@ -138,10 +139,7 @@ export async function createTransaction({
 
     return response.data;
   } catch (error) {
-    if (error.response) {
-      throw new Error(`payware API Error: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
-    }
-    throw error;
+    throw describeApiError(error, 'call the payware API');
   }
 }
 
@@ -153,6 +151,24 @@ ISV partners can create transactions for merchants they have authorization for v
 Requires valid OAuth2 token obtained from the merchant.
 
 **Authentication**: Uses ISV JWT with merchant partner ID in 'aud' claim and OAuth2 token in 'sub' claim.
+
+⚠️ **The MERCHANT's plan governs, not the ISV's.** An on-behalf call inherits the plan of the merchant
+it acts for, so this endpoint answers **403** (\`ERR_METHOD_NOT_ALLOWED_FOR_CURRENT_USER_PLAN\`) when
+that merchant is on **Basic**. Acting on behalf is no longer sufficient on its own - before
+2026-08-21 it was, and an ISV serving a Basic merchant could reach the transaction, product, shop and
+report APIs regardless of that merchant's plan. The same applies to
+\`payware_products_*\`, \`payware_deep_links_*\` and \`payware_data_*\`. If a call that used to work
+now returns 403, check the merchant's plan first.
+
+⚠️ **Shop scope.** An ISV reaches only the shops the merchant assigned it. Naming any other shop
+answers **403 ERR_SHOP_NOT_IN_SCOPE**, and \`payware_shops_list\` returns only the in-scope ones.
+Omitting \`shop\` uses the merchant's default shop, which may itself be out of scope.
+
+ℹ️ **Producer attribution does not apply here.** \`producerPartnerId\` / \`terminalId\` /
+\`terminalManufacturer\` are accepted on direct merchant calls only. Whoever made the API call owns the
+sale, so an ISV call is an ISV sale even when the ISV's software is running on a hardware producer's
+terminal. Do not try to pass them through - use \`payware_operations_create_transaction\` from the
+merchant role if the terminal producer is meant to be attributed.
 
 **Transaction Types:**
 - PLAIN: Basic transaction without visual codes

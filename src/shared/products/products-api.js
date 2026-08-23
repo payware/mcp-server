@@ -4,6 +4,7 @@ import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { getSandboxUrl, getProductionUrl } from '../../config/env.js';
+import { describeApiError } from '../api-errors.js';
 
 /**
  * Product types
@@ -192,7 +193,7 @@ export async function createProduct({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to create product: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'create product');
   }
 }
 
@@ -223,7 +224,7 @@ export async function getProducts({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to get products: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'get products');
   }
 }
 
@@ -259,7 +260,7 @@ export async function getProduct({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to get product: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'get product');
   }
 }
 
@@ -322,7 +323,7 @@ export async function updateProduct({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to update product: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'update product');
   }
 }
 
@@ -357,7 +358,7 @@ export async function deleteProduct({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to delete product: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'delete product');
   }
 }
 
@@ -410,7 +411,7 @@ export async function getProductImage({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to get product image: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'get product image');
   }
 }
 
@@ -469,7 +470,7 @@ export async function createPriceSchedule({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to create price schedule: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'create price schedule');
   }
 }
 
@@ -505,7 +506,7 @@ export async function getProductSchedules({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to get product schedules: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'get product schedules');
   }
 }
 
@@ -545,7 +546,7 @@ export async function getSchedule({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to get schedule: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'get schedule');
   }
 }
 
@@ -603,7 +604,7 @@ export async function updatePriceSchedule({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to update schedule: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'update schedule');
   }
 }
 
@@ -642,7 +643,7 @@ export async function deletePriceSchedule({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to delete schedule: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'delete schedule');
   }
 }
 
@@ -702,7 +703,7 @@ export async function registerAudio({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to register audio: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'register audio');
   }
 }
 
@@ -738,7 +739,7 @@ export async function getProductAudios({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to get product audios: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'get product audios');
   }
 }
 
@@ -778,7 +779,7 @@ export async function getAudio({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to get audio: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'get audio');
   }
 }
 
@@ -828,7 +829,7 @@ export async function updateAudio({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to update audio: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'update audio');
   }
 }
 
@@ -867,6 +868,6 @@ export async function deleteAudio({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to delete audio: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'delete audio');
   }
 }

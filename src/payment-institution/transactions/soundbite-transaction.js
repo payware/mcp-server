@@ -3,6 +3,7 @@ import FormData from 'form-data';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { readFileSync } from 'fs';
+import { apiErrorResult } from '../../shared/api-errors.js';
 
 /**
  * Get transaction information using Soundbite file via payware API
@@ -63,16 +64,7 @@ export async function getSoundbiteTransaction({
       timestamp: new Date().toISOString()
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        message: error.response?.data?.message || error.message,
-        status: error.response?.status,
-        code: error.response?.data?.code,
-        details: error.response?.data
-      },
-      timestamp: new Date().toISOString()
-    };
+    return apiErrorResult(error);
   }
 }
 

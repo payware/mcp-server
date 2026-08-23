@@ -13,7 +13,7 @@ const SANDBOX_CONFIG = {
     'EUR', 'USD', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD', 'CNY', 'SEK', 'NOK', 'DKK',
     // All other supported currencies (100+ total)
     'AED', 'AFN', 'ALL', 'AMD', 'ANG', 'AOA', 'ARS', 'AWG', 'AZN',
-    'BAM', 'BBD', 'BDT', 'BGN', 'BHD', 'BIF', 'BMD', 'BND', 'BOB', 'BRL', 'BSD', 'BTC', 'BTN', 'BWP', 'BYN', 'BZD',
+    'BAM', 'BBD', 'BDT', 'BHD', 'BIF', 'BMD', 'BND', 'BOB', 'BRL', 'BSD', 'BTC', 'BTN', 'BWP', 'BYN', 'BZD',
     'CDF', 'CLP', 'COP', 'CRC', 'CUP', 'CVE', 'CZK',
     'DJF', 'DOP', 'DZD',
     'EGP', 'ERN', 'ETB',

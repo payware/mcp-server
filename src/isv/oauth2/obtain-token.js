@@ -125,22 +125,33 @@ Auth: Requires ISV JWT token with aud: "https://payware.eu"`,
         errorDetails.httpStatus = error.response.status;
         errorDetails.responseData = error.response.data;
 
-        if (error.response.data?.error) {
-          const errorCode = error.response.data.error;
+        // The code payware branches on is `errorCode`. `error` is RFC 6749 section 5.2's field,
+        // which the token endpoint began sending in 2026-08 alongside `errorCode` - it carries the
+        // RFC's closed vocabulary (invalid_client, invalid_request, unsupported_grant_type), NOT a
+        // payware ERR_* code. Reading the mapping off `error` therefore looked up an RFC value in a
+        // table keyed by ERR_* and fell through to "Error: invalid_client" for every failure.
+        const errorCode = error.response.data?.errorCode;
+        const rfcError = error.response.data?.error;
+
+        if (errorCode || rfcError) {
           const errorMappings = {
             'ERR_UNSUPPORTED_GRANT_TYPE': 'Grant type must be "client_credentials"',
             'ERR_MISSING_CLIENT_ID': 'Client ID (merchant partnerId) is required',
             'ERR_MISSING_CLIENT_SECRET': 'Client secret (base64 encoded merchant secret) is required',
             'ERR_CLIENT_NOT_FOUND': 'Merchant not found with provided client ID',
-            'ERR_CLIENT_DISABLED': 'Merchant account is disabled',
-            'ERR_TOKEN_EXISTS': 'Token already exists for this merchant. Only one token per merchant is allowed.'
+            'ERR_CLIENT_DISABLED': 'Merchant account is disabled'
           };
 
-          errorMessage = errorMappings[errorCode] || `Error: ${errorCode}`;
+          // ERR_TOKEN_EXISTS is gone from this table on purpose: the server no longer throws it
+          // (the exception was deleted as never-thrown), so the branch that explained how to
+          // recover an existing token could never run and only misled whoever read it next.
+          errorMessage = errorMappings[errorCode]
+            || error.response.data?.message
+            || `Error: ${errorCode || rfcError}`;
 
-          // Special handling for ERR_TOKEN_EXISTS - try to get existing token info
-          if (errorCode === 'ERR_TOKEN_EXISTS') {
-            errorMessage += '\\n\\n🔍 **To find your existing token:**\\n1. Check your secure storage where you saved the previous token\\n2. Or use payware_oauth2_get_token_info if you know the token\\n3. Contact merchant to revoke existing token if you need a new one';
+          if (rfcError) {
+            errorDetails.oauth2Error = rfcError;
+            errorDetails.oauth2ErrorDescription = error.response.data?.error_description;
           }
         } else {
           errorMessage = `HTTP ${error.response.status}: ${error.response.statusText}`;

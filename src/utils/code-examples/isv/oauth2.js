@@ -1,64 +1,60 @@
 /**
  * ISV OAuth2 authentication flow examples
+ *
+ * Everything here targets the OAuth2 surface payware actually serves (Oauth2Controller):
+ *
+ *   POST /oauth2/tokens                  request a token for a merchant
+ *   GET  /oauth2/tokens                  list this ISV's tokens
+ *   GET  /oauth2/tokens/{token}          status of one token
+ *   POST /oauth2/tokens/{token}/rotate   rotate the credential, keeping the authorization
+ *
+ * These generators used to emit /oauth2/token, /oauth2/token/info, /oauth2/token/simple,
+ * /oauth2/token/refresh and /oauth2/token/revoke - none of which exist - with form-encoded,
+ * snake_case bodies and an OAuth2 `scope` parameter payware has never accepted. The live mcp tools
+ * always called the right endpoints, which is exactly why nobody noticed: the defect only reached
+ * integrators who shipped the generated code. They got 404s on the URLs (loud) and, worse, designed
+ * token handling around refresh and revoke semantics that do not exist (silent).
+ *
+ * The real contract: JSON body, camelCase fields, no scope. `clientId` is the merchant's partnerId
+ * and `clientSecret` is that merchant's secret, base64-encoded. A new token is PENDING until the
+ * merchant grants it; credentials expire (expiresIn seconds, 180 days by default) and are renewed by
+ * requesting again with the same client credentials - the merchant does not re-consent - or by
+ * rotating. There is no revoke call: authorization ends on the merchant's side.
  */
 
-import { ExampleGenerator, CommonTemplates } from '../common/helpers.js';
+import { ExampleGenerator } from '../common/helpers.js';
 
 /**
  * OAuth2 operations for ISV
  */
 export const OAuth2Operations = {
   obtain_token: {
-    description: 'Obtain OAuth2 access token for merchant access',
-    endpoint: '/oauth2/token',
+    description: 'Request an OAuth2 token for a merchant (PENDING until the merchant grants it)',
+    endpoint: '/oauth2/tokens',
     method: 'POST',
     sampleBody: {
-      grant_type: 'client_credentials',
-      client_id: 'YOUR_CLIENT_ID',
-      client_secret: 'YOUR_CLIENT_SECRET',
-      scope: 'merchant:transactions merchant:products merchant:data'
+      grantType: 'client_credentials',
+      clientId: 'MERCHANT_PARTNER_ID',
+      clientSecret: 'BASE64_ENCODED_MERCHANT_SECRET'
     }
   },
 
   get_token_info: {
-    description: 'Get information about current OAuth2 token',
-    endpoint: '/oauth2/token/info',
+    description: 'Get the status of one token (PENDING / GRANTED / REVOKED)',
+    endpoint: '/oauth2/tokens/{token}',
     method: 'GET',
     sampleBody: null
   },
 
-  create_token_simple: {
-    description: 'Create simple OAuth2 token with basic scope',
-    endpoint: '/oauth2/token/simple',
+  rotate_token: {
+    description: 'Rotate a token credential, keeping the merchant authorization it was granted under',
+    endpoint: '/oauth2/tokens/{token}/rotate',
     method: 'POST',
-    sampleBody: {
-      grant_type: 'client_credentials',
-      scope: 'merchant:read'
-    }
-  },
-
-  refresh_token: {
-    description: 'Refresh an existing OAuth2 token',
-    endpoint: '/oauth2/token/refresh',
-    method: 'POST',
-    sampleBody: {
-      grant_type: 'refresh_token',
-      refresh_token: 'REFRESH_TOKEN_HERE'
-    }
-  },
-
-  revoke_token: {
-    description: 'Revoke OAuth2 access token',
-    endpoint: '/oauth2/token/revoke',
-    method: 'POST',
-    sampleBody: {
-      token: 'TOKEN_TO_REVOKE',
-      token_type_hint: 'access_token'
-    }
+    sampleBody: null
   },
 
   list_active_tokens: {
-    description: 'List all active OAuth2 tokens for ISV',
+    description: 'List all OAuth2 tokens for this ISV',
     endpoint: '/oauth2/tokens',
     method: 'GET',
     sampleBody: null
@@ -79,231 +75,172 @@ export class PythonOAuth2Generator extends ExampleGenerator {
       throw new Error(`Unknown operation: ${operation}`);
     }
 
-    const { merchantPartnerId = 'merchant_456', scope = 'merchant:full', ...otherParams } = params;
+    const { merchantPartnerId = 'MERCHANT_PARTNER_ID' } = params;
     const functionName = `${operation}_example`;
 
-    return `def ${functionName}(merchant_partner_id='${merchantPartnerId}', scope='${scope}', use_sandbox=True):
-    """${opConfig.description}"""
+    return `def ${functionName}(merchant_partner_id='${merchantPartnerId}', token='EXISTING_TOKEN', use_sandbox=True):
+    """${opConfig.description}
+
+    OAuth2 endpoints live outside /api, so the base URL has no /api suffix, and they are
+    authenticated with the ISV's signed JWT like every other payware call.
+    """
 
     try:
-        # Get OAuth2 configuration
-        client_id = os.getenv('PAYWARE_OAUTH_CLIENT_ID')
-        client_secret = os.getenv('PAYWARE_OAUTH_CLIENT_SECRET')
+        # The merchant's secret, base64-encoded - not the ISV's own credentials
+        merchant_secret = os.getenv('PAYWARE_MERCHANT_SECRET')
 
-        if not client_id or not client_secret:
-            print("Missing OAuth2 credentials in environment")
-            return None
-
-        # Get API configuration
-        base_url = get_api_base_url(use_sandbox)
-        endpoint = '${opConfig.endpoint}'
+        # OAuth2 endpoints are served from the host root, not from /api
+        base_url = get_api_base_url(use_sandbox).replace('/api', '')
+        endpoint = '${opConfig.endpoint}'.replace('{token}', token)
         url = f"{base_url}{endpoint}"
 
-        ${this.getRequestBodySection(operation, opConfig, merchantPartnerId)}
+${this.getRequestBodySection(operation, opConfig)}
 
-        # OAuth2 requests use application/x-www-form-urlencoded
+        # JSON, and no Api-Version header on OAuth2 calls
         headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Api-Version': '1'
+            'Authorization': f'Bearer {create_isv_jwt(request_data, audience="https://payware.eu")}',
+            'Content-Type': 'application/json'
         }
 
         ${this.getRequestSection(opConfig.method)}
 
         if response.status_code == 200:
             result = response.json()
-            print(f"${opConfig.description} successful:")
+            print(f"${opConfig.description} - OK")
             print(json.dumps(result, indent=2))
 
-            ${this.getResultProcessingSection(operation)}
+${this.getResultProcessingSection(operation)}
             return result
         else:
-            error_msg = f"OAuth2 request failed with status {response.status_code}: {response.text}"
-            print(error_msg)
+            print(f"OAuth2 request failed with status {response.status_code}: {response.text}")
             return None
 
     except requests.exceptions.RequestException as e:
         print(f"OAuth2 request error: {str(e)}")
         return None
-    except Exception as e:
-        print(f"Unexpected error: {str(e)}")
-        return None
 
-def get_oauth2_token_for_merchant(merchant_partner_id, scope='merchant:full', use_sandbox=True):
-    """Convenience function to get OAuth2 token for specific merchant"""
 
-    client_id = os.getenv('PAYWARE_OAUTH_CLIENT_ID')
-    client_secret = os.getenv('PAYWARE_OAUTH_CLIENT_SECRET')
+def get_oauth2_token_for_merchant(merchant_partner_id, use_sandbox=True):
+    """Request a token for one merchant. Returns the accessToken, PENDING until granted."""
 
-    if not client_id or not client_secret:
-        raise ValueError("Missing OAuth2 credentials")
+    merchant_secret = os.getenv('PAYWARE_MERCHANT_SECRET')
+    if not merchant_secret:
+        raise ValueError("Missing merchant secret")
 
-    base_url = get_api_base_url(use_sandbox)
-    url = f"{base_url}/oauth2/token"
+    base_url = get_api_base_url(use_sandbox).replace('/api', '')
+    url = f"{base_url}/oauth2/tokens"
 
-    data = {
-        'grant_type': 'client_credentials',
-        'client_id': client_id,
-        'client_secret': client_secret,
-        'scope': f"merchant:{merchant_partner_id} {scope}"
+    request_data = {
+        'grantType': 'client_credentials',
+        'clientId': merchant_partner_id,
+        'clientSecret': base64.b64encode(merchant_secret.encode()).decode()
     }
 
     headers = {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Api-Version': '1'
+        'Authorization': f'Bearer {create_isv_jwt(request_data, audience="https://payware.eu")}',
+        'Content-Type': 'application/json'
     }
 
-    try:
-        response = requests.post(url, data=data, headers=headers)
+    response = requests.post(url, json=request_data, headers=headers)
 
-        if response.status_code == 200:
-            token_data = response.json()
-            return token_data['access_token']
-        else:
-            print(f"OAuth2 token request failed: {response.status_code} - {response.text}")
-            return None
+    if response.status_code == 200:
+        # camelCase: accessToken, tokenType, status, expiresIn, scope
+        return response.json()['accessToken']
 
-    except Exception as e:
-        print(f"OAuth2 token error: {str(e)}")
-        return None
+    print(f"OAuth2 token request failed: {response.status_code} - {response.text}")
+    return None
 
-def validate_oauth2_token(access_token, use_sandbox=True):
-    """Validate OAuth2 token and get token information"""
 
-    base_url = get_api_base_url(use_sandbox)
-    url = f"{base_url}/oauth2/token/info"
+def get_token_status(token, use_sandbox=True):
+    """Status of an existing token: PENDING, GRANTED or REVOKED."""
+
+    base_url = get_api_base_url(use_sandbox).replace('/api', '')
+    url = f"{base_url}/oauth2/tokens/{token}"
 
     headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Api-Version': '1'
+        'Authorization': f'Bearer {create_isv_jwt(None, audience="https://payware.eu")}'
     }
 
-    try:
-        response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers)
 
-        if response.status_code == 200:
-            token_info = response.json()
-            print("Token validation successful:")
-            print(f"- Valid: {token_info.get('active', False)}")
-            print(f"- Scope: {token_info.get('scope', 'N/A')}")
-            print(f"- Expires in: {token_info.get('expires_in', 'N/A')} seconds")
-            return token_info
-        else:
-            print(f"Token validation failed: {response.status_code}")
-            return None
+    if response.status_code == 200:
+        info = response.json()
+        print(f"- Status:     {info.get('status')}")
+        print(f"- Client ID:  {info.get('clientId')}")
+        print(f"- Scope:      {info.get('scope')}")
+        print(f"- Expires in: {info.get('expiresIn')} seconds")
+        return info
 
-    except Exception as e:
-        print(f"Token validation error: {str(e)}")
-        return None
+    print(f"Token status request failed: {response.status_code}")
+    return None
+
 
 # Example usage
 if __name__ == "__main__":
-    # Get target merchant from environment or use default
-    target_merchant = os.getenv('PAYWARE_TARGET_MERCHANT_ID', 'merchant_example')
+    target_merchant = os.getenv('PAYWARE_TARGET_MERCHANT_ID', 'MERCHANT_PARTNER_ID')
 
-    print("=== OAuth2 Flow Example ===")
+    print("=== OAuth2 Flow ===")
 
-    # Step 1: Obtain OAuth2 token
-    print("\\n1. Obtaining OAuth2 token...")
-    token_result = obtain_token_example(target_merchant)
+    print("\\n1. Requesting a token for the merchant...")
+    access_token = get_oauth2_token_for_merchant(target_merchant)
 
-    if token_result and 'access_token' in token_result:
-        access_token = token_result['access_token']
-        print(f"✓ OAuth2 token obtained: {access_token[:20]}...")
+    if access_token:
+        print(f"OK - token: {access_token[:20]}...")
 
-        # Step 2: Validate the token
-        print("\\n2. Validating OAuth2 token...")
-        validation_result = validate_oauth2_token(access_token)
+        print("\\n2. Checking its status...")
+        info = get_token_status(access_token)
 
-        if validation_result and validation_result.get('active'):
-            print("✓ Token is valid and active")
-
-            # Step 3: Use token for API calls
-            print("\\n3. Token ready for API calls")
-            print("You can now use this token with ISV JWT authentication")
+        if info and info.get('status') == 'GRANTED':
+            print("The merchant has granted authorization - the token can be used.")
         else:
-            print("✗ Token validation failed")
+            print("Still PENDING: the merchant has to grant it in the payware portal.")
     else:
-        print("✗ Failed to obtain OAuth2 token")`;
+        print("Failed to obtain an OAuth2 token")`;
   }
 
-  getRequestBodySection(operation, opConfig, merchantPartnerId) {
+  getRequestBodySection(operation, opConfig) {
     if (!opConfig.sampleBody) {
-      return '# No request body needed for this operation\n        request_data = {}';
+      return '        # No request body for this operation\n        request_data = None';
     }
 
-    let body = { ...opConfig.sampleBody };
-
-    // Customize body based on operation
-    if (operation === 'obtain_token') {
-      body.scope = `merchant:${merchantPartnerId} ${body.scope}`;
-      body.client_id = 'client_id';  // Will be replaced by actual value
-      body.client_secret = 'client_secret';  // Will be replaced by actual value
-    }
-
-    const bodyEntries = Object.entries(body)
-      .map(([key, value]) => {
-        if (key === 'client_id') {
-          return "        'client_id': client_id,";
-        } else if (key === 'client_secret') {
-          return "        'client_secret': client_secret,";
-        } else {
-          return `        '${key}': '${value}',`;
-        }
-      })
-      .join('\n');
-
-    return `# Prepare OAuth2 request data
+    return `        # JSON body, camelCase fields - clientSecret is base64 of the merchant's secret
         request_data = {
-${bodyEntries}
+            'grantType': 'client_credentials',
+            'clientId': merchant_partner_id,
+            'clientSecret': base64.b64encode(merchant_secret.encode()).decode()
         }`;
   }
 
   getRequestSection(method) {
     if (method === 'GET') {
       return 'response = requests.get(url, headers=headers)';
-    } else {
-      return 'response = requests.post(url, data=request_data, headers=headers)';
     }
+    return 'response = requests.post(url, json=request_data, headers=headers)';
   }
 
   getResultProcessingSection(operation) {
     const processing = {
-      obtain_token: `# Store token information
-        access_token = result.get('access_token')
-        token_type = result.get('token_type', 'Bearer')
-        expires_in = result.get('expires_in')
-        scope = result.get('scope')
+      obtain_token: `            access_token = result.get('accessToken')
+            print(f"Access Token: {access_token[:20]}...")
+            print(f"Token Type:   {result.get('tokenType')}")
+            print(f"Status:       {result.get('status')}")
+            print(f"Expires In:   {result.get('expiresIn')} seconds")`,
 
-        print(f"Access Token: {access_token[:20]}...")
-        print(f"Token Type: {token_type}")
-        print(f"Expires In: {expires_in} seconds")
-        print(f"Scope: {scope}")
+      get_token_info: `            print(f"Status:     {result.get('status')}")
+            print(f"Client ID:  {result.get('clientId')}")
+            print(f"Scope:      {result.get('scope')}")
+            print(f"Expires In: {result.get('expiresIn')} seconds")`,
 
-        # Store token for later use
-        os.environ['OAUTH2_ACCESS_TOKEN'] = access_token`,
+      rotate_token: `            print(f"New Access Token: {result.get('accessToken')}")
+            print(f"Status:           {result.get('status')}")
+            print("Store the new credential; the previous one stops working.")`,
 
-      get_token_info: `# Display token information
-        active = result.get('active', False)
-        scope = result.get('scope', 'N/A')
-        client_id = result.get('client_id', 'N/A')
-        expires_in = result.get('exp', 'N/A')
-
-        print(f"Token Active: {active}")
-        print(f"Client ID: {client_id}")
-        print(f"Scope: {scope}")
-        print(f"Expires: {expires_in}")`,
-
-      list_active_tokens: `# Display active tokens
-        tokens = result.get('tokens', [])
-        print(f"Found {len(tokens)} active tokens:")
-        for token in tokens:
-            print(f"- Token ID: {token.get('id')}")
-            print(f"  Scope: {token.get('scope')}")
-            print(f"  Created: {token.get('created_at')}")
-            print(f"  Expires: {token.get('expires_at')}")`
+      list_active_tokens: `            for token_info in result:
+                print(f"- {token_info.get('accessToken')} ({token_info.get('status')})"
+                      f" client={token_info.get('clientId')}")`
     };
 
-    return processing[operation] || '# Process OAuth2 result as needed';
+    return processing[operation] || '            # Process the OAuth2 result as needed';
   }
 }
 
@@ -321,55 +258,47 @@ export class NodeJSOAuth2Generator extends ExampleGenerator {
       throw new Error(`Unknown operation: ${operation}`);
     }
 
-    const { merchantPartnerId = 'merchant_456', scope = 'merchant:full', ...otherParams } = params;
+    const { merchantPartnerId = 'MERCHANT_PARTNER_ID' } = params;
     const functionName = `${operation}Example`;
 
-    return `async function ${functionName}(merchantPartnerId = '${merchantPartnerId}', scope = '${scope}', useSandbox = true) {
+    return `async function ${functionName}(merchantPartnerId = '${merchantPartnerId}', token = 'EXISTING_TOKEN', useSandbox = true) {
   /**
    * ${opConfig.description}
+   *
+   * OAuth2 endpoints live outside /api, so the base URL has no /api suffix, and they are
+   * authenticated with the ISV's signed JWT like every other payware call.
    */
 
   try {
-    // Get OAuth2 configuration
-    const clientId = process.env.PAYWARE_OAUTH_CLIENT_ID;
-    const clientSecret = process.env.PAYWARE_OAUTH_CLIENT_SECRET;
+    // The merchant's secret, base64-encoded - not the ISV's own credentials
+    const merchantSecret = process.env.PAYWARE_MERCHANT_SECRET;
 
-    if (!clientId || !clientSecret) {
-      console.error('Missing OAuth2 credentials in environment');
-      return null;
-    }
-
-    // Get API configuration
-    const baseUrl = getAPIBaseURL(useSandbox);
-    const endpoint = '${opConfig.endpoint}';
+    // OAuth2 endpoints are served from the host root, not from /api
+    const baseUrl = getAPIBaseURL(useSandbox).replace('/api', '');
+    const endpoint = '${opConfig.endpoint}'.replace('{token}', token);
     const url = \`\${baseUrl}\${endpoint}\`;
 
-    ${this.getRequestBodySection(operation, opConfig, merchantPartnerId)}
+${this.getRequestBodySection(operation, opConfig)}
 
-    // OAuth2 requests use application/x-www-form-urlencoded
+    // JSON, and no Api-Version header on OAuth2 calls
     const headers = {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Api-Version': '1'
+      'Authorization': \`Bearer \${createISVJWT(requestData, 'https://payware.eu')}\`,
+      'Content-Type': 'application/json'
     };
 
     ${this.getRequestSection(opConfig.method)}
 
-    if (response.status === 200) {
-      const result = response.data;
-      console.log('${opConfig.description} successful:');
-      console.log(JSON.stringify(result, null, 2));
+    const result = response.data;
+    console.log('${opConfig.description} - OK');
+    console.log(JSON.stringify(result, null, 2));
 
-      ${this.getResultProcessingSection(operation)}
+${this.getResultProcessingSection(operation)}
 
-      return result;
-    } else {
-      console.error(\`OAuth2 request failed with status \${response.status}: \${response.statusText}\`);
-      return null;
-    }
+    return result;
 
   } catch (error) {
     if (error.response) {
-      console.error(\`OAuth2 API Error: \${error.response.status} - \${error.response.data}\`);
+      console.error(\`OAuth2 API Error: \${error.response.status} - \${JSON.stringify(error.response.data)}\`);
     } else {
       console.error('OAuth2 Error:', error.message);
     }
@@ -377,203 +306,132 @@ export class NodeJSOAuth2Generator extends ExampleGenerator {
   }
 }
 
-async function getOAuth2TokenForMerchant(merchantPartnerId, scope = 'merchant:full', useSandbox = true) {
+async function getOAuth2TokenForMerchant(merchantPartnerId, useSandbox = true) {
   /**
-   * Convenience function to get OAuth2 token for specific merchant
+   * Request a token for one merchant. Returns the accessToken, PENDING until the merchant grants it.
    */
 
-  const clientId = process.env.PAYWARE_OAUTH_CLIENT_ID;
-  const clientSecret = process.env.PAYWARE_OAUTH_CLIENT_SECRET;
-
-  if (!clientId || !clientSecret) {
-    throw new Error('Missing OAuth2 credentials');
+  const merchantSecret = process.env.PAYWARE_MERCHANT_SECRET;
+  if (!merchantSecret) {
+    throw new Error('Missing merchant secret');
   }
 
-  const baseUrl = getAPIBaseURL(useSandbox);
-  const url = \`\${baseUrl}/oauth2/token\`;
+  const baseUrl = getAPIBaseURL(useSandbox).replace('/api', '');
+  const url = \`\${baseUrl}/oauth2/tokens\`;
 
-  const data = new URLSearchParams({
-    grant_type: 'client_credentials',
-    client_id: clientId,
-    client_secret: clientSecret,
-    scope: \`merchant:\${merchantPartnerId} \${scope}\`
-  });
-
-  const headers = {
-    'Content-Type': 'application/x-www-form-urlencoded',
-    'Api-Version': '1'
+  const requestData = {
+    grantType: 'client_credentials',
+    clientId: merchantPartnerId,
+    clientSecret: Buffer.from(merchantSecret).toString('base64')
   };
 
-  try {
-    const response = await axios.post(url, data, { headers });
+  const headers = {
+    'Authorization': \`Bearer \${createISVJWT(requestData, 'https://payware.eu')}\`,
+    'Content-Type': 'application/json'
+  };
 
-    if (response.status === 200) {
-      return response.data.access_token;
-    } else {
-      console.error(\`OAuth2 token request failed: \${response.status} - \${response.statusText}\`);
-      return null;
-    }
-
-  } catch (error) {
-    console.error('OAuth2 token error:', error.message);
-    return null;
-  }
+  const response = await axios.post(url, requestData, { headers });
+  // camelCase: accessToken, tokenType, status, expiresIn, scope
+  return response.data.accessToken;
 }
 
-async function validateOAuth2Token(accessToken, useSandbox = true) {
+async function getTokenStatus(token, useSandbox = true) {
   /**
-   * Validate OAuth2 token and get token information
+   * Status of an existing token: PENDING, GRANTED or REVOKED.
    */
 
-  const baseUrl = getAPIBaseURL(useSandbox);
-  const url = \`\${baseUrl}/oauth2/token/info\`;
+  const baseUrl = getAPIBaseURL(useSandbox).replace('/api', '');
+  const url = \`\${baseUrl}/oauth2/tokens/\${token}\`;
 
   const headers = {
-    'Authorization': \`Bearer \${accessToken}\`,
-    'Api-Version': '1'
+    'Authorization': \`Bearer \${createISVJWT(null, 'https://payware.eu')}\`
   };
 
-  try {
-    const response = await axios.get(url, { headers });
+  const response = await axios.get(url, { headers });
+  const info = response.data;
 
-    if (response.status === 200) {
-      const tokenInfo = response.data;
-      console.log('Token validation successful:');
-      console.log(\`- Valid: \${tokenInfo.active || false}\`);
-      console.log(\`- Scope: \${tokenInfo.scope || 'N/A'}\`);
-      console.log(\`- Expires in: \${tokenInfo.expires_in || 'N/A'} seconds\`);
-      return tokenInfo;
-    } else {
-      console.error(\`Token validation failed: \${response.status}\`);
-      return null;
-    }
+  console.log(\`- Status:     \${info.status}\`);
+  console.log(\`- Client ID:  \${info.clientId}\`);
+  console.log(\`- Scope:      \${info.scope}\`);
+  console.log(\`- Expires in: \${info.expiresIn} seconds\`);
 
-  } catch (error) {
-    console.error('Token validation error:', error.message);
-    return null;
-  }
+  return info;
 }
 
 // Example usage
 async function main() {
-  // Get target merchant from environment or use default
-  const targetMerchant = process.env.PAYWARE_TARGET_MERCHANT_ID || 'merchant_example';
+  const targetMerchant = process.env.PAYWARE_TARGET_MERCHANT_ID || 'MERCHANT_PARTNER_ID';
 
-  console.log('=== OAuth2 Flow Example ===');
+  console.log('=== OAuth2 Flow ===');
 
   try {
-    // Step 1: Obtain OAuth2 token
-    console.log('\\n1. Obtaining OAuth2 token...');
-    const tokenResult = await obtainTokenExample(targetMerchant);
+    console.log('\\n1. Requesting a token for the merchant...');
+    const accessToken = await getOAuth2TokenForMerchant(targetMerchant);
 
-    if (tokenResult && tokenResult.access_token) {
-      const accessToken = tokenResult.access_token;
-      console.log(\`✓ OAuth2 token obtained: \${accessToken.substring(0, 20)}...\`);
+    if (accessToken) {
+      console.log(\`OK - token: \${accessToken.substring(0, 20)}...\`);
 
-      // Step 2: Validate the token
-      console.log('\\n2. Validating OAuth2 token...');
-      const validationResult = await validateOAuth2Token(accessToken);
+      console.log('\\n2. Checking its status...');
+      const info = await getTokenStatus(accessToken);
 
-      if (validationResult && validationResult.active) {
-        console.log('✓ Token is valid and active');
-
-        // Step 3: Use token for API calls
-        console.log('\\n3. Token ready for API calls');
-        console.log('You can now use this token with ISV JWT authentication');
+      if (info && info.status === 'GRANTED') {
+        console.log('The merchant has granted authorization - the token can be used.');
       } else {
-        console.log('✗ Token validation failed');
+        console.log('Still PENDING: the merchant has to grant it in the payware portal.');
       }
-    } else {
-      console.log('✗ Failed to obtain OAuth2 token');
     }
-
   } catch (error) {
     console.error('OAuth2 flow error:', error.message);
   }
 }
 
-// Run example if this file is executed directly
 if (require.main === module) {
   main().catch(console.error);
 }`;
   }
 
-  getRequestBodySection(operation, opConfig, merchantPartnerId) {
+  getRequestBodySection(operation, opConfig) {
     if (!opConfig.sampleBody) {
-      return '// No request body needed for this operation\n    const requestData = new URLSearchParams();';
+      return '    // No request body for this operation\n    const requestData = null;';
     }
 
-    let body = { ...opConfig.sampleBody };
-
-    // Customize body based on operation
-    if (operation === 'obtain_token') {
-      body.scope = `merchant:${merchantPartnerId} ${body.scope}`;
-    }
-
-    const bodyEntries = Object.entries(body)
-      .map(([key, value]) => {
-        if (key === 'client_id') {
-          return "    requestData.append('client_id', clientId);";
-        } else if (key === 'client_secret') {
-          return "    requestData.append('client_secret', clientSecret);";
-        } else {
-          return `    requestData.append('${key}', '${value}');`;
-        }
-      })
-      .join('\n');
-
-    return `// Prepare OAuth2 request data
-    const requestData = new URLSearchParams();
-${bodyEntries}`;
+    return `    // JSON body, camelCase fields - clientSecret is base64 of the merchant's secret
+    const requestData = {
+      grantType: 'client_credentials',
+      clientId: merchantPartnerId,
+      clientSecret: Buffer.from(merchantSecret).toString('base64')
+    };`;
   }
 
   getRequestSection(method) {
     if (method === 'GET') {
       return 'const response = await axios.get(url, { headers });';
-    } else {
-      return 'const response = await axios.post(url, requestData, { headers });';
     }
+    return 'const response = await axios.post(url, requestData, { headers });';
   }
 
   getResultProcessingSection(operation) {
     const processing = {
-      obtain_token: `// Store token information
-      const accessToken = result.access_token;
-      const tokenType = result.token_type || 'Bearer';
-      const expiresIn = result.expires_in;
-      const scope = result.scope;
+      obtain_token: `    console.log(\`Access Token: \${result.accessToken.substring(0, 20)}...\`);
+    console.log(\`Token Type:   \${result.tokenType}\`);
+    console.log(\`Status:       \${result.status}\`);
+    console.log(\`Expires In:   \${result.expiresIn} seconds\`);`,
 
-      console.log(\`Access Token: \${accessToken.substring(0, 20)}...\`);
-      console.log(\`Token Type: \${tokenType}\`);
-      console.log(\`Expires In: \${expiresIn} seconds\`);
-      console.log(\`Scope: \${scope}\`);
+      get_token_info: `    console.log(\`Status:     \${result.status}\`);
+    console.log(\`Client ID:  \${result.clientId}\`);
+    console.log(\`Scope:      \${result.scope}\`);
+    console.log(\`Expires In: \${result.expiresIn} seconds\`);`,
 
-      // Store token for later use
-      process.env.OAUTH2_ACCESS_TOKEN = accessToken;`,
+      rotate_token: `    console.log(\`New Access Token: \${result.accessToken}\`);
+    console.log(\`Status:           \${result.status}\`);
+    console.log('Store the new credential; the previous one stops working.');`,
 
-      get_token_info: `// Display token information
-      const active = result.active || false;
-      const scope = result.scope || 'N/A';
-      const clientId = result.client_id || 'N/A';
-      const expiresIn = result.exp || 'N/A';
-
-      console.log(\`Token Active: \${active}\`);
-      console.log(\`Client ID: \${clientId}\`);
-      console.log(\`Scope: \${scope}\`);
-      console.log(\`Expires: \${expiresIn}\`);`,
-
-      list_active_tokens: `// Display active tokens
-      const tokens = result.tokens || [];
-      console.log(\`Found \${tokens.length} active tokens:\`);
-      tokens.forEach(token => {
-        console.log(\`- Token ID: \${token.id}\`);
-        console.log(\`  Scope: \${token.scope}\`);
-        console.log(\`  Created: \${token.created_at}\`);
-        console.log(\`  Expires: \${token.expires_at}\`);
-      });`
+      list_active_tokens: `    result.forEach(tokenInfo => {
+      console.log(\`- \${tokenInfo.accessToken} (\${tokenInfo.status}) client=\${tokenInfo.clientId}\`);
+    });`
     };
 
-    return processing[operation] || '// Process OAuth2 result as needed';
+    return processing[operation] || '    // Process the OAuth2 result as needed';
   }
 }
 

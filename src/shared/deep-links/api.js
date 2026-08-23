@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getProductionUrl } from '../../config/env.js';
+import { describeApiError } from '../api-errors.js';
 
 /**
  * Create authentication headers based on partner type
@@ -84,7 +85,7 @@ export async function getTransactionDeepLink({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to get transaction deep link: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'get transaction deep link');
   }
 }
 
@@ -127,7 +128,7 @@ export async function getProductDeepLink({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to get product deep link: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'get product deep link');
   }
 }
 
@@ -166,7 +167,7 @@ export async function deleteTransactionDeepLink({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to delete transaction deep link: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'delete transaction deep link');
   }
 }
 
@@ -209,6 +210,6 @@ export async function deleteProductDeepLink({
       }
     };
   } catch (error) {
-    throw new Error(`Failed to delete product deep link: ${error.response?.data?.message || error.message}`);
+    throw describeApiError(error, 'delete product deep link');
   }
 }

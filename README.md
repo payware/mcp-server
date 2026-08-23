@@ -38,6 +38,11 @@ Official MCP (Model Context Protocol) server for payware payment API integration
 - **Get QR Code**: Generate QR code for POI payments
 - **List POIs**: List all POIs for a merchant
 
+### 📋 Logs Tools (Premium)
+- **Query Logs**: Search and filter application logs by level, logger, message content, and date range
+- **Log Status**: Check log availability and storage information
+- **Download Logs**: Get compressed archive of logs for offline analysis
+
 ### 🛠️ Utility Tools
 - **Advanced Code Generation**: Generate complete integration code across 8 languages (Python, Node.js, PHP, Java, C#, Go, Ruby, cURL) with 16+ framework support
 - **Framework Integration**: Framework-specific examples for Django, FastAPI, Express, NestJS, Laravel, Spring Boot, ASP.NET, and more

@@ -130,24 +130,33 @@ class AdvancedCodeGenerator {
         }
       },
 
-      // OAuth2 operations (ISV only)
+      // OAuth2 operations (ISV only). Plural /tokens, JSON body with camelCase fields, no scope
+      // parameter - and these endpoints are served from the host root, not under /api. The singular
+      // paths this used to describe (/oauth2/token, /oauth2/token/info) do not exist.
       obtain_token: {
-        description: 'Obtain OAuth2 access token for merchant access',
-        endpoint: '/oauth2/token',
+        description: 'Request an OAuth2 token for a merchant (PENDING until the merchant grants it)',
+        endpoint: '/oauth2/tokens',
         method: 'POST',
         partnerTypes: ['isv'],
         sampleBody: {
-          grant_type: 'client_credentials',
-          client_id: 'YOUR_CLIENT_ID',
-          client_secret: 'YOUR_CLIENT_SECRET',
-          scope: 'merchant:transactions merchant:products'
+          grantType: 'client_credentials',
+          clientId: 'MERCHANT_PARTNER_ID',
+          clientSecret: 'BASE64_ENCODED_MERCHANT_SECRET'
         }
       },
 
       get_token_info: {
-        description: 'Get information about current OAuth2 token',
-        endpoint: '/oauth2/token/info',
+        description: 'Get the status of one token (PENDING / GRANTED / REVOKED)',
+        endpoint: '/oauth2/tokens/{token}',
         method: 'GET',
+        partnerTypes: ['isv'],
+        sampleBody: null
+      },
+
+      rotate_token: {
+        description: 'Rotate a token credential, keeping the merchant authorization it was granted under',
+        endpoint: '/oauth2/tokens/{token}/rotate',
+        method: 'POST',
         partnerTypes: ['isv'],
         sampleBody: null
       },

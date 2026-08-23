@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { apiErrorResult } from '../../shared/api-errors.js';
 
 /**
  * Get transaction status from payware API as an ISV
@@ -51,16 +52,7 @@ export async function getTransactionStatus({ transactionId, merchantPartnerId, o
       timestamp: new Date().toISOString()
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        message: error.response?.data?.message || error.message,
-        status: error.response?.status,
-        code: error.response?.data?.code,
-        details: error.response?.data
-      },
-      timestamp: new Date().toISOString()
-    };
+    return apiErrorResult(error);
   }
 }
 
@@ -96,7 +88,22 @@ export const getTransactionStatusTool = {
 **Use Case:** Check status of ACTIVE transactions only. This endpoint only returns transactions with ACTIVE status.
 **Note:** For transactions with final statuses (CONFIRMED, DECLINED, FAILED, EXPIRED, CANCELLED), use 'payware_transactions_get_history' instead.
 
-**Required:** Merchant Partner ID and OAuth2 token for ISV authentication.`,
+**Required:** Merchant Partner ID and OAuth2 token for ISV authentication.
+
+🛍️ **Product-originated transactions carry a nested \`product\` object** (productId, type, name,
+descriptions, imageUrl, imageDigest, imageContentType, imageBytes, termsUrl, termsText, regularPrice,
+shippable, quickPay, shopName). Since 2026-07-22 these are grouped under \`product\` instead of sitting
+flat - the old top-level \`imageUrl\` is gone. Discriminate by the presence of the object. Verify
+\`imageDigest\` (SHA-256, pinned by payware) before rendering the image to a payer; \`regularPrice\` is
+display-only and appears only when higher than \`amount\`. The top-level \`amount\` and \`currency\` are
+authoritative and are not repeated inside the object.
+
+⚠️ **The MERCHANT's plan governs.** An on-behalf call inherits the acting merchant's plan, so this
+answers **403** for a **Basic** merchant. Which presentation fields come back also follows that plan:
+\`imageUrl\` and \`termsUrl\` are Standard and above.
+
+💰 **Amounts follow the currency, not a fixed two decimals.** Parse them with a decimal type and never
+compare them as strings.`,
 
   inputSchema: {
     type: "object",

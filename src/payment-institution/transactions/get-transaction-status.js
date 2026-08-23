@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { apiErrorResult } from '../../shared/api-errors.js';
 
 /**
  * Get transaction status via payware API (active transactions)
@@ -44,16 +45,7 @@ export async function getPITransactionStatus({
       timestamp: new Date().toISOString()
     };
   } catch (error) {
-    return {
-      success: false,
-      error: {
-        message: error.response?.data?.message || error.message,
-        status: error.response?.status,
-        code: error.response?.data?.code,
-        details: error.response?.data
-      },
-      timestamp: new Date().toISOString()
-    };
+    return apiErrorResult(error);
   }
 }
 
@@ -62,13 +54,14 @@ export async function getPITransactionStatus({
  */
 export const getPITransactionStatusTool = {
   name: "payware_operations_get_transaction_status",
-  description: `Get the current status of an active payware transaction as a payment institution.
+  description: `Get the current status of an active payware transaction as a financial institution.
 
 **Use Cases:**
 - Check transaction status and details
 - Monitor transaction progress
 - Get participant information (payee/payer accounts, BICs)
 - Check remaining time to live
+- Fetch what to display to the payer for a product-originated transaction
 
 **Response includes:**
 - Transaction ID and type
@@ -77,6 +70,40 @@ export const getPITransactionStatusTool = {
 - Reason lines and creation timestamp
 - Remaining time to live
 - Current transaction state
+- \`product\` - payer-facing presentation, for product-originated transactions only (see below)
+
+🛍️ **The nested \`product\` object.** Since 2026-07-22 the presentation fields are grouped under
+\`product\` rather than sitting flat on the response - the old top-level \`imageUrl\` is gone.
+Discriminate a product-originated transaction by the **presence of the object**, not by probing
+individual fields. It carries: \`productId\`, \`type\`, \`name\`, \`shortDescription\`, \`longDescription\`,
+\`imageUrl\`, \`imageDigest\`, \`imageContentType\`, \`imageBytes\`, \`termsUrl\`, \`termsText\`,
+\`regularPrice\`, \`shippable\`, \`quickPay\`, \`shopName\`. Absent properties are omitted.
+
+Four rules a payer-facing app must follow:
+
+1. **Verify \`imageDigest\` before rendering.** It is the SHA-256 payware pinned for the image at
+   \`imageUrl\`. Fetch the image, check its bytes against this digest, and fall back to a neutral
+   placeholder on mismatch. Rendering an unverified image to a payer is how a compromised merchant
+   image host puts arbitrary content on a payment confirmation screen. \`imageContentType\` and
+   \`imageBytes\` are what payware observed on fetch - use them to reject a surprise.
+2. **\`amount\` and \`currency\` at the top level are authoritative** - they are what the payer pays.
+   The \`product\` object does not repeat them. \`regularPrice\` is the pre-discount list price and is
+   present **only when it is higher than \`amount\`**, i.e. when there is a genuine saving to show; it
+   is omitted otherwise, precisely so no misleading comparison can be displayed.
+3. **\`quickPay\` is advisory.** When true, the app may skip the product detail screen and go straight
+   to payment confirmation - but only if it still shows the payee name, amount and currency, and
+   still gives the payer access to the terms in full before they authorise.
+4. **A missing field is usually a plan boundary, not an error.** \`imageUrl\` and \`termsUrl\` are
+   Standard and above; \`termsText\` and the descriptions are universal.
+
+For a \`pr\`/\`ps\` identifier the values are resolved live (product -> shop -> merchant fallback, then
+plan gating); for the resulting \`pw\` transaction they are the snapshot frozen at creation, so what
+you get always reflects what the payer could have been shown at scan time.
+
+💰 **Amounts follow the currency.** \`amount\`, \`fee\`, \`payerAmount\` and \`payeeAmount\` are decimal
+strings at the smallest unit their own currency can be paid in - not always two decimals. \`fee\` is
+**the value to echo back unchanged at finalize**; \`feeFixed\` and \`feeRate\` are informational, and
+recomputing the fee from them is rejected with ERR_FEE_MISMATCH.
 
 **Note:** This endpoint only returns active transactions. Use \`payware_pi_get_transaction_history\` for completed/expired transactions.`,
   inputSchema: {

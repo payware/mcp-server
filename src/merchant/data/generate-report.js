@@ -6,7 +6,25 @@ import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
  */
 export const generateReportTool = {
   name: "payware_data_generate_report",
-  description: "Generate an asynchronous data report for merchant data analysis and reporting. Production only - not supported in sandbox.",
+  description: `Generate an asynchronous data report for merchant data analysis and reporting. Production only - not supported in sandbox.
+
+⚠️ **Running a report is entitlement-checked as of 2026-08-22.** Naming a report answers **403
+\`ERR_REPORT_NOT_AVAILABLE\`** when that report is not included in the caller's plan or partner type.
+Until that date only the *menu* was filtered - the door was not - so a caller that hard-coded a
+report id it had never been offered could still run it, and may now start failing.
+
+**Always resolve the id from \`payware_data_list_reports\` rather than hard-coding one.** That call
+and this check share a single rule, so the menu and the door cannot drift apart: if a report is in
+that list, this call will accept it.
+
+Distinguish the two failures:
+- **403 \`ERR_REPORT_NOT_AVAILABLE\`** - the report exists, this caller may not run it. Not retryable;
+  it is a plan boundary, not a transient error.
+- **404 \`ERR_REPORT_UNIT_ID_NOT_FOUND\`** - no report is registered under that id at all. Usually a
+  typo or a stale id.
+
+For an ISV acting on behalf of a merchant, the plan that applies is the **merchant's**, and reports
+are outside the Basic plan entirely.`,
   inputSchema: {
     type: "object",
     properties: {
