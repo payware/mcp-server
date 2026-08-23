@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
 import { getMerchantTools } from '../src/merchant/index.js';
 import { getISVTools } from '../src/isv/index.js';
@@ -188,6 +188,28 @@ describe('tool contract', () => {
           `  ${other.role}: ${other.params.join(', ')}`);
       }
     }
+  });
+});
+
+describe('the test script itself', () => {
+  test('names every test file', () => {
+    // package.json lists test files explicitly rather than globbing. `node --test "tests/*.test.js"`
+    // works on Node 22 and silently matches nothing on Node 18, where glob expansion does not exist -
+    // which is how CI went green locally and red on the declared engines floor. A directory argument
+    // is no better: this Node rejects `node --test tests` outright.
+    //
+    // Explicit is portable across every version and shell. The cost is that a new test file has to be
+    // added to the script, and a file that is never run looks identical to one that passes. This test
+    // is that cost paid once.
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    const script = pkg.scripts.test;
+    const onDisk = readdirSync(new URL('../tests/', import.meta.url))
+      .filter(f => f.endsWith('.test.js'))
+      .sort();
+
+    const missing = onDisk.filter(f => !script.includes(`tests/${f}`));
+    assert.deepEqual(missing, [],
+      `package.json "test" does not run: ${missing.join(', ')} - add them or they never run`);
   });
 });
 
