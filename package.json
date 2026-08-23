@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "type": "module",
   "bin": {
-    "payware-mcp": "./src/index.js"
+    "payware-mcp": "src/index.js"
   },
   "scripts": {
     "start": "node src/index.js",
