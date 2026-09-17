@@ -1,0 +1,78 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # id-token lets mcp-publisher prove this workflow runs in the payware GitHub org
+    # (GitHub OIDC), so the MCP Registry listing needs no stored secret.
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Publishing an untested package is how a broken tool reaches every integrator at once, and
+      # npm has no unpublish after 72 hours. Gating the publish on the suite costs ~20 seconds.
+      - name: Run tests
+        run: npm test
+
+      # Skipped when this version is already on npm (for example published by hand), so a release can
+      # still reach the MCP Registry steps below instead of failing here on an existing version.
+      - name: Publish to npm
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "@payware/mcp-server@$VERSION" version > /dev/null 2>&1; then
+            echo "@payware/mcp-server@$VERSION is already on npm; skipping npm publish"
+          else
+            npm publish --access public
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # The MCP Registry (registry.modelcontextprotocol.io) lists io.github.payware/mcp-server by
+      # pointing at the npm package; it checks that the published package.json carries the same
+      # mcpName, so it must run after npm publish and see the new version first.
+      - name: Wait for the new version on npm
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          for i in $(seq 1 24); do
+            if [ "$(npm view "@payware/mcp-server@$VERSION" mcpName 2>/dev/null)" = "io.github.payware/mcp-server" ]; then
+              echo "npm serves $VERSION with mcpName"; exit 0
+            fi
+            echo "waiting for npm ($i/24)"; sleep 5
+          done
+          echo "npm did not serve $VERSION with mcpName within 2 minutes"; exit 1
+
+      - name: Set server.json version from package.json
+        run: |
+          node -e "
+            const fs = require('fs');
+            const version = require('./package.json').version;
+            const server = JSON.parse(fs.readFileSync('server.json', 'utf8'));
+            server.version = version;
+            server.packages.forEach(p => { p.version = version; });
+            fs.writeFileSync('server.json', JSON.stringify(server, null, 2) + '\n');
+          "
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Publish to the MCP Registry
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish

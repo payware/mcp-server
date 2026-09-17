@@ -1,0 +1,42 @@
+name: Tests
+
+# Runs on every push and pull request, so a regression is caught at the commit rather than at the
+# release. publish.yml runs the same `npm test` before it publishes, independently - a release is
+# triggered by tagging, which may not be the commit CI last saw green.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # package.json declares engines.node >= 18. Testing the floor and the current LTS catches the
+        # case where a newer syntax or a built-in creeps in that the declared floor cannot run - which
+        # nothing else here would notice, because published packages are installed, not compiled.
+        node-version: ['18.x', '22.x']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+        env:
+          # Deliberately empty. The suite generates its own ephemeral RSA key and points itself at a
+          # local fake server, so it must pass with NO payware credentials present - that is what
+          # makes it runnable in CI and by a contributor who has none. If a test ever needs a real
+          # key, it is testing the wrong thing.
+          PAYWARE_PARTNER_ID: ''
