@@ -76,7 +76,7 @@ export function generateSandboxConfig(partnerId, privateKey = null) {
       type: 'JWT',
       algorithm: 'RS256',
       audience: 'https://payware.eu',
-      requiresContentMd5: 'For POST/PUT/PATCH requests',
+      requiresContentSha256: 'For POST/PUT/PATCH requests: Base64(SHA-256(body)) in the JWT header',
       hasPrivateKey: !!privateKey
     },
     generatedAt: new Date().toISOString()

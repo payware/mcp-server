@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { createJWTToken, generateContentMd5 } from '../../core/auth/jwt-token.js';
+import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 

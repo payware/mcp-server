@@ -31,26 +31,6 @@ export function generateContentSha256(body) {
 }
 
 /**
- * Generate MD5 hash for JWT contentMd5 header (DEPRECATED - use generateContentSha256)
- *
- * @deprecated Use generateContentSha256 instead. MD5 is still supported by the server
- * for backwards compatibility but is deprecated.
- *
- * @param {Object|string} body - Request body (object will be consistently serialized)
- * @returns {string} Base64 encoded MD5 hash for JWT contentMd5 header
- */
-export function generateContentMd5(body) {
-  if (!body) return null;
-
-  const bodyString = typeof body === 'string' ? body : createDeterministicJSON(body);
-
-  // Generate MD5 hash as raw binary and encode in base64
-  const hash = crypto.createHash('md5');
-  hash.update(bodyString, 'utf8');
-  return hash.digest('base64');
-}
-
-/**
  * Generate the exact JSON string for both JWT content hash and HTTP request body
  *
  * PAYWARE REQUIREMENT: The same compact JSON string must be used for:
@@ -143,9 +123,16 @@ export function createRequestSignature(method, path, body, privateKey) {
 /**
  * Validate and debug JWT token implementation
  */
+// The rules below mirror the payware API's authentication checks. A check that is looser
+// than the server's reports a token as valid that the API refuses; one that is stricter fails tokens the
+// API accepts - the audience check did both kinds of harm until it learned the on-behalf form.
+const PAYWARE_AUDIENCE = 'https://payware.eu';
+const IAT_MAX_AGE_SECONDS = 300;
+const IAT_MAX_FUTURE_SKEW_SECONDS = 60;
+
 export const validateJWTTokenTool = {
   name: "payware_authentication_validate_jwt",
-  description: "Validate and debug JWT token structure, decode payload/headers, verify content hash (SHA-256/MD5) calculation, and check RS256 signature format for payware API compliance",
+  description: "Validate and debug a payware JWT: decode header and payload, check the claims against the API's rules (algorithm, audience including the ISV on-behalf form, 5-minute freshness), and verify the contentSha256 hash against the request body when one is given",
   inputSchema: {
     type: "object",
     properties: {
@@ -155,7 +142,7 @@ export const validateJWTTokenTool = {
       },
       expectedPayload: {
         type: "object",
-        description: "Expected request body (optional - for content hash validation)"
+        description: "The request body the token was made for (optional). Give it for POST, PUT and PATCH: contentSha256 is then required and checked against it. Leave it out for GET and DELETE, which carry no hash."
       }
     },
     required: ["jwtToken"],
@@ -179,55 +166,76 @@ export const validateJWTTokenTool = {
 
       const { header, payload } = decoded;
 
-      // Determine which hash type is used
+      // Only contentSha256 counts. The server stopped accepting contentMd5 (SEC-013): a token that
+      // carries only contentMd5 is answered 401 ERR_MISSING_CONTENT_HASH, so reporting it here as a
+      // present, matching hash told an integrator a token was fine that the API would refuse.
       const hasContentSha256 = !!header.contentSha256;
       const hasContentMd5 = !!header.contentMd5;
-      const hasContentHash = hasContentSha256 || hasContentMd5;
+      const hasContentHash = hasContentSha256;
+
+      // Audience. https://payware.eu for a direct call, and always on /oauth2. An ISV acting on behalf
+      // of a merchant sets aud to that merchant's partner ID and must then carry sub = the merchant's
+      // OAuth token - the server answers ERR_MISSING_TOKEN without it. Only accepting
+      // https://payware.eu failed every on-behalf token, which is most of what an ISV sends.
+      const onBehalf = typeof payload.aud === 'string' && payload.aud !== '' && payload.aud !== PAYWARE_AUDIENCE;
+      const hasSubject = typeof payload.sub === 'string' && payload.sub.trim() !== '';
+
+      // Freshness. The server refuses a token issued more than 5 minutes ago, or more than 60 seconds
+      // in the future (ERR_STALE_TOKEN); a missing iat is reported by issuedAt.
+      const ageSeconds = payload.iat ? Math.floor(Date.now() / 1000) - payload.iat : null;
+      const stale = ageSeconds !== null && ageSeconds > IAT_MAX_AGE_SECONDS;
+      const fromTheFuture = ageSeconds !== null && ageSeconds < -IAT_MAX_FUTURE_SKEW_SECONDS;
 
       // Validation results
       const validation = {
         structure: true,
         algorithm: header.alg === 'RS256',
         type: header.typ === 'JWT',
-        audience: payload.aud === 'https://payware.eu',
+        audience: payload.aud === PAYWARE_AUDIENCE || (onBehalf && hasSubject),
         issuer: !!payload.iss,
         issuedAt: !!payload.iat,
-        contentHash: hasContentHash
+        freshness: !stale && !fromTheFuture,
+        // Required only on a request with a body. Without expectedPayload this tool cannot tell a GET
+        // from a POST, so an absent hash is not a failure on its own - it used to fail every GET token
+        // while the report beside it said "OK for GET requests".
+        contentHash: expectedPayload ? hasContentHash : true
       };
 
       // Content hash validation if expected payload provided
       let hashValidation = null;
       if (expectedPayload && hasContentHash) {
-        if (hasContentSha256) {
-          const calculatedSha256 = generateContentSha256(expectedPayload);
-          hashValidation = {
-            type: 'SHA-256 (preferred)',
-            provided: header.contentSha256,
-            calculated: calculatedSha256,
-            matches: header.contentSha256 === calculatedSha256,
-            deterministicJson: createDeterministicJSON(expectedPayload)
-          };
-        } else if (hasContentMd5) {
-          const calculatedMd5 = generateContentMd5(expectedPayload);
-          hashValidation = {
-            type: 'MD5 (deprecated)',
-            provided: header.contentMd5,
-            calculated: calculatedMd5,
-            matches: header.contentMd5 === calculatedMd5,
-            deterministicJson: createDeterministicJSON(expectedPayload)
-          };
-        }
+        const calculatedSha256 = generateContentSha256(expectedPayload);
+        hashValidation = {
+          type: 'SHA-256',
+          provided: header.contentSha256,
+          calculated: calculatedSha256,
+          matches: header.contentSha256 === calculatedSha256,
+          deterministicJson: createDeterministicJSON(expectedPayload)
+        };
       }
 
       // Check for common issues
       const issues = [];
       if (!validation.algorithm) issues.push("Algorithm should be 'RS256'");
       if (!validation.type) issues.push("Type should be 'JWT'");
-      if (!validation.audience) issues.push("Audience should be 'https://payware.eu'");
+      if (!payload.aud) {
+        issues.push("Missing audience (aud) claim");
+      } else if (onBehalf && !hasSubject) {
+        issues.push(`aud is a merchant partner ID (${payload.aud}), which means acting on its behalf, but sub is missing - set sub to that merchant's OAuth token (ERR_MISSING_TOKEN), or use aud = ${PAYWARE_AUDIENCE} for a direct call`);
+      }
       if (!validation.issuer) issues.push("Missing issuer (iss) claim");
       if (!validation.issuedAt) issues.push("Missing issued at (iat) claim");
+      if (stale) {
+        issues.push(`Token is stale: issued ${ageSeconds}s ago, and the API accepts tokens up to ${IAT_MAX_AGE_SECONDS}s old (ERR_STALE_TOKEN)`);
+      }
+      if (fromTheFuture) {
+        issues.push(`iat is ${-ageSeconds}s in the future, beyond the ${IAT_MAX_FUTURE_SKEW_SECONDS}s of clock skew the API tolerates (ERR_STALE_TOKEN)`);
+      }
+      if (expectedPayload && !hasContentSha256 && !hasContentMd5) {
+        issues.push("Missing contentSha256: a request with a body must carry Base64(SHA-256(body)) in the JWT header (ERR_MISSING_CONTENT_HASH)");
+      }
       if (hasContentMd5 && !hasContentSha256) {
-        issues.push("Using deprecated MD5 hash - consider upgrading to SHA-256 (contentSha256)");
+        issues.push("contentMd5 is not accepted: the API answers 401 ERR_MISSING_CONTENT_HASH. Send contentSha256 = Base64(SHA-256(body)) instead");
       }
       if (hashValidation && !hashValidation.matches) {
         issues.push("Content hash mismatch - ensure deterministic JSON serialization with sorted keys");
@@ -259,10 +267,11 @@ ${JSON.stringify(payload, null, 2)}
 ${validation.structure ? '✅' : '❌'} **Structure**: JWT has valid 3-part structure
 ${validation.algorithm ? '✅' : '❌'} **Algorithm**: RS256 ${validation.algorithm ? '(correct)' : `(found: ${header.alg})`}
 ${validation.type ? '✅' : '❌'} **Type**: JWT ${validation.type ? '(correct)' : `(found: ${header.typ})`}
-${validation.audience ? '✅' : '❌'} **Audience**: https://payware.eu ${validation.audience ? '(correct)' : `(found: ${payload.aud})`}
+${validation.audience ? '✅' : '❌'} **Audience**: ${payload.aud === PAYWARE_AUDIENCE ? `${PAYWARE_AUDIENCE} (direct call)` : onBehalf ? `${payload.aud} (on behalf of this merchant, sub ${hasSubject ? 'present' : 'MISSING'}; not valid on /oauth2 endpoints, which need ${PAYWARE_AUDIENCE})` : 'Missing'}
 ${validation.issuer ? '✅' : '❌'} **Issuer**: ${payload.iss || 'Missing'}
 ${validation.issuedAt ? '✅' : '❌'} **Issued At**: ${payload.iat ? new Date(payload.iat * 1000).toISOString() : 'Missing'}
-${validation.contentHash ? '✅' : 'ℹ️'} **Content Hash**: ${header.contentSha256 ? `SHA-256: ${header.contentSha256}` : header.contentMd5 ? `MD5 (deprecated): ${header.contentMd5}` : 'Not present (OK for GET requests)'}
+${validation.freshness ? '✅' : '❌'} **Freshness**: ${ageSeconds === null ? 'n/a' : stale ? `stale - ${ageSeconds}s old, limit ${IAT_MAX_AGE_SECONDS}s` : fromTheFuture ? `${-ageSeconds}s in the future, limit ${IAT_MAX_FUTURE_SKEW_SECONDS}s` : `${ageSeconds}s old (limit ${IAT_MAX_AGE_SECONDS}s)`}
+${header.contentSha256 ? '✅' : validation.contentHash ? 'ℹ️' : '❌'} **Content Hash**: ${header.contentSha256 ? `SHA-256: ${header.contentSha256}` : header.contentMd5 ? `only contentMd5, which the API rejects - send contentSha256` : expectedPayload ? 'Missing - required on a request with a body' : 'Not present (fine for GET and DELETE; required on POST, PUT and PATCH with a body)'}
 
 ${hashValidation ? `## Content Hash Validation
 
@@ -305,7 +314,8 @@ ${issues.map(issue => `- ${issue}`).join('\n')}
 
 ${issues.includes("Algorithm should be 'RS256'") ? '- Update JWT algorithm to RS256\n' : ''}
 ${issues.includes("Type should be 'JWT'") ? '- Set JWT type to "JWT"\n' : ''}
-${issues.includes("Audience should be 'https://payware.eu'") ? '- Set audience to "https://payware.eu" (not just "payware")\n' : ''}
+${!validation.audience ? `- Set aud to "${PAYWARE_AUDIENCE}" for a direct call, or to the merchant's partner ID together with sub = its OAuth token when acting on its behalf\n` : ''}
+${!validation.freshness ? '- Create the JWT immediately before each request: the API accepts it for 5 minutes, and check the clock of the machine that signs it\n' : ''}
 ${issues.includes("Missing issuer (iss) claim") ? '- Add your partner ID as the issuer claim\n' : ''}
 ${issues.includes("Missing issued at (iat) claim") ? '- Add current Unix timestamp as issued at claim\n' : ''}
 ${issues.some(i => i.includes('hash mismatch')) ? '- Use deterministic JSON serialization with sorted keys\n- Ensure same JSON string for hash calculation and HTTP body\n' : ''}
@@ -550,7 +560,7 @@ ${deterministicJson}
 ❌ Setting audience to "payware" instead of "https://payware.eu"
 ❌ Putting contentSha256 in payload instead of header
 ❌ Using wrong algorithm (HS256 instead of RS256)
-❌ Using deprecated contentMd5 instead of contentSha256
+❌ Sending contentMd5 - the API no longer accepts it; use contentSha256
 
 ---
 **Execution Info:**

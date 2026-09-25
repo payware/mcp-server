@@ -350,7 +350,8 @@ ${rows || 'No invitations match this filter.'}
 
 **Status meanings:** ⏳ PENDING - link sent, merchant has not acted. ✅ COMPLETED - merchant accepted;
 obtain a token with \`payware_authorization_oauth2_obtain_token\`. ⌛ EXPIRED - the link lapsed; create
-a new invitation. 🚫 CANCELLED - withdrawn by you.
+a new invitation. 🚫 CANCELLED - withdrawn by you, or by payware because the merchant it was addressed
+to was deleted.
 
 **Request ID:** ${result.requestId || 'N/A'}
 **Timestamp:** ${result.timestamp}`

@@ -70,7 +70,7 @@ export const createProductTool = {
       },
       shop: {
         type: "string",
-        description: "Shop code (if not supplied, default shop is used)",
+        description: "Shop code. If omitted, the merchant's default shop is used - which may be outside your assigned scope (403 ERR_SHOP_NOT_IN_SCOPE). Find valid codes with payware_shops_list.",
         maxLength: 10
       },
       // Product Data Properties
