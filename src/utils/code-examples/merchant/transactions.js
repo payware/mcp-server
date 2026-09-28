@@ -171,7 +171,7 @@ def create_jwt_token(request_body=None, use_sandbox=True):
     payload = {
         'iss': config['partner_id'],
         'aud': 'https://payware.eu',
-        'iat': int(datetime.utcnow().timestamp())
+        'iat': int(datetime.now().timestamp())
     }
 
     # Create token

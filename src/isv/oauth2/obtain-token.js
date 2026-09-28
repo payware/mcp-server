@@ -12,7 +12,10 @@ export const obtainTokenTool = {
 ISVs must be authorized by payware registered merchants to make requests on their behalf.
 This endpoint allows ISVs to request a token using the merchant's credentials.
 
-IMPORTANT: Access tokens do not expire and only one token is allowed per merchant.
+IMPORTANT: A token requested this way expires 180 days after the merchant grants authorization.
+expiresIn in the response gives the seconds remaining (null = no expiration date). Rotate it with
+POST /oauth2/tokens/{token}/rotate, before or after expiry - no merchant consent is needed.
+Requesting again for the same merchant returns the existing token rather than a second one.
 Store tokens securely using strong encryption.
 
 Endpoint: POST /oauth2/tokens
@@ -99,7 +102,7 @@ Auth: Requires ISV JWT token with aud: "https://payware.eu"`,
 - **Token Type**: ${result.tokenType}
 - **Status**: ${result.status}
 - **Scope**: ${result.scope}
-- **Expires**: ${result.expiresIn || 'Never (client_credentials tokens do not expire)'}
+- **Expires**: ${result.expiresIn == null ? 'No expiration date' : result.expiresIn === 0 ? 'Expired - rotate with POST /oauth2/tokens/{token}/rotate' : `${result.expiresIn} seconds (~${Math.floor(result.expiresIn / 86400)} days)`}
 
 📋 **Copy this token for next operations:**
 \`${result.accessToken}\`
@@ -110,7 +113,7 @@ Auth: Requires ISV JWT token with aud: "https://payware.eu"`,
 - Use this token in the "sub" claim of future JWT requests
 
 📋 **Next Steps:**
-1. Check token status: Use token \`${result.accessToken}\` with payware_oauth2_get_token_info
+1. Check token status: Use token \`${result.accessToken}\` with payware_authorization_oauth2_get_token_info
 2. Wait for merchant approval (status will change from PENDING to GRANTED)
 3. Use this token in JWT "sub" claim for API requests to merchant data
 4. Set JWT "aud" claim to the merchant's partnerId (${finalClientId}) for API calls`
@@ -191,7 +194,6 @@ ${JSON.stringify(errorDetails, null, 2)}
 - Verify merchant partnerId (clientId) is correct
 - Ensure merchant secret is properly base64 encoded
 - Check if merchant account is active
-- Confirm no existing token for this merchant
 - Verify ISV JWT token is properly signed for OAuth2 requests`
         }]
       };

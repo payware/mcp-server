@@ -8,7 +8,7 @@ import { apiErrorResult } from '../../shared/api-errors.js';
  * @param {Object} params - Parameters for set price request
  * @returns {Object} Set price response
  */
-export async function setPOIPrice({ poiId, amount, currency, reasonL1, reasonL2, timeToLive, callbackUrl, passbackParams, merchantPartnerId, oauth2Token, useSandbox = true }) {
+export async function setPOIPrice({ poiId, amount, currency, ttlSeconds, merchantPartnerId, oauth2Token, useSandbox = true }) {
   if (!poiId) {
     throw new Error('POI ID is required');
   }
@@ -19,10 +19,6 @@ export async function setPOIPrice({ poiId, amount, currency, reasonL1, reasonL2,
 
   if (!currency) {
     throw new Error('Currency is required');
-  }
-
-  if (!reasonL1) {
-    throw new Error('Reason (reasonL1) is required');
   }
 
   if (!merchantPartnerId) {
@@ -36,17 +32,16 @@ export async function setPOIPrice({ poiId, amount, currency, reasonL1, reasonL2,
   const isvPartnerId = getPartnerIdSafe();
   const privateKey = getPrivateKeySafe(useSandbox);
 
-  // Build request body
+  // amount, currency and ttlSeconds are the only fields the server reads (POIPriceRequest); anything
+  // else is ignored without an error. This used to send reasonL1 (and demand it), reasonL2,
+  // timeToLive, callbackUrl and passbackParams - none of which the server has - so a caller relying
+  // on the per-price callbackUrl got no callbacks at all. The callback URL belongs to the POI.
   const requestBody = {
     amount: String(amount),
-    currency: currency.toUpperCase(),
-    reasonL1
+    currency: currency.toUpperCase()
   };
 
-  if (reasonL2) requestBody.reasonL2 = reasonL2;
-  if (timeToLive) requestBody.timeToLive = timeToLive;
-  if (callbackUrl) requestBody.callbackUrl = callbackUrl;
-  if (passbackParams) requestBody.passbackParams = passbackParams;
+  if (ttlSeconds) requestBody.ttlSeconds = ttlSeconds;
 
   const jwtData = await createJWTForPartner({
     partnerId: isvPartnerId,
@@ -88,13 +83,21 @@ export const setPOIPriceTool = {
 **Endpoint:** PUT /poi/{poiId}/price
 **Use Case:** Set the amount a customer should pay when they scan the POI.
 
-The POI will transition to READY state and wait for a customer scan until the TTL expires.
+The POI moves to READY and waits for a scan until the TTL expires. The scan creates the transaction and
+the POI is BUSY until the sale is final.
 
-**Required:** POI ID, amount, currency, reason, Merchant Partner ID, and OAuth2 token.`,
+**Only amount, currency and ttlSeconds are accepted.** There is no description, callback URL or passback
+field on a price - the callback URL is set on the POI when it is created, and a POI without one sends no
+callbacks.
+
+**Keep the returned sessionToken** until the sale has a final status: pass it to
+payware_poi_get_status to read that sale's transaction and outcome.
+
+**Required:** POI ID, amount, currency, Merchant Partner ID, and OAuth2 token.`,
 
   inputSchema: {
     type: "object",
-    required: ["poiId", "amount", "currency", "reasonL1", "merchantPartnerId", "oauth2Token"],
+    required: ["poiId", "amount", "currency", "merchantPartnerId", "oauth2Token"],
     properties: {
       poiId: {
         type: "string",
@@ -102,31 +105,15 @@ The POI will transition to READY state and wait for a customer scan until the TT
       },
       amount: {
         type: "string",
-        description: "Payment amount (e.g., '25.50')"
+        description: "Payment amount (e.g., '25.50'), positive and no finer than the currency's smallest unit"
       },
       currency: {
         type: "string",
         description: "ISO 4217 currency code (e.g., 'EUR', 'USD', 'GBP')"
       },
-      reasonL1: {
-        type: "string",
-        description: "Payment description (e.g., 'Table 5', 'Order #123')"
-      },
-      reasonL2: {
-        type: "string",
-        description: "Additional description (optional)"
-      },
-      timeToLive: {
+      ttlSeconds: {
         type: "integer",
-        description: "Seconds until price expires (60-600, default: 120)"
-      },
-      callbackUrl: {
-        type: "string",
-        description: "Override callback URL for this payment (optional)"
-      },
-      passbackParams: {
-        type: "string",
-        description: "Data to pass back in callback (optional, max 200 chars)"
+        description: "Seconds until the price expires if nobody scans it (60-600). Defaults to the POI's own ttlSeconds."
       },
       merchantPartnerId: {
         type: "string",
@@ -145,18 +132,16 @@ The POI will transition to READY state and wait for a customer scan until the TT
   },
 
   async handler(args) {
-    const { poiId, amount, currency, reasonL1, reasonL2, timeToLive, callbackUrl, passbackParams, merchantPartnerId, oauth2Token, useSandbox = true } = args;
+    const { poiId, amount, currency, ttlSeconds, merchantPartnerId, oauth2Token, useSandbox = true } = args;
 
     if (!poiId) throw new Error("POI ID is required");
     if (!amount) throw new Error("Amount is required");
     if (!currency) throw new Error("Currency is required");
-    if (!reasonL1) throw new Error("Reason (reasonL1) is required");
     if (!merchantPartnerId) throw new Error("Merchant Partner ID is required");
     if (!oauth2Token) throw new Error("OAuth2 token is required");
 
     const result = await setPOIPrice({
-      poiId, amount, currency, reasonL1, reasonL2, timeToLive, callbackUrl, passbackParams,
-      merchantPartnerId, oauth2Token, useSandbox
+      poiId, amount, currency, ttlSeconds, merchantPartnerId, oauth2Token, useSandbox
     });
 
     if (result.success) {
@@ -169,19 +154,17 @@ The POI will transition to READY state and wait for a customer scan until the TT
 
 **POI ID:** ${data.poiId || poiId}
 **Status:** 🟡 ${data.status || 'READY'}
-
-**Payment Details:**
-- Amount: **${data.amount || amount} ${data.currency || currency}**
-- Reason: ${reasonL1}${reasonL2 ? ` - ${reasonL2}` : ''}
+**Amount:** ${amount} ${currency.toUpperCase()}
 
 **Session:**
-- Token: ${data.sessionToken || 'N/A'}
-- Expires: ${data.sessionExpiresAt || 'N/A'}
+- Token: ${data.sessionToken || 'N/A'} - keep it until the sale is final
+- Price expires if not scanned: ${data.expiresAt || 'N/A'}
 
 **Next Steps:**
-1. Customer scans the POI (QR code, NFC tag, or barcode)
-2. Customer sees the amount and confirms payment
-3. You receive a callback when payment completes
+1. The customer scans the POI (QR code, NFC tag or BLE); the transaction is created and the POI is BUSY
+2. Outcome by callback, if the POI has a callbackUrl: poi.scanned with the transaction id, then TRANSACTION_FINALIZED with the final status (both carry the poiId)
+3. Or poll payware_poi_get_status every 2-3 seconds with this sessionToken until transactionStatus is final
+4. To cancel, use payware_poi_cancel_price - possible only before the scan
 
 **ISV -> Merchant:** ${getPartnerIdSafe()} -> ${merchantPartnerId}
 **Request ID:** ${result.requestId || 'N/A'}
@@ -202,12 +185,14 @@ The POI will transition to READY state and wait for a customer scan until the TT
 **Status:** ${result.error.status || 'N/A'}
 
 **Common Issues:**
-- INVALID_POI_ID (400): POI ID format invalid (must be pi + 8 alphanumeric chars)
-- POI_NOT_FOUND (404): POI doesn't exist or doesn't belong to merchant
-- POI_DISABLED (409): POI is disabled
-- POI_NOT_IDLE (409): POI already has a pending price (cancel it first)
-- INVALID_AMOUNT (400): Check amount format (e.g., '25.50')
-- UNKNOWN_CURRENCY (400): Invalid currency code
+- ERR_INVALID_POI_ID (400): POI ID format invalid (must be pi + 8 alphanumeric chars)
+- ERR_POI_NOT_FOUND (404): POI doesn't exist or doesn't belong to the merchant
+- ERR_SHOP_NOT_IN_SCOPE (403): the POI's shop is not assigned to you
+- ERR_POI_DISABLED (409): POI is disabled
+- ERR_POI_ALREADY_HAS_PENDING_PRICE (409): POI already has a pending price (cancel it first)
+- ERR_INVALID_AMOUNT (400): amount finer than the currency's smallest unit
+- ERR_MISSING_CURRENCY (400): currency missing or unknown
+- ERR_VALIDATION_FAILED (400): amount missing or not positive, or ttlSeconds outside 60-600
 
 **Timestamp:** ${result.timestamp}`
         }]

@@ -162,7 +162,7 @@ recomputing the fee from them is rejected with ERR_FEE_MISMATCH.
 
     if (result.success) {
       const tx = result.transaction;
-      const createdDate = tx.created ? new Date(tx.created * 1000).toISOString() : 'N/A';
+      const createdDate = tx.created ? new Date(tx.created).toISOString() : 'N/A';
 
       // Transaction type display
       const typeDisplay = tx.transactionType || 'DEFAULT';

@@ -23,10 +23,12 @@ export const simulateCallbackTool = {
 so nothing here reaches the network. What you get back is the exact payload shape a real
 TRANSACTION_FINALIZED callback carries, which is what a handler needs in order to be written.
 
-**Callbacks go to the MERCHANT's callbackUrl, not to yours.** An ISV that needs to know a transaction
-finished either has the merchant forward it, or polls
-\`payware_operations_get_transaction_history\` for the ids it created. Simulating the payload here
-tells you what the merchant's endpoint will receive; it does not route anything to you.
+**Where the callback goes.** A transaction you create on a merchant's behalf calls back to the
+\`callbackUrl\` you give when creating it; a POI sale calls back to the POI's \`callbackUrl\`. Both are
+signed with your ISV callback key, so verify them with your own payware public key. Give no callbackUrl
+and that transaction sends no callbacks at all - the merchant's default URL is not used. Without a backend, follow the
+transaction with \`payware_operations_get_transaction_status\` while it is ACTIVE and then
+\`payware_operations_get_transaction_history\` once, or a POI sale with \`payware_poi_get_status\`.
 
 Four properties of the real payload that are easy to get wrong:
 
@@ -38,9 +40,11 @@ Four properties of the real payload that are easy to get wrong:
 **3. \`EXPIRED\` is a non-payment, not a failure.** The payer never paid within \`timeToLive\`. Release
 the order or the stock; do not treat it as an error to retry.
 
-**4. Deduplicate on \`(transactionId, callbackType)\`.** payware retries once a second, up to 15
-times, until the endpoint answers 200. That pair is stable across retries and is the key payware
-guarantees.
+**4. Deduplicate on \`(transactionId, callbackType)\`.** payware retries up to 15 times, backing off
+from about a second to at most 5 minutes between attempts, until the endpoint answers any 2xx. That
+pair is stable across retries and is the key payware guarantees.
+
+A POI sale's callback also carries \`poiId\`, the POI that created the transaction.
 
 **Not on this payload:** \`deliveryAddress\` (removed 2026-08-07 - fetch it from
 \`payware_operations_get_transaction_history\`), \`producerPartnerId\`, \`transactionType\` and
@@ -99,6 +103,10 @@ guarantees.
         enum: ['A2A', 'CARD_FUNDED', 'BNPL', 'INSTANT_CREDIT'],
         description: 'Payment method chosen by the customer. A2A = direct transfer. CARD_FUNDED = card-linked account. BNPL = buy now pay later. INSTANT_CREDIT = credit line.'
       },
+      poiId: {
+        type: 'string',
+        description: 'Set to simulate a POI sale: the callback then carries the poiId of the POI that created the transaction'
+      },
       merchantPartnerId: {
         type: 'string',
         description: 'Partner ID of the merchant whose callback this simulates. Used for labelling only - no call is made on their behalf.'
@@ -123,6 +131,7 @@ guarantees.
       feeRate = '0.0150',
       statusMessage,
       paymentMethod,
+      poiId,
       merchantPartnerId
     } = args;
 
@@ -131,7 +140,7 @@ guarantees.
     }
 
     const payload = generateMockCallback(transactionId, status, {
-      amount, currency, fee, feeFixed, feeRate, statusMessage, paymentMethod
+      amount, currency, fee, feeFixed, feeRate, statusMessage, paymentMethod, poiId
     });
 
     const delivery = callbackUrl ? await simulateCallbackDelivery(callbackUrl, payload) : null;
@@ -141,7 +150,7 @@ guarantees.
         type: 'text',
         text: `🔔 **Simulated Callback Payload**${merchantPartnerId ? ` (ISV ${getPartnerIdSafe()} -> Merchant ${merchantPartnerId})` : ''}
 
-This is what payware would POST to the **merchant's** \`callbackUrl\`. No request was made.
+This is what payware would POST to the transaction's (or POI's) \`callbackUrl\`. No request was made.
 
 \`\`\`json
 ${JSON.stringify(payload, null, 2)}
@@ -153,7 +162,7 @@ ${delivery.note}
 ` : '**No callbackUrl given** - payload only.'}
 
 **Building the handler:**
-1. Answer **200** or payware retries - once a second, 15 times.
+1. Answer any **2xx** or payware retries - up to 15 times, backing off from about a second to 5 minutes.
 2. Deduplicate on \`(transactionId, callbackType)\`; retries repeat the same pair.
 3. Read properties defensively: absent means absent, never zero.
 4. Treat \`EXPIRED\` as a non-payment, not an error to retry.

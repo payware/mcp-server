@@ -58,7 +58,7 @@ def create_deterministic_json(data):
 
 def create_jwt_token(request_body=None):
     """Create JWT token for authentication with payware API"""
-    now = int(datetime.utcnow().timestamp())
+    now = int(datetime.now().timestamp())
 
     # JWT header
     header = {
@@ -153,7 +153,7 @@ with open('private_key.pem', 'r') as f:
 
 def create_jwt_token(request_body=None):
     """Create JWT token with proper payware format"""
-    now = int(datetime.utcnow().timestamp())
+    now = int(datetime.now().timestamp())
 
     # JWT header
     header = {

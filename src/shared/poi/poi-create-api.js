@@ -241,7 +241,7 @@ ${isIsv ? `
         },
         callbackUrl: {
           type: 'string',
-          description: 'HTTPS URL for POI events. Must present a publicly-trusted TLS certificate and resolve to a public address.',
+          description: 'HTTPS URL for this POI\'s callbacks: poi.scanned (with the new transaction id), poi.expired (price not scanned) and the sale\'s TRANSACTION_FINALIZED (final status, with poiId). Signed by the ISV that set the price, otherwise the merchant. A POI without one sends no callbacks - there is no per-price callback URL. Must present a publicly-trusted TLS certificate and resolve to a public address.',
           format: 'uri'
         },
         useSandbox: {

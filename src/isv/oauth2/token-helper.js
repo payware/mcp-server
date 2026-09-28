@@ -54,24 +54,30 @@ Use this when you need a token but aren't sure if one exists or what it is.`,
           text: `📋 **OAuth2 Token Management Help**
 
 🔑 **About OAuth2 Tokens:**
-- Only ONE token allowed per merchant
-- Tokens don't expire (client_credentials flow)
-- Token status: PENDING → GRANTED (after merchant approval)
+- Requesting a token again for the same merchant returns the existing one, not a second one
+- Tokens requested this way expire 180 days after the merchant grants authorization
+- Rotate with POST /oauth2/tokens/{token}/rotate - works on expired tokens too, no merchant consent needed
+- Token status: PENDING → GRANTED (after merchant approval); REVOKED is final
 
 🎯 **To get your token:**
 
-**Option 1: Try creating a token**
-Use: \`payware_oauth2_obtain_token\`
-- If successful: New token will be clearly displayed
+**Option 1: Request a token**
+Use: \`payware_authorization_oauth2_obtain_token\`
+- Returns a new PENDING token, or the existing token if this merchant already has one
 - On failure the server names the reason (e.g. client not found, client disabled)
 
 **Option 2: Check a known token**
-Use: \`payware_oauth2_get_token_info\` with your saved token
-- Shows current status (PENDING/GRANTED/REVOKED)
+Use: \`payware_authorization_oauth2_get_token_info\` with your saved token
+- Shows current status (PENDING/GRANTED/REVOKED) and expiry
 
-**Option 3: Create new token (if current is lost)**
-1. Contact merchant to revoke existing token
-2. Then use \`payware_oauth2_obtain_token\` to create new one
+**Option 3: If you lost the token**
+Nothing needs revoking - the token can be retrieved:
+- Request it again with Option 1, which returns the existing token, or
+- Call GET /oauth2/tokens, which lists every token issued to your ISV with its value and status
+
+⚠️ **Never ask the merchant to revoke a token to get a new one.** Revocation is final: requesting
+again afterwards returns the same REVOKED token, and the only way back is a fresh consent through an
+AUTHORIZATION_ONLY invitation (\`payware_isv_create_invitation\`). To replace a token value, rotate it.
 
 🔐 **Security:**
 - Always store tokens securely
@@ -94,25 +100,19 @@ Use: \`payware_oauth2_get_token_info\` with your saved token
           type: 'text',
           text: `⚠️ **Token Already Exists for This Merchant**
 
-🔍 **Your existing token is stored somewhere secure** (as per OAuth2 best practices, the server doesn't return existing tokens).
+🔍 **A token already exists for this merchant, and it can be retrieved.**
 
 📋 **To find your token:**
 
-**Option 1: Check your secure storage**
-- Look where you saved tokens before
-- Environment variables file
-- Secure configuration management
-- Password manager
+**Option 1: List your tokens**
+Call GET /oauth2/tokens - it lists every token issued to your ISV with its value and status.
 
 **Option 2: If you have the token value**
-Use: \`payware_oauth2_get_token_info\` with your token to check its status
+Use: \`payware_authorization_oauth2_get_token_info\` with your token to check its status
 
-**Option 3: Create new token**
-1. Contact the merchant (Partner ID: ${process.env.PAYWARE_OAUTH_CLIENT_ID || 'not configured'})
-2. Ask them to revoke the existing token
-3. Then use \`payware_oauth2_obtain_token\` to create a new one
-
-💡 **Tip:** Always keep a secure backup of your OAuth2 tokens!
+**Option 3: Need a different value?**
+Rotate it with POST /oauth2/tokens/{token}/rotate. Do not ask the merchant to revoke it - revocation
+is final, and requesting again afterwards returns the same REVOKED token.
 
 📋 **For immediate help:**
 Run this tool with action='help' for more detailed guidance.`
@@ -138,8 +138,8 @@ ${token}
 \`\`\`
 
 🔄 **Next Steps:**
-1. **SAVE THIS TOKEN** securely (you won't be able to retrieve it later)
-2. Check status: \`payware_oauth2_get_token_info\` with token: \`${token}\`
+1. **SAVE THIS TOKEN** securely (if you lose it, GET /oauth2/tokens lists it again)
+2. Check status: \`payware_authorization_oauth2_get_token_info\` with token: \`${token}\`
 3. Wait for merchant approval (status will change to GRANTED)
 4. Use token in API requests once GRANTED`
         }]

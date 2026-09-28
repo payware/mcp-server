@@ -115,8 +115,7 @@ export const getPOITool = {
       const statusEmoji = {
         'IDLE': '🟢',
         'READY': '🟡',
-        'BUSY': '🔴',
-        'DISABLED': '⚫'
+        'BUSY': '🔴'
       }[poi.status] || '⚪';
 
       return {
@@ -137,7 +136,7 @@ export const getPOITool = {
 - Linked vPOS: ${poi.linkedVposCount || 0} terminals
 
 **Current Session:**
-${poi.status !== 'IDLE' && poi.pendingAmount ? `- Amount: ${poi.pendingAmount} ${poi.pendingCurrency}
+${poi.status === 'READY' && poi.pendingAmount ? `- Amount: ${poi.pendingAmount} ${poi.pendingCurrency}
 - Expires: ${poi.sessionExpiresAt || 'N/A'}
 - Token: ${poi.sessionToken || 'N/A'}` : '- No active session'}
 

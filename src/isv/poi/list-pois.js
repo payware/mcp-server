@@ -64,7 +64,7 @@ export const listPOIsTool = {
 **Endpoint:** GET /poi
 **Use Case:** Retrieve all physical payment points configured for a merchant.
 
-POI states: IDLE (ready), READY (price set), BUSY (payment in progress), DISABLED.
+POI states: IDLE (no price, no sale running), READY (price set, waiting for a scan), BUSY (scanned, sale running). A disabled POI is not a state: it shows isActive false.
 
 **Required:** Merchant Partner ID and OAuth2 token for ISV authentication.`,
 
@@ -106,13 +106,12 @@ POI states: IDLE (ready), READY (price set), BUSY (payment in progress), DISABLE
         const statusEmoji = {
           'IDLE': '🟢',
           'READY': '🟡',
-          'BUSY': '🔴',
-          'DISABLED': '⚫'
+          'BUSY': '🔴'
         }[poi.status] || '⚪';
 
         return `${statusEmoji} **${poi.name}** (${poi.poiId})
    Shop: ${poi.shopName || poi.shopCode}
-   Status: ${poi.status}${poi.pendingAmount && poi.pendingAmount !== '0.00' ? ` | Pending: ${poi.pendingAmount} ${poi.pendingCurrency}` : ''}`;
+   Status: ${poi.status}${poi.isActive === false ? ' (disabled)' : ''}${poi.pendingAmount && poi.pendingAmount !== '0.00' ? ` | Pending: ${poi.pendingAmount} ${poi.pendingCurrency}` : ''}`;
       }).join('\n\n');
 
       return {
@@ -127,8 +126,7 @@ ${poisList || 'No POIs found for this merchant.'}
 **Status Legend:**
 🟢 IDLE - Ready for new payment
 🟡 READY - Price set, waiting for customer
-🔴 BUSY - Payment in progress
-⚫ DISABLED - Not accepting payments
+🔴 BUSY - Scanned, sale running (payware_poi_get_status shows its outcome)
 
 **Request ID:** ${result.requestId || 'N/A'}
 **Timestamp:** ${result.timestamp}`

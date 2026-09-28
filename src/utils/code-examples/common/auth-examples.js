@@ -68,7 +68,7 @@ from cryptography.hazmat.primitives import serialization`;
     ${options.includeComments ? '# Create JWT payload\n    ' : ''}payload = {
         'iss': partner_id,
         'aud': 'https://payware.eu',
-        'iat': int(datetime.utcnow().timestamp())
+        'iat': int(datetime.now().timestamp())
     }
 
     ${options.includeComments ? '# Create and return token\n    ' : ''}token = jwt.encode(payload, private_key, algorithm='RS256', headers=header)

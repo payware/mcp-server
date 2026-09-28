@@ -18,6 +18,8 @@ export function generateMockCallback(transactionId, status = 'CONFIRMED', option
     paymentMethod = null,
     statusMessage = null,
     passbackParams = null,
+    // The POI that created the transaction, on a POI sale's callbacks only (server S8, 2026-09-28).
+    poiId = null,
     // The fee breakdown the server attaches whenever the transaction has a fee configuration.
     // Before 2026-08-21 a merchant's FINALIZED callback carried the total fee but not the two
     // numbers that produced it, so reconciling a charge meant asking payware. It carries both now.
@@ -48,6 +50,7 @@ export function generateMockCallback(transactionId, status = 'CONFIRMED', option
   const basePayload = {
     callbackType: 'TRANSACTION_FINALIZED',
     transactionId,
+    ...(poiId && { poiId }),
     ...(passbackParams !== null && passbackParams !== undefined && { passbackParams }),
     amount,
     ...(fee !== null && fee !== undefined && { fee }),
@@ -151,10 +154,10 @@ sweep, which sets no finalization moment. Every other status carries one.
 **3. \`EXPIRED\` is a non-payment, not a failure.** The payer never paid within \`timeToLive\`. Release
 the order or the stock, as you would for a cancellation - do not treat it as an error to retry.
 
-**4. Deduplicate on \`(transactionId, callbackType)\`.** payware retries a callback once a second, up
-to 15 times, until the endpoint answers 200. That pair is stable across every retry of the same
-event, and it is the key payware guarantees. A handler that does not deduplicate will eventually
-process one payment twice.
+**4. Deduplicate on \`(transactionId, callbackType)\`.** payware retries a callback up to 15 times,
+backing off from about a second to at most 5 minutes between attempts, until the endpoint answers any
+2xx. That pair is stable across every retry of the same event, and it is the key payware guarantees.
+A handler that does not deduplicate will eventually process one payment twice.
 
 **Not on this payload:** \`deliveryAddress\` (removed 2026-08-07 - fetch it from
 \`payware_operations_get_transaction_history\`, which is authenticated and tenant-scoped),
@@ -211,6 +214,10 @@ TRANSACTION_PROCESSED, which merchants do not receive).`,
         type: "string",
         enum: ["A2A", "CARD_FUNDED", "BNPL", "INSTANT_CREDIT"],
         description: "Payment method chosen by customer. A2A = direct transfer. CARD_FUNDED = card-linked account. BNPL = buy now pay later. INSTANT_CREDIT = credit line."
+      },
+      poiId: {
+        type: "string",
+        description: "Set to simulate a POI sale: the callback then carries the poiId of the POI that created the transaction"
       }
     },
     required: ["transactionId"],
@@ -231,7 +238,8 @@ TRANSACTION_PROCESSED, which merchants do not receive).`,
       feeFixed = '0.1000',
       feeRate = '0.0150',
       statusMessage,
-      paymentMethod
+      paymentMethod,
+      poiId
     } = args;
     
     if (!transactionId) {
@@ -246,7 +254,8 @@ TRANSACTION_PROCESSED, which merchants do not receive).`,
       feeFixed,
       feeRate,
       statusMessage,
-      paymentMethod
+      paymentMethod,
+      poiId
     });
     
     // Simulate callback delivery if URL provided

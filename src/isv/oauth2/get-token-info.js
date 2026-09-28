@@ -76,18 +76,20 @@ Auth: Requires ISV JWT token`,
           text: `📋 **OAuth2 Token Information**
 
 🔑 **Token Details:**
-- **Access Token**: ${result.access_token}
-- **Token Type**: ${result.token_type}
+- **Access Token**: ${result.accessToken}
+- **Token Type**: ${result.tokenType}
 - **Status**: ${statusEmoji[result.status]} ${result.status}
 - **Description**: ${statusDescription[result.status]}
 - **Scope**: ${result.scope}
-- **Expires**: ${result.expires_in || 'Never (client_credentials tokens do not expire)'}
+- **Expires**: ${result.expiresIn == null ? 'No expiration date' : result.expiresIn === 0 ? 'Expired - rotate with POST /oauth2/tokens/{token}/rotate' : `${result.expiresIn} seconds (~${Math.floor(result.expiresIn / 86400)} days)`}
 
-${result.status === 'GRANTED' ?
+${result.status === 'GRANTED' && result.expiresIn === 0 ?
+  '⌛ **Token has expired - rotate it with POST /oauth2/tokens/{token}/rotate (no merchant consent needed)**' :
+  result.status === 'GRANTED' ?
   '✅ **Token is ready for use in API requests**' :
   result.status === 'PENDING' ?
     '⏳ **Token is pending - wait for merchant approval**' :
-    '❌ **Token is revoked - obtain a new token**'
+    '❌ **Token is revoked, and revocation is final.** Requesting a token again returns this same revoked token; the merchant must consent again through an AUTHORIZATION_ONLY invitation (payware_isv_create_invitation)'
 }
 
 📋 **Usage Notes:**

@@ -163,8 +163,8 @@ retry once the window passes. The failure result exposes this as \`error.throttl
       const formatInfo = formatTransactionHistory(result.transaction);
       
       // Format dates
-      const created = result.transaction.created ? new Date(result.transaction.created * 1000).toISOString() : 'N/A';
-      const finalized = result.transaction.finalized ? new Date(result.transaction.finalized * 1000).toISOString() : 'N/A';
+      const created = result.transaction.created ? new Date(result.transaction.created).toISOString() : 'N/A';
+      const finalized = result.transaction.finalized ? new Date(result.transaction.finalized).toISOString() : 'N/A';
       
       return {
         content: [{

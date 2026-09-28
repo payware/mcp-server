@@ -31,6 +31,8 @@ export function generateMockPICallback(transactionId, callbackType = 'TRANSACTIO
     status = 'CONFIRMED',
     statusMessage = null,
     passbackParams = null,
+    // The POI the payer scanned, on both payloads of a POI sale only (server S8, 2026-09-28).
+    poiId = null,
     // The fee breakdown. Present on BOTH payloads whenever the transaction has a fee configuration -
     // FINALIZED gained them on 2026-08-21, having previously carried the total without the two
     // numbers that produced it. Both are INFORMATIONAL: recomputing the fee from them and submitting
@@ -68,6 +70,7 @@ export function generateMockPICallback(transactionId, callbackType = 'TRANSACTIO
     return {
       callbackType,
       transactionId,
+      ...(poiId && { poiId }),
       ...(passbackParams !== null && passbackParams !== undefined && { passbackParams }),
       amount,
       ...feeFields,
@@ -94,6 +97,7 @@ export function generateMockPICallback(transactionId, callbackType = 'TRANSACTIO
     return {
       callbackType,
       transactionId,
+      ...(poiId && { poiId }),
       ...(passbackParams !== null && passbackParams !== undefined && { passbackParams }),
       amount,
       ...feeFields,
@@ -246,6 +250,10 @@ export const simulatePICallbackTool = {
         type: "string",
         enum: ["A2A", "CARD_FUNDED", "BNPL", "INSTANT_CREDIT"],
         description: "Payment method chosen by customer. A2A = direct transfer. CARD_FUNDED = card-linked account. BNPL = buy now pay later. INSTANT_CREDIT = credit line."
+      },
+      poiId: {
+        type: "string",
+        description: "Set to simulate a POI sale: both payloads then carry the poiId the payer scanned"
       }
     },
     required: ["transactionId"]
@@ -272,7 +280,8 @@ export const simulatePICallbackTool = {
       timeToLive = 600,
       status = 'CONFIRMED',
       statusMessage,
-      paymentMethod
+      paymentMethod,
+      poiId
     } = args;
 
     if (!transactionId) {
@@ -299,7 +308,8 @@ export const simulatePICallbackTool = {
       transactionType: 'DEFAULT',
       paymentMethod,
       status,
-      statusMessage
+      statusMessage,
+      poiId
     });
 
     // Simulate callback delivery if URL provided

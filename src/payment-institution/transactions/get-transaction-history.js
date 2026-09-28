@@ -127,7 +127,7 @@ export const getPITransactionHistoryTool = {
 
     if (result.success) {
       const tx = result.transaction;
-      const createdDate = tx.created ? new Date(tx.created * 1000).toISOString() : 'N/A';
+      const createdDate = tx.created ? new Date(tx.created).toISOString() : 'N/A';
 
       // Status emoji mapping
       const statusEmojis = {

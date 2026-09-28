@@ -8,7 +8,7 @@ import { apiErrorResult } from '../../shared/api-errors.js';
  * @param {Object} params - Parameters for status request
  * @returns {Object} POI status response
  */
-export async function getPOIStatus({ poiId, merchantPartnerId, oauth2Token, useSandbox = true }) {
+export async function getPOIStatus({ poiId, sessionToken, merchantPartnerId, oauth2Token, useSandbox = true }) {
   if (!poiId) {
     throw new Error('POI ID is required');
   }
@@ -40,7 +40,10 @@ export async function getPOIStatus({ poiId, merchantPartnerId, oauth2Token, useS
 
   try {
     const baseUrl = useSandbox ? getSandboxUrl() : getProductionUrl();
-    const response = await axios.get(`${baseUrl}/poi/${poiId}/status`, { headers });
+    // The session token pins one sale: with it the response also carries that session's
+    // transactionId and transactionStatus. A GET is signed without a body, so the query string is free.
+    const query = sessionToken ? `?sessionToken=${encodeURIComponent(sessionToken)}` : '';
+    const response = await axios.get(`${baseUrl}/poi/${poiId}/status${query}`, { headers });
 
     return {
       success: true,
@@ -58,17 +61,25 @@ export async function getPOIStatus({ poiId, merchantPartnerId, oauth2Token, useS
  */
 export const getPOIStatusTool = {
   name: "payware_poi_get_status",
-  description: `Get current status of a POI including any pending payment.
+  description: `Get the current status of a POI and the outcome of its sales.
 
 **ISV Authentication:** Uses ISV JWT with merchant partner ID and OAuth2 token.
-**Endpoint:** GET /poi/{poiId}/status
-**Use Case:** Check if a POI is idle, has a pending price, or is busy with a payment.
+**Endpoint:** GET /poi/{poiId}/status[?sessionToken=...]
+**Use Case:** Follow a sale to its outcome - the backup to callbacks, and on Basic (no transaction
+endpoints) the only way when a callback is lost or there is no backend.
 
 **POI States:**
-- IDLE: Ready for new payment
-- READY: Price set, waiting for customer scan
-- BUSY: Payment in progress
-- DISABLED: Not accepting payments
+- IDLE: no pending price and no sale running
+- READY: price set, waiting for a scan (wins over BUSY: the POI can take the next price while a sale runs)
+- BUSY: a customer scanned and the sale is running
+
+**Every response** carries lastTransactionId / lastTransactionStatus - the POI's most recent sale, running
+(ACTIVE) or finished (CONFIRMED, DECLINED, FAILED, CANCELLED, EXPIRED). Once the POI is back to IDLE,
+lastTransactionStatus is how the last sale ended.
+
+**With sessionToken** (from payware_poi_set_price) the response also carries transactionId /
+transactionStatus for exactly that sale - use it when the POI may be re-armed before the previous sale
+finishes. Poll every 2-3 seconds and stop at a final status; the read is rate limited.
 
 **Required:** POI ID, Merchant Partner ID, and OAuth2 token.`,
 
@@ -79,6 +90,10 @@ export const getPOIStatusTool = {
       poiId: {
         type: "string",
         description: "The POI identifier (format: pi + 8 alphanumeric chars, e.g., piABC12345)"
+      },
+      sessionToken: {
+        type: "string",
+        description: "Optional. The sessionToken returned by payware_poi_set_price; returns that sale's transaction and status"
       },
       merchantPartnerId: {
         type: "string",
@@ -97,7 +112,7 @@ export const getPOIStatusTool = {
   },
 
   async handler(args) {
-    const { poiId, merchantPartnerId, oauth2Token, useSandbox = true } = args;
+    const { poiId, sessionToken, merchantPartnerId, oauth2Token, useSandbox = true } = args;
 
     if (!poiId) {
       throw new Error("POI ID is required");
@@ -111,24 +126,35 @@ export const getPOIStatusTool = {
       throw new Error("OAuth2 token is required");
     }
 
-    const result = await getPOIStatus({ poiId, merchantPartnerId, oauth2Token, useSandbox });
+    const result = await getPOIStatus({ poiId, sessionToken, merchantPartnerId, oauth2Token, useSandbox });
 
     if (result.success) {
       const status = result.status;
       const statusEmoji = {
         'IDLE': '🟢',
         'READY': '🟡',
-        'BUSY': '🔴',
-        'DISABLED': '⚫'
+        'BUSY': '🔴'
       }[status.status] || '⚪';
+      const meaning = {
+        'IDLE': status.lastTransactionId
+          ? `No sale running. The last sale ended ${status.lastTransactionStatus}.`
+          : 'No sale running, and the POI has not had a sale yet.',
+        'READY': 'Price set, waiting for a customer to scan.',
+        'BUSY': 'A customer scanned and the sale is running.'
+      }[status.status] || '';
 
-      let pendingInfo = '';
-      if (status.status === 'READY' || status.status === 'BUSY') {
-        pendingInfo = `
-**Pending Payment:**
+      const pendingInfo = status.status === 'READY' ? `
+**Pending Price:**
 - Amount: ${status.pendingAmount} ${status.pendingCurrency}
-- Expires: ${status.sessionExpiresAt || 'N/A'}${status.transactionId ? `\n- Transaction: ${status.transactionId}` : ''}`;
-      }
+- Session expires: ${status.sessionExpiresAt || 'N/A'}` : '';
+
+      const lastSale = status.lastTransactionId ? `
+**Last Sale:** ${status.lastTransactionId} - ${status.lastTransactionStatus}` : '';
+
+      const pinnedSale = sessionToken ? `
+**Sale for this session token:** ${status.transactionId
+          ? `${status.transactionId} - ${status.transactionStatus}`
+          : 'not scanned yet (or the token does not belong to this POI)'}` : '';
 
       return {
         content: [{
@@ -137,10 +163,9 @@ export const getPOIStatusTool = {
 
 **POI ID:** ${status.poiId}
 **ISV -> Merchant:** ${getPartnerIdSafe()} -> ${merchantPartnerId}
-${pendingInfo}
+${pendingInfo}${lastSale}${pinnedSale}
 
-**Status Meaning:**
-${status.status === 'IDLE' ? '✅ POI is ready to accept a new price' : ''}${status.status === 'READY' ? '⏳ Price set, waiting for customer to scan' : ''}${status.status === 'BUSY' ? '🔄 Customer scanned, payment in progress' : ''}${status.status === 'DISABLED' ? '🚫 POI is disabled and cannot accept payments' : ''}
+**Meaning:** ${meaning}
 
 **Request ID:** ${result.requestId || 'N/A'}
 **Timestamp:** ${result.timestamp}`
@@ -157,8 +182,9 @@ ${status.status === 'IDLE' ? '✅ POI is ready to accept a new price' : ''}${sta
 **Status:** ${result.error.status || 'N/A'}
 
 **Common Issues:**
-- INVALID_POI_ID (400): POI ID format invalid (must be pi + 8 alphanumeric chars)
-- POI_NOT_FOUND (404): POI doesn't exist
+- ERR_INVALID_POI_ID (400): POI ID format invalid (must be pi + 8 alphanumeric chars)
+- ERR_POI_NOT_FOUND (404): POI doesn't exist, or is disabled
+- ERR_SHOP_NOT_IN_SCOPE (403): the POI's shop is not assigned to you
 
 **Timestamp:** ${result.timestamp}`
         }]

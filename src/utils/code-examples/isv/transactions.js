@@ -217,7 +217,7 @@ def create_isv_jwt_token(merchant_partner_id, oauth2_token, request_body=None, u
         'iss': config['isv_partner_id'],      # ISV Partner ID
         'aud': merchant_partner_id,           # Target Merchant ID
         'sub': oauth2_token,                  # OAuth2 access token
-        'iat': int(datetime.utcnow().timestamp())
+        'iat': int(datetime.now().timestamp())
     }
 
     # Create token

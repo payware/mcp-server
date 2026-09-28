@@ -148,7 +148,7 @@ export const soundbiteTransactionTool = {
 
     if (result.success) {
       const tx = result.transaction;
-      const createdDate = tx.created ? new Date(tx.created * 1000).toISOString() : 'N/A';
+      const createdDate = tx.created ? new Date(tx.created).toISOString() : 'N/A';
       const typeDisplay = tx.transactionType || 'DEFAULT';
       const initiatorDisplay = tx.initiatedBy || 'UNKNOWN';
 

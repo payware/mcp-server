@@ -8,12 +8,12 @@
     "url": "https://github.com/payware/mcp-server",
     "source": "github"
   },
-  "version": "1.3.2",
+  "version": "1.3.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@payware/mcp-server",
-      "version": "1.3.2",
+      "version": "1.3.3",
       "transport": {
         "type": "stdio"
       },

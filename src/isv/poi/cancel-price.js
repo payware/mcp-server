@@ -61,9 +61,14 @@ export const cancelPOIPriceTool = {
 
 **ISV Authentication:** Uses ISV JWT with merchant partner ID and OAuth2 token.
 **Endpoint:** DELETE /poi/{poiId}/price
-**Use Case:** Cancel a price that was set but customer didn't pay (e.g., order cancelled).
+**Use Case:** Cancel a price that was set but not yet scanned (e.g., order cancelled).
 
-The POI will return to IDLE state and be ready for a new price.
+The POI returns to IDLE and is ready for a new price.
+
+**Only before the scan.** The scan is the customer's bank processing the payment, so from then on a POI
+sale cannot be cancelled by the merchant or an ISV, on any plan: this answers 409
+ERR_POI_NO_PENDING_PAYMENT, and cancelling the transaction itself answers 409 ERR_ALREADY_PROCESSED. The
+sale completes or expires; the POI accepts the next price meanwhile.
 
 **Required:** POI ID, Merchant Partner ID, and OAuth2 token.`,
 
