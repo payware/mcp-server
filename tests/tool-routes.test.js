@@ -174,6 +174,10 @@ const SAMPLE = {
 
 /** Optional arguments a tool needs to take the path under test. */
 const EXTRA_ARGS = {
+  // The client id and secret are optional parameters that fall back to PAYWARE_OAUTH_CLIENT_*; passed
+  // here because the environment below clears those (a developer's .env would otherwise supply them).
+  payware_authorization_oauth2_obtain_token: { clientId: 'TESTMRCH', clientSecret: 'dGVzdC1zZWNyZXQ=' },
+  payware_authorization_oauth2_token_helper: { clientId: 'TESTMRCH', clientSecret: 'dGVzdC1zZWNyZXQ=' },
   payware_operations_finalize_transaction: { amount: '10.00', fee: '0.10', currency: 'EUR' },
   payware_products_update_audio: { title: 'Jingle' },
   payware_utils_format_request: { jwtToken: 'x.y.z' }
@@ -221,7 +225,12 @@ before(async () => {
     PAYWARE_SANDBOX_URL: server.url,
     PAYWARE_PRODUCTION_URL: server.url,
     PAYWARE_SANDBOX_PRIVATE_KEY_PATH: keyPath,
-    PAYWARE_PRODUCTION_PRIVATE_KEY_PATH: keyPath
+    PAYWARE_PRODUCTION_PRIVATE_KEY_PATH: keyPath,
+    // Cleared, not inherited: src/config/env.js loads the working directory's .env, so on a developer's
+    // machine these held real values and the OAuth2 tools passed here while failing in CI, which has none.
+    PAYWARE_OAUTH_CLIENT_ID: undefined,
+    PAYWARE_OAUTH_CLIENT_SECRET: undefined,
+    PAYWARE_DEFAULT_MERCHANT_ID: undefined
   };
 });
 
