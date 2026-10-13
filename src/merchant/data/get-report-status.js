@@ -1,11 +1,13 @@
 import { getReportStatus } from '../../shared/data/data-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * Get report status tool for merchants
  */
 export const getReportStatusTool = {
   name: "payware_data_get_report_status",
+  annotations: READS,
   description: "Get the status of an asynchronous report generation request. Use this to monitor report progress.",
   inputSchema: {
     type: "object",

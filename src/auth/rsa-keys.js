@@ -1,4 +1,5 @@
-import forge from 'node-forge';
+import { generateKeyPairSync } from 'crypto';
+import { LOCAL } from '../shared/tool-annotations.js';
 
 /**
  * Generate RSA key pair for payware API authentication
@@ -6,11 +7,15 @@ import forge from 'node-forge';
  * @returns {Object} Object containing publicKey and privateKey in PEM format
  */
 export function generateRSAKeyPair(keySize = 2048) {
-  const keyPair = forge.pki.rsa.generateKeyPair({ bits: keySize });
-  
-  const privateKeyPem = forge.pki.privateKeyToPem(keyPair.privateKey);
-  const publicKeyPem = forge.pki.publicKeyToPem(keyPair.publicKey);
-  
+  // node:crypto rather than node-forge, which was a dependency for this call alone. The encodings are
+  // the ones forge produced - PKCS#1 private ("BEGIN RSA PRIVATE KEY"), SPKI public - so the output
+  // reads the same; only forge's CRLF line endings become LF.
+  const { privateKey: privateKeyPem, publicKey: publicKeyPem } = generateKeyPairSync('rsa', {
+    modulusLength: keySize,
+    privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' }
+  });
+
   return {
     privateKey: privateKeyPem,
     publicKey: publicKeyPem,
@@ -24,6 +29,7 @@ export function generateRSAKeyPair(keySize = 2048) {
  */
 export const generateRSAKeysTool = {
   name: "payware_authentication_generate_rsa_keys",
+  annotations: LOCAL,
   description: "Generate RSA key pair for payware API authentication",
   inputSchema: {
     type: "object",

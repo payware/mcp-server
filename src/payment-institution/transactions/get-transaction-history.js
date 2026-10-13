@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * Get transaction history via payware API (completed/expired transactions)
@@ -54,6 +55,7 @@ export async function getPITransactionHistory({
  */
 export const getPITransactionHistoryTool = {
   name: "payware_operations_get_transaction_history",
+  annotations: READS,
   description: `Get the complete history of a completed or expired payware transaction as a payment institution.
 
 **Use Cases:**
@@ -86,8 +88,7 @@ export const getPITransactionHistoryTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for JWT token creation. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "RSA private key for JWT token creation. Uses environment-specific private key as default."
       },
       useSandbox: {
         type: "boolean",
@@ -124,6 +125,8 @@ export const getPITransactionHistoryTool = {
       privateKey,
       useSandbox
     });
+    // The success text quotes the endpoint. The helper above keeps its own baseUrl, so it needs one here.
+    const baseUrl = useSandbox ? getSandboxUrl() : getProductionUrl();
 
     if (result.success) {
       const tx = result.transaction;
@@ -235,7 +238,7 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 1. **ERR_MISSING_TRANSACTION (404)**: Transaction not found in history
 2. **HTTP 429 (Too Many Requests)**: API is throttled, implement retry logic
 3. **Authentication Issues**: Verify JWT token and partner credentials
-4. **Transaction Still Active**: Use \`payware_pi_get_transaction_status\` for active transactions
+4. **Transaction Still Active**: Use \`payware_operations_get_transaction_status\` for active transactions
 
 **Troubleshooting:**
 1. Verify transaction ID is correct: 10 characters total, starts with 'pw' (standard), 'pr' (product), or 'ps' (soundbite)
@@ -251,7 +254,7 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 - Avoid excessive polling of this endpoint
 
 **Alternative Actions:**
-- If transaction is still active: Use \`payware_pi_get_transaction_status\`
+- If transaction is still active: Use \`payware_operations_get_transaction_status\`
 - If rate limited: Wait and retry after a delay
 - If transaction not found: Verify the transaction ID exists`
         }]

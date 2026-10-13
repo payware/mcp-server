@@ -3,6 +3,7 @@ import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { CHANGES } from '../../shared/tool-annotations.js';
 
 /**
  * Cancel a transaction via payware API
@@ -76,6 +77,7 @@ export async function cancelTransaction({
  */
 export const cancelTransactionTool = {
   name: "payware_operations_cancel_transaction",
+  annotations: CHANGES,
   description: "Cancel an ACTIVE transaction created by this merchant. Only the merchant who created the transaction can cancel it, and only before it has been processed.",
   inputSchema: {
     type: "object",
@@ -104,8 +106,7 @@ export const cancelTransactionTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for JWT token creation. Can use PAYWARE_PRIVATE_KEY_PATH env var as default.",
-        default: getPrivateKeySafe()
+        description: "RSA private key for JWT token creation. Can use PAYWARE_PRIVATE_KEY_PATH env var as default."
       },
       useSandbox: {
         type: "boolean",

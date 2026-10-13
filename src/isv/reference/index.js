@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * Reference data - the enumerations a merchant registration form has to be filled in with.
@@ -129,6 +130,7 @@ const DATASET_DOCS = Object.entries(DATASETS)
 
 export const referenceDataTool = {
   name: 'payware_reference_lookup',
+  annotations: READS,
   description: `Look up payware reference data - the enumerations a merchant registration form needs.
 
 **Endpoints:** GET /isv/reference/{legal-forms, business-activities, currencies, languages, jurisdictions}

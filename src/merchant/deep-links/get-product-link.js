@@ -1,16 +1,18 @@
 import { getProductDeepLink } from '../../shared/deep-links/api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { ADDS } from '../../shared/tool-annotations.js';
 
 /**
  * Get deep link for a merchant product
  */
 export const getProductLinkTool = {
   name: "payware_deep_links_get_product_link",
-  description: `Get an active deep link for a product. Returns a clickable URL that redirects to the payware mobile app.
+  annotations: ADDS,
+  description: `Get an active deep link for a product. Returns a clickable URL that redirects to the payware mobile app. For a link whose payments are attributed to one placement of the product (a poster, an ad, a mailing), use payware_products_get_placement_link instead.
 
 **Deep Link Format:**
 - Web URL: https://go.payware.eu/{productId}
-- Mobile Redirect: payware://{productId}
+- Mobile Redirect: payware:/{productId} (one slash: the identifier is case-sensitive, so it must not sit in the URI host, which redirect services lowercase)
 
 **Use Cases:**
 - Mobile-only e-commerce product references
@@ -19,6 +21,7 @@ export const getProductLinkTool = {
 
 **Important Notes:**
 - Deep links are only supported in production environment
+- Apps that open payware links must accept \`payware:\` followed by one, two or three slashes (QR codes and NFC tags carry \`payware://{id}\`): read the identifier after the scheme and any slashes, up to \`/\`, \`?\` or \`#\`, and keep its case
 - Link expiration is synchronized with the referenced product
 - Traditional deep links that route to app content when app is installed`,
 
@@ -37,8 +40,7 @@ export const getProductLinkTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for JWT token creation. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "RSA private key for JWT token creation. Uses environment-specific private key as default."
       }
     },
     required: ["productId"]
@@ -82,7 +84,7 @@ export const getProductLinkTool = {
 **Deep Link Details:**
 - Product ID: ${productId}
 - Web URL: ${linkUrl}
-- Mobile Redirect: payware://${productId}
+- Mobile Redirect: payware:/${productId}
 
 **Link Information:**
 - Status: Active
@@ -101,7 +103,7 @@ ${JSON.stringify(result.data, null, 2)}
 
 **Usage:**
 1. Share the web URL: \`${linkUrl}\`
-2. On mobile devices, it will redirect to: \`payware://${productId}\`
+2. On mobile devices, it will redirect to: \`payware:/${productId}\`
 3. Link expires when the product expires
 4. Recreate if product is updated`
         }]

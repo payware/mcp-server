@@ -1,11 +1,13 @@
 import { getReportRequests, REPORT_TYPES } from '../../shared/data/data-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * Get report request history tool for merchants
  */
 export const getReportRequestsTool = {
   name: "payware_data_get_report_requests",
+  annotations: READS,
   description: "Get all execution requests for a specific report type. Returns historical execution records with status and parameters. Production only - not supported in sandbox.",
   inputSchema: {
     type: "object",

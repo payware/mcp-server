@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * Get POI details via ISV authentication
@@ -61,6 +62,7 @@ export async function getPOI({ poiId, merchantPartnerId, oauth2Token, useSandbox
  */
 export const getPOITool = {
   name: "payware_poi_get",
+  annotations: READS,
   description: `Get details of a specific POI (Point of Interaction).
 
 **ISV Authentication:** Uses ISV JWT with merchant partner ID and OAuth2 token.

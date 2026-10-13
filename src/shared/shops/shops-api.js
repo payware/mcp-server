@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createAuthHeaders } from '../auth-headers.js';
 import { apiErrorResult } from '../api-errors.js';
 import { getSandboxUrl, getProductionUrl } from '../../config/env.js';
+import { READS } from '../tool-annotations.js';
 
 /**
  * Shops - the merchant outlets a transaction, product or POI belongs to.
@@ -48,6 +49,7 @@ export function buildListShopsTool({ partnerType, resolveAuth }) {
 
   return {
     name: 'payware_shops_list',
+    annotations: READS,
     description: `List the merchant outlets (shops) the caller can act on.
 
 **Endpoint:** GET /shops

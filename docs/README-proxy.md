@@ -45,14 +45,14 @@ Call a specific MCP tool
 
 **Example: Generate RSA Keys**
 ```bash
-curl -X POST http://localhost:3001/tools/generate_rsa_keys \
+curl -X POST http://localhost:3001/tools/payware_authentication_generate_rsa_keys \
   -H "Content-Type: application/json" \
   -d '{}'
 ```
 
 **Example: Create JWT Token**
 ```bash
-curl -X POST http://localhost:3001/tools/payware_auth_create_jwt_token \
+curl -X POST http://localhost:3001/tools/payware_authentication_create_jwt_token \
   -H "Content-Type: application/json" \
   -d '{
     "partnerId": "your_partner_id",
@@ -99,6 +99,13 @@ Set custom port:
 PROXY_PORT=8080 npm run proxy
 ```
 
+| Variable | Default | Purpose |
+|---|---|---|
+| `PROXY_PORT` | `3001` | Port to listen on. |
+| `PAYWARE_MCP_PROXY_HOST` | `127.0.0.1` | Interface to bind. Anything other than loopback exposes the routes to the network and prints a warning. |
+| `PAYWARE_MCP_PROXY_HOSTS` | `localhost:<port>,127.0.0.1:<port>,<bind host>:<port>` | Comma-separated `host:port` values accepted in the `Host` header. Every other value is refused with 403. |
+| `PAYWARE_MCP_PROXY_ORIGINS` | `http://localhost:<port>,http://127.0.0.1:<port>` | Comma-separated browser origins allowed to call the proxy. A request from any other `Origin` is refused with 403; requests without an `Origin` (curl, scripts) are accepted. |
+
 ## Using with MCP Inspector
 
 1. Start the proxy server:
@@ -122,10 +129,10 @@ npm run proxy:dev
 
 ## Security Notes
 
-- The proxy binds to `0.0.0.0` to allow external access
-- Use appropriate firewall rules in production
-- Consider adding authentication for production use
-- CORS is enabled for all origins (adjust as needed)
+- The routes are unauthenticated and sign API requests with the configured partner's private key, so anyone who can reach the proxy can act as that partner. It binds to loopback by default; widen `PAYWARE_MCP_PROXY_HOST` only on a network you control.
+- Requests whose `Host` header is not an allowed name are refused. This blocks DNS rebinding, where a web page re-points its own hostname at `127.0.0.1` and then calls the proxy as if it were same-origin.
+- Requests from a browser origin that is not allowed are refused before they reach a route, including simple cross-site POSTs that need no CORS preflight.
+- For anything beyond local development, use the stdio server (`npm start`), which opens no network port.
 
 ## Troubleshooting
 
@@ -138,6 +145,5 @@ npm run proxy:dev
    - Ensure your MCP server tools are working with `npm start`
    - Check console logs for errors
 
-3. **CORS issues:**
-   - The proxy includes CORS headers, but some browsers may still block requests
-   - Use a proper HTTP client or configure your browser appropriately
+3. **403 Forbidden:**
+   - The `Host` or `Origin` of the request is not allowed. Add it to `PAYWARE_MCP_PROXY_HOSTS` or `PAYWARE_MCP_PROXY_ORIGINS`

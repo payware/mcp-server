@@ -3,6 +3,7 @@ import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { describeApiError } from '../../shared/api-errors.js';
+import { COMMITS } from '../../shared/tool-annotations.js';
 
 /**
  * Process a PEER transaction as an ISV on behalf of a merchant.
@@ -122,6 +123,7 @@ export async function processTransaction({
 
 export const processTransactionTool = {
   name: 'payware_operations_process_transaction',
+  annotations: COMMITS,
   description: `Process a PEER transaction as an ISV on behalf of a merchant - the merchant scanning a customer's QR or barcode to collect payment.
 
 **Endpoint:** POST /transactions/{transactionId}

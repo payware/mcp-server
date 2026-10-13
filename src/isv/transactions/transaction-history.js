@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { describeApiError } from '../../shared/api-errors.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * Get one completed transaction as an ISV acting on behalf of a merchant.
@@ -68,6 +69,7 @@ export async function getTransactionHistory({
 
 export const getTransactionHistoryTool = {
   name: 'payware_operations_get_transaction_history',
+  annotations: READS,
   description: `Get one completed or expired transaction as an ISV on behalf of a merchant.
 
 **Endpoint:** GET /transactions-history/{transactionId}

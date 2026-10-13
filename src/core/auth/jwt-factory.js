@@ -119,7 +119,10 @@ async function createJWTTokenWithCustomPayload(payload, privateKey, requestBody)
   // Add contentSha256 to header if request body exists (SHA-256 is preferred over MD5)
   if (requestBody) {
     const { createMinimizedJSON } = await import('../utils/json-serializer.js');
-    const bodyString = createMinimizedJSON(requestBody);
+    // A string IS the body, byte for byte - the caller serialized it once and sends exactly that.
+    // Serializing it again hashed a JSON string literal of the body, so every ISV write that passed
+    // its body as a string was ERR_INVALID_CONTENT_HASH. createJWTToken has always made this split.
+    const bodyString = typeof requestBody === 'string' ? requestBody : createMinimizedJSON(requestBody);
     header.contentSha256 = crypto.default.createHash('sha256').update(bodyString, 'utf8').digest('base64');
   }
 

@@ -1,11 +1,13 @@
 import { deleteTransactionDeepLink } from '../../shared/deep-links/api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { CHANGES } from '../../shared/tool-annotations.js';
 
 /**
  * Delete deep link for a payment institution transaction
  */
 export const deleteTransactionLinkTool = {
   name: "payware_deep_links_delete_transaction_link",
+  annotations: CHANGES,
   description: `Delete an active deep link for a transaction where the payment institution acts as source (SRC) or destination (DST). Once deleted, the deep link URL will no longer redirect to the payware mobile app.
 
 **Use Cases:**
@@ -34,8 +36,7 @@ export const deleteTransactionLinkTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for JWT token creation. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "RSA private key for JWT token creation. Uses environment-specific private key as default."
       }
     },
     required: ["transactionId"]

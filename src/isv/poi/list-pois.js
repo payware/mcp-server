@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * List all POIs for a merchant via ISV authentication
@@ -58,6 +59,7 @@ export async function listPOIs({ merchantPartnerId, oauth2Token, useSandbox = tr
  */
 export const listPOIsTool = {
   name: "payware_poi_list",
+  annotations: READS,
   description: `List all POIs (Points of Interaction) for a merchant.
 
 **ISV Authentication:** Uses ISV JWT with merchant partner ID and OAuth2 token.

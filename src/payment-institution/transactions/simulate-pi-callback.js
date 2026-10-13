@@ -10,6 +10,8 @@
  * @param {Object} options - Additional options
  * @returns {Object} Mock callback payload
  */
+import { LOCAL } from '../../shared/tool-annotations.js';
+
 export function generateMockPICallback(transactionId, callbackType = 'TRANSACTION_PROCESSED', options = {}) {
   const {
     amount = '57.00',
@@ -146,6 +148,7 @@ export async function simulatePICallbackDelivery(callbackUrl, payload) {
  */
 export const simulatePICallbackTool = {
   name: "payware_operations_simulate_callback",
+  annotations: LOCAL,
   description: "Simulate payment institution callback scenarios for testing webhook handling. Payment institutions receive TRANSACTION_PROCESSED when merchant processes their transaction, and TRANSACTION_FINALIZED when transaction is completed.",
   inputSchema: {
     type: "object",

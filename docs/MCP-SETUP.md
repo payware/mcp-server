@@ -84,6 +84,26 @@ NODE_ENV=development
 PORT=3000
 ```
 
+### Choosing toolsets
+
+`PAYWARE_MCP_TOOLSETS` limits the tools the server offers to the groups you name, which keeps the assistant's context small. Unset, or `all`, loads every tool.
+
+| Toolset | Tools |
+|:-|:-|
+| `auth` | Keys, JWTs and, for ISVs, OAuth2 tokens |
+| `transactions` | Create, process, finalize, cancel and look up transactions, and simulate callbacks |
+| `products` | Products, price schedules, audio and product images |
+| `placements` | Campaigns, placements, airing rules and the airing calendar |
+| `deep_links` | Shareable links for transactions and products |
+| `data` | Reports and exports |
+| `logs` | API logs (Premium) |
+| `poi` | Points of interaction (ISV) |
+| `shops` | Shop codes |
+| `onboarding` | ISV merchant invitations and the reference data their forms need |
+| `utils` | Code samples, documentation, request formatting and server information |
+
+Example: `PAYWARE_MCP_TOOLSETS=products,placements,shops`. Names are case-insensitive and `deep-links` works as well as `deep_links`. An unknown name is ignored with a warning on stderr, which MCP clients keep in their server log, and if no name is known every tool loads. A tool outside the chosen toolsets is neither listed nor callable. This is not access control: what a call may do is still decided by payware for your partner account.
+
 ## Available Tools
 
 ### 1. `payware_generate_code_example`

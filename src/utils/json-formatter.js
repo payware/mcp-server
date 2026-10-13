@@ -5,12 +5,14 @@
 
 import { createDeterministicJSON, validateJSONConsistency } from '../core/utils/json-serializer.js';
 import { generateContentSha256 } from '../core/auth/jwt-token.js';
+import { LOCAL } from '../shared/tool-annotations.js';
 
 /**
  * Format JSON with deterministic serialization tool
  */
 export const formatJSONDeterministicTool = {
   name: "payware_utils_format_json_deterministic",
+  annotations: LOCAL,
   description: "Format JSON payload with deterministic key sorting for consistent SHA-256 calculation and payware API compliance",
   inputSchema: {
     type: "object",

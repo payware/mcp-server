@@ -1,11 +1,13 @@
 import { deleteProduct } from '../../shared/products/products-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { CHANGES } from '../../shared/tool-annotations.js';
 
 /**
  * Delete product tool implementation for ISVs
  */
 export const deleteProductTool = {
   name: "payware_products_delete_product",
+  annotations: CHANGES,
   description: "Delete a product from a merchant account (ISV operation). This action cannot be undone.",
 
   inputSchema: {

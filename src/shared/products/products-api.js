@@ -802,35 +802,46 @@ export async function updateAudio({
     throw new Error('audioId is required');
   }
 
-  const requestBody = {};
-
-  if (title !== undefined) requestBody.title = title;
-  if (newProductId !== undefined) requestBody.productId = newProductId;
-
-  const minimizedBody = createMinimizedJSON(requestBody);
-  const headers = await createAuthHeaders(partnerType, { ...authParams, requestBody: minimizedBody });
-  const baseUrl = useSandbox ? getSandboxUrl() : getProductionUrl();
-
-  try {
-    const response = await axios.patch(
-      `${baseUrl}/products/${productId}/audios/${audioId}`,
-      minimizedBody,
-      { headers }
-    );
-
-    return {
-      success: true,
-      data: response.data,
-      requestInfo: {
-        url: `${baseUrl}/products/${productId}/audios/${audioId}`,
-        method: 'PATCH',
-        requestBody: minimizedBody,
-        statusCode: response.status
-      }
-    };
-  } catch (error) {
-    throw describeApiError(error, 'update audio');
+  // PATCH is metadata only. The server refuses a different productId there with
+  // ERR_AUDIO_REASSIGN_FORBIDDEN and moves an audio through POST .../{id}/transfer instead
+  // (AudioService.update), so a rename and a move are two calls. The rename goes first: if the move
+  // is then refused, the title the caller asked for is still applied.
+  const move = newProductId !== undefined && newProductId !== productId;
+  if (title === undefined && !move) {
+    throw new Error('Nothing to update: provide a title, or a newProductId different from productId');
   }
+
+  const baseUrl = useSandbox ? getSandboxUrl() : getProductionUrl();
+  const audioUrl = `${baseUrl}/products/${productId}/audios/${audioId}`;
+
+  const send = async (method, url, requestBody, operation) => {
+    const minimizedBody = createMinimizedJSON(requestBody);
+    const headers = await createAuthHeaders(partnerType, { ...authParams, requestBody: minimizedBody });
+    try {
+      const response = await axios[method](url, minimizedBody, { headers });
+      return {
+        success: true,
+        data: response.data,
+        requestInfo: {
+          url,
+          method: method.toUpperCase(),
+          requestBody: minimizedBody,
+          statusCode: response.status
+        }
+      };
+    } catch (error) {
+      throw describeApiError(error, operation);
+    }
+  };
+
+  let result;
+  if (title !== undefined) {
+    result = await send('patch', audioUrl, { title }, 'update audio');
+  }
+  if (move) {
+    result = await send('post', `${audioUrl}/transfer`, { targetProductId: newProductId }, 'transfer audio');
+  }
+  return result;
 }
 
 /**

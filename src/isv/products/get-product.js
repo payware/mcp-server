@@ -1,11 +1,13 @@
 import { getProduct } from '../../shared/products/products-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * Get product tool implementation for ISVs
  */
 export const getProductTool = {
   name: "payware_products_get_product",
+  annotations: READS,
   description: "Get detailed information about a specific product by ID (ISV operation)",
 
   inputSchema: {

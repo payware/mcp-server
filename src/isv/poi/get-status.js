@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * Get POI status via ISV authentication
@@ -61,6 +62,7 @@ export async function getPOIStatus({ poiId, sessionToken, merchantPartnerId, oau
  */
 export const getPOIStatusTool = {
   name: "payware_poi_get_status",
+  annotations: READS,
   description: `Get the current status of a POI and the outcome of its sales.
 
 **ISV Authentication:** Uses ISV JWT with merchant partner ID and OAuth2 token.

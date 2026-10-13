@@ -5,12 +5,14 @@
 
 import { obtainTokenTool } from './obtain-token.js';
 import { getTokenInfoTool } from './get-token-info.js';
+import { CREATES } from '../../shared/tool-annotations.js';
 
 /**
  * Helper tool to create or find OAuth2 tokens with clear output
  */
 export const tokenHelperTool = {
   name: 'payware_authorization_oauth2_token_helper',
+  annotations: CREATES,
   description: `OAuth2 Token Helper - Create or manage tokens with clear output.
 
 This tool helps you:

@@ -1,11 +1,13 @@
 import { getTransactionDeepLink } from '../../shared/deep-links/api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { ADDS } from '../../shared/tool-annotations.js';
 
 /**
  * Get deep link for a transaction (ISV on behalf of merchant)
  */
 export const getTransactionLinkTool = {
   name: "payware_deep_links_get_transaction_link",
+  annotations: ADDS,
   description: `Get an active deep link for a transaction on behalf of a merchant. Returns a clickable URL that redirects to the payware mobile app.
 
 **ISV Authentication:**
@@ -14,7 +16,7 @@ export const getTransactionLinkTool = {
 
 **Deep Link Format:**
 - Web URL: https://go.payware.eu/{transactionId}
-- Mobile Redirect: payware://{transactionId}
+- Mobile Redirect: payware:/{transactionId} (one slash: the identifier is case-sensitive, so it must not sit in the URI host, which redirect services lowercase)
 
 **Use Cases:**
 - P2P payments via messaging services
@@ -23,6 +25,7 @@ export const getTransactionLinkTool = {
 
 **Important Notes:**
 - Deep links are only supported in production environment
+- Apps that open payware links must accept \`payware:\` followed by one, two or three slashes (QR codes and NFC tags carry \`payware://{id}\`): read the identifier after the scheme and any slashes, up to \`/\`, \`?\` or \`#\`, and keep its case
 - Link expiration is synchronized with the referenced transaction
 - Traditional deep links that route to app content when app is installed`,
 
@@ -49,8 +52,7 @@ export const getTransactionLinkTool = {
       },
       privateKey: {
         type: "string",
-        description: "ISV RSA private key for JWT token creation. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "ISV RSA private key for JWT token creation. Uses environment-specific private key as default."
       }
     },
     required: ["transactionId", "merchantPartnerId", "oauth2Token"]
@@ -107,7 +109,7 @@ export const getTransactionLinkTool = {
 - Transaction ID: ${transactionId}
 - Merchant: ${merchantPartnerId}
 - Web URL: ${linkUrl}
-- Mobile Redirect: payware://${transactionId}
+- Mobile Redirect: payware:/${transactionId}
 
 **ISV Authentication:**
 - ISV Partner ID: ${isvPartnerId}
@@ -131,7 +133,7 @@ ${JSON.stringify(result.data, null, 2)}
 
 **Usage:**
 1. Share the web URL: \`${linkUrl}\`
-2. On mobile devices, it will redirect to: \`payware://${transactionId}\`
+2. On mobile devices, it will redirect to: \`payware:/${transactionId}\`
 3. Link expires when the transaction expires
 4. Recreate if transaction is extended`
         }]
@@ -155,7 +157,7 @@ ${JSON.stringify(result.data, null, 2)}
 5. **Invalid transaction ID**: Ensure transaction ID format is correct
 
 **Troubleshooting:**
-1. Verify transaction exists using \`payware_transactions_get_transaction_status\`
+1. Verify transaction exists using \`payware_operations_get_transaction_status\`
 2. Check OAuth2 token is valid and not expired
 3. Ensure ISV has permission to access merchant data
 4. Check if running in production environment

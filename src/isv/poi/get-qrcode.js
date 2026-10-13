@@ -1,19 +1,41 @@
 import axios from 'axios';
-import { getSandboxUrl, getProductionUrl } from '../../config/env.js';
+import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
+import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
- * Get POI QR code image
- * Note: This endpoint is public and doesn't require authentication
+ * Get POI QR code image via ISV authentication
+ *
+ * Not a public endpoint: the server resolves the merchant from the token and only answers for that
+ * merchant's own POIs (ApiPOIController.getQRCode, V-05), so an unauthenticated request was refused.
  * @param {Object} params - Parameters for QR code request
  * @returns {Object} QR code response
  */
-export async function getPOIQRCode({ poiId, format = 'PNG', useSandbox = true }) {
+export async function getPOIQRCode({ poiId, format = 'PNG', merchantPartnerId, oauth2Token, useSandbox = true }) {
   if (!poiId) {
     throw new Error('POI ID is required');
   }
 
+  if (!merchantPartnerId) {
+    throw new Error('Merchant Partner ID is required for ISV operations');
+  }
+
+  if (!oauth2Token) {
+    throw new Error('OAuth2 token is required for ISV operations');
+  }
+
+  // Create ISV JWT token (GET request - no body)
+  const jwtData = await createJWTForPartner({
+    partnerId: getPartnerIdSafe(),
+    privateKey: getPrivateKeySafe(useSandbox),
+    requestBody: null,
+    merchantId: merchantPartnerId,
+    oauth2Token
+  });
+
   const headers = {
+    'Authorization': `Bearer ${jwtData.token}`,
     'Api-Version': '1'
   };
 
@@ -49,25 +71,34 @@ export async function getPOIQRCode({ poiId, format = 'PNG', useSandbox = true })
  */
 export const getPOIQRCodeTool = {
   name: "payware_poi_get_qrcode",
+  annotations: READS,
   description: `Generate a QR code image for a POI that customers can scan.
 
 **Endpoint:** GET /poi/{poiId}/image
-**Authentication:** Public endpoint (no auth required)
+**Authentication:** On behalf of the merchant that owns the POI
 **Use Case:** Generate QR codes for printing or displaying on screens.
 
 **Formats:** PNG (default), SVG, JPG
 
 Returns base64-encoded image data that can be saved or displayed.
 
-**Required:** POI ID only.`,
+**Required:** POI ID, and the merchant partner ID and OAuth2 token to act on its behalf.`,
 
   inputSchema: {
     type: "object",
-    required: ["poiId"],
+    required: ["poiId", "merchantPartnerId", "oauth2Token"],
     properties: {
       poiId: {
         type: "string",
         description: "The POI identifier (format: pi + 8 alphanumeric chars, e.g., piABC12345)"
+      },
+      merchantPartnerId: {
+        type: "string",
+        description: "Partner ID of the target merchant (8 alphanumeric characters)"
+      },
+      oauth2Token: {
+        type: "string",
+        description: "OAuth2 access token obtained from the merchant"
       },
       format: {
         type: "string",
@@ -84,11 +115,11 @@ Returns base64-encoded image data that can be saved or displayed.
   },
 
   async handler(args) {
-    const { poiId, format = 'PNG', useSandbox = true } = args;
+    const { poiId, format = 'PNG', merchantPartnerId, oauth2Token, useSandbox = true } = args;
 
     if (!poiId) throw new Error("POI ID is required");
 
-    const result = await getPOIQRCode({ poiId, format, useSandbox });
+    const result = await getPOIQRCode({ poiId, format, merchantPartnerId, oauth2Token, useSandbox });
 
     if (result.success) {
       const img = result.image;

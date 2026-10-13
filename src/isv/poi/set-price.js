@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { CHANGES } from '../../shared/tool-annotations.js';
 
 /**
  * Set price on a POI via ISV authentication
@@ -77,6 +78,7 @@ export async function setPOIPrice({ poiId, amount, currency, ttlSeconds, merchan
  */
 export const setPOIPriceTool = {
   name: "payware_poi_set_price",
+  annotations: CHANGES,
   description: `Set a pending price on a POI for customer payment.
 
 **ISV Authentication:** Uses ISV JWT with merchant partner ID and OAuth2 token.

@@ -1,12 +1,14 @@
 import { updateProduct } from '../../shared/products/products-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { PRODUCT_TYPES, OVERLAP_PRIORITY } from '../../shared/products/products-api.js';
+import { CHANGES } from '../../shared/tool-annotations.js';
 
 /**
  * Update product tool implementation for merchants
  */
 export const updateProductTool = {
   name: "payware_products_update_product",
+  annotations: CHANGES,
   description: `Update an existing product. Only provide the fields you want to change.
 
 **Product Structure:**
@@ -128,8 +130,7 @@ export const updateProductTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for authentication (uses environment-specific private key as default)",
-        default: getPrivateKeySafe()
+        description: "RSA private key for authentication (uses environment-specific private key as default)"
       },
       useSandbox: {
         type: "boolean",

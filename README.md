@@ -40,6 +40,14 @@ Releases are published to npm as `@payware/mcp-server` and to the official [MCP 
 - **Get QR Code**: Generate QR code for POI payments
 - **List POIs**: List all POIs for a merchant
 
+### 📣 Campaign, Placement and Airing Tools
+For merchants, and for ISVs acting for them. Changes need the merchant's PRM plan; reading works on every plan.
+- **Placements**: Distribute a product through posters, TV spots, packaging, links or tags, each with its own `pl` ID, so every payment it starts is attributed to it. Includes the QR code, barcode and short link of each placement
+- **Campaigns**: Group placements, across products, and read their combined results
+- **Airing Rules**: Schedule when a placement is on air, with recurrences, time windows and time zones, and replace a whole schedule in one call
+- **Airing Calendar**: Every airing across all products in a time range
+- **Results**: Offers shown, payments started and confirmed, and confirmed amounts per placement or campaign
+
 ### 📋 Logs Tools (Premium)
 - **Query Logs**: Search and filter application logs by level, logger, message content, and date range
 - **Log Status**: Check log availability and storage information
@@ -91,6 +99,16 @@ PAYWARE_SANDBOX_URL=https://sandbox.payware.eu/api
 ```
 
 ⚠️ **Security Note**: Never commit the `.env` file to version control. It contains sensitive credentials.
+
+#### Choosing toolsets
+
+Every tool definition goes into the assistant's context on every turn, and a merchant has over 70 of them. To offer only the groups you use, set `PAYWARE_MCP_TOOLSETS` to a comma-separated list:
+
+```env
+PAYWARE_MCP_TOOLSETS=products,placements
+```
+
+Toolsets: `auth`, `transactions`, `products`, `placements`, `deep_links`, `data`, `logs`, `poi`, `shops`, `onboarding`, `utils`. Unset, or `all`, loads every tool. An unknown name is ignored with a warning in the server log. A tool outside the chosen toolsets is neither listed nor callable; this narrows what the assistant is offered and does not change what your partner account may do. An ISV that obtains OAuth2 tokens through this server includes `auth`.
 
 ### 3. Start the MCP Server
 

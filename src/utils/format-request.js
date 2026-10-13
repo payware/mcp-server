@@ -3,6 +3,7 @@
  */
 
 import { createMinimizedJSON } from '../core/utils/json-serializer.js';
+import { LOCAL } from '../shared/tool-annotations.js';
 
 /**
  * Format transaction request data
@@ -165,6 +166,7 @@ export function formatCurlCommand(method, endpoint, headers, body = null) {
  */
 export const formatRequestTool = {
   name: "payware_utils_format_request",
+  annotations: LOCAL,
   description: "Format and validate payware API requests with proper structure and headers",
   inputSchema: {
     type: "object",

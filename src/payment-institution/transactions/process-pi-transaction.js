@@ -3,6 +3,7 @@ import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { COMMITS } from '../../shared/tool-annotations.js';
 
 /**
  * Process a transaction as a payment institution via payware API
@@ -112,6 +113,7 @@ export async function processPITransaction({
  */
 export const processPITransactionTool = {
   name: "payware_operations_process_transaction",
+  annotations: COMMITS,
   description: `Process a transaction as a payment institution. Payment institutions can process transactions created by others and must provide account/friendlyName details.
 
 **Use Cases:**
@@ -148,8 +150,8 @@ export const processPITransactionTool = {
     properties: {
       transactionId: {
         type: "string",
-        description: "Transaction ID to process. Format: 2-char prefix + 8-char ID. Supports: 'pw' (standard), 'pr' (product), 'ps' (soundbite)",
-        pattern: "^(pw|pr|ps)[0-9A-Za-z]{8}$"
+        description: "Transaction ID to process. Format: 2-char prefix + 8-char ID. Supports: 'pw' (standard), 'pr' (product), 'pl' (placement: pays as its product, and the payment is attributed to the placement), 'ps' (soundbite)",
+        pattern: "^(pw|pr|pl|ps)[0-9A-Za-z]{8}$"
       },
       account: {
         type: "string",
@@ -205,8 +207,7 @@ export const processPITransactionTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for JWT token creation. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "RSA private key for JWT token creation. Uses environment-specific private key as default."
       },
       // Payment method for POI transactions
       paymentMethod: {
@@ -373,7 +374,7 @@ ${JSON.stringify(result.transaction, null, 2)}
 1. **TRANSACTION_PROCESSED** callback will be sent to counterparty
 2. Wait for callback notification to your URL (if provided)
 3. Monitor transaction status for completion
-4. Use \`payware_pi_finalize_transaction\` to confirm/decline the transaction
+4. Use \`payware_operations_finalize_transaction\` to confirm/decline the transaction
 5. Handle final TRANSACTION_FINALIZED callbacks
 
 **⚠️ Important:**
@@ -412,7 +413,7 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 7. **ERR_SPECIFYING_CURRENCY_NOT_ALLOWED**: Cannot change currency on merchant transactions
 
 **Troubleshooting:**
-1. Verify transaction ID is correct: 10 characters total, starts with 'pw' (standard), 'pr' (product), or 'ps' (soundbite)
+1. Verify transaction ID is correct: 10 characters total, starts with 'pw' (standard), 'pr' (product), 'pl' (placement) or 'ps' (soundbite)
 2. Ensure account and friendlyName are provided
 3. Check currency matches original transaction currency
 4. Verify callback URL is provided (especially for payee role)

@@ -9,6 +9,8 @@
  * @param {Object} options - Additional options
  * @returns {Object} Mock callback payload
  */
+import { LOCAL } from '../../shared/tool-annotations.js';
+
 export function generateMockCallback(transactionId, status = 'CONFIRMED', options = {}) {
   const {
     amount = '57.60',
@@ -137,6 +139,7 @@ export async function simulateCallbackDelivery(callbackUrl, payload) {
  */
 export const simulateCallbackTool = {
   name: "payware_operations_simulate_callback",
+  annotations: LOCAL,
   description: `Simulate callback scenarios for testing webhook handling.
 
 Generates the payload a merchant's \`callbackUrl\` actually receives, so a handler can be built and

@@ -85,8 +85,12 @@ export class FakePaywareServer {
       header = decoded?.header ?? null;
       payload = decoded?.payload ?? null;
       if (this.publicKey) {
+        // The signature only. The audience has two legal forms - 'https://payware.eu', or on an
+        // ISV's on-behalf call the merchant's partner id, with the OAuth2 token as `sub`
+        // (OncePerRequestPaywareAuthorizationFilter) - so a test that cares asserts the one it
+        // expects on `payload`.
         try {
-          jwt.verify(token, this.publicKey, { algorithms: ['RS256'], audience: 'https://payware.eu' });
+          jwt.verify(token, this.publicKey, { algorithms: ['RS256'] });
           signatureValid = true;
         } catch {
           signatureValid = false;

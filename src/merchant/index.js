@@ -26,6 +26,9 @@ import { merchantLogsTools } from './logs/index.js';
 // Shop tools - needed before any call that takes a shop / shopCode
 import { merchantShopTools } from './shops/index.js';
 
+// Campaigns, placements and airings - one definition shared by merchants and ISVs
+import { placementTools } from '../shared/placements/tools.js';
+
 // Shared utility tools
 import { getServerInfoTool } from '../utils/server-info.js';
 
@@ -60,7 +63,10 @@ export const merchantTools = [
   ...merchantLogsTools,
 
   // Shop lookup
-  ...merchantShopTools
+  ...merchantShopTools,
+
+  // Campaigns, placements and airings
+  ...placementTools('merchant')
 ];
 
 /**

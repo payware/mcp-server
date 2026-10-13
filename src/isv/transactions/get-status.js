@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * Get transaction status from payware API as an ISV
@@ -81,12 +82,13 @@ function formatTransactionStatus(transaction) {
  */
 export const getTransactionStatusTool = {
   name: "payware_operations_get_transaction_status",
+  annotations: READS,
   description: `Get status of an ACTIVE transaction by ID as an ISV on behalf of a merchant.
 
 **ISV Authentication:** Uses ISV JWT with merchant partner ID in 'aud' claim and OAuth2 token in 'sub' claim.
 **Endpoint:** GET /transactions/{transactionId}
 **Use Case:** Check status of ACTIVE transactions only. This endpoint only returns transactions with ACTIVE status.
-**Note:** For transactions with final statuses (CONFIRMED, DECLINED, FAILED, EXPIRED, CANCELLED), use 'payware_transactions_get_history' instead.
+**Note:** For transactions with final statuses (CONFIRMED, DECLINED, FAILED, EXPIRED, CANCELLED), use 'payware_operations_get_transaction_history' instead.
 
 **Required:** Merchant Partner ID and OAuth2 token for ISV authentication.
 

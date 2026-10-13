@@ -1,11 +1,13 @@
 import { exportReport, EXPORT_FORMATS } from '../../shared/data/data-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { CREATES } from '../../shared/tool-annotations.js';
 
 /**
  * Export report tool for merchants
  */
 export const exportReportTool = {
   name: "payware_data_export_report",
+  annotations: CREATES,
   description: "Export a READY report in a specific format (PDF, CSV, Excel, JSON). The report must be in READY status first.",
   inputSchema: {
     type: "object",

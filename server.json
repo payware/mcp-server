@@ -8,12 +8,12 @@
     "url": "https://github.com/payware/mcp-server",
     "source": "github"
   },
-  "version": "1.3.3",
+  "version": "1.4.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@payware/mcp-server",
-      "version": "1.3.3",
+      "version": "1.4.0",
       "transport": {
         "type": "stdio"
       },
@@ -59,6 +59,12 @@
           "description": "OAuth2 client secret (ISV partners only)",
           "isRequired": false,
           "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "PAYWARE_MCP_TOOLSETS",
+          "description": "Comma-separated toolsets to load, e.g. products,placements. Unset loads every tool. Toolsets: auth, transactions, products, placements, deep_links, data, logs, poi, shops, onboarding, utils",
+          "isRequired": false,
           "format": "string"
         }
       ]

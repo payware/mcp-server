@@ -1,11 +1,13 @@
 import { getProduct } from '../../shared/products/products-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * Get product tool implementation for merchants
  */
 export const getProductTool = {
   name: "payware_products_get_product",
+  annotations: READS,
   description: "Get detailed information about a specific product by ID",
 
   inputSchema: {
@@ -23,8 +25,7 @@ export const getProductTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for authentication (uses environment-specific private key as default)",
-        default: getPrivateKeySafe()
+        description: "RSA private key for authentication (uses environment-specific private key as default)"
       },
       useSandbox: {
         type: "boolean",

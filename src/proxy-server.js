@@ -33,6 +33,31 @@ class PaywareMCPProxy {
     const allowedOrigins = (process.env.PAYWARE_MCP_PROXY_ORIGINS
       || `http://localhost:${this.port},http://127.0.0.1:${this.port}`)
       .split(',').map((o) => o.trim()).filter(Boolean);
+
+    // DNS rebinding and cross-site requests. The CORS allowlist below decides which pages may READ a
+    // response; it never refuses a request. A page whose hostname has been rebound to 127.0.0.1 is
+    // same-origin with this server, so CORS does not apply to it at all, and a cross-site form POST
+    // needs no preflight - either way the route runs and signs as the partner. Two checks refuse them:
+    // Host must be a name this server answers to (a rebound page sends its own hostname there), and an
+    // Origin, which browsers send on every POST, must be allowlisted. Clients that are not browsers -
+    // curl, the bridge - send no Origin and pass. PAYWARE_MCP_PROXY_HOSTS (comma-separated host:port)
+    // widens the Host list deliberately.
+    const bindHost = process.env.PAYWARE_MCP_PROXY_HOST || '127.0.0.1';
+    const allowedHosts = new Set((process.env.PAYWARE_MCP_PROXY_HOSTS
+      || `localhost:${this.port},127.0.0.1:${this.port},${bindHost}:${this.port}`)
+      .split(',').map((h) => h.trim().toLowerCase()).filter(Boolean));
+    this.app.use((req, res, next) => {
+      const host = (req.headers.host || '').toLowerCase();
+      if (!allowedHosts.has(host)) {
+        return res.status(403).json({ error: 'Forbidden', message: `Host ${host || '(none)'} is not allowed` });
+      }
+      const origin = req.headers.origin;
+      if (origin !== undefined && !allowedOrigins.includes(origin)) {
+        return res.status(403).json({ error: 'Forbidden', message: `Origin ${origin} is not allowed` });
+      }
+      next();
+    });
+
     this.app.use(cors({
       origin: allowedOrigins,
       credentials: true

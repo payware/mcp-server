@@ -3,6 +3,7 @@ import { createAuthHeaders } from '../auth-headers.js';
 import { apiErrorResult } from '../api-errors.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { getSandboxUrl, getProductionUrl } from '../../config/env.js';
+import { CREATES } from '../tool-annotations.js';
 
 /**
  * Creating POIs (Points of Interaction) - the physical payment points a payer scans.
@@ -206,6 +207,7 @@ export function buildCreatePOITool({ partnerType, resolveAuth }) {
 
   return {
     name: 'payware_poi_create',
+    annotations: CREATES,
     description: `Create a single POI (Point of Interaction) - a physical payment point a payer scans.
 
 **Endpoint:** POST /poi -> 201 Created
@@ -296,6 +298,7 @@ export function buildCreatePOIBatchTool({ partnerType, resolveAuth }) {
 
   return {
     name: 'payware_poi_create_batch',
+    annotations: CREATES,
     description: `Create up to ${MAX_POI_BATCH_SIZE} POIs in a single **atomic** call - the tool for rolling out a terminal estate.
 
 **Endpoint:** POST /poi/batch -> 201 Created, returning \`{ created, pois: [...] }\`

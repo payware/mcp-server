@@ -7,6 +7,7 @@ import {
 } from '../../shared/products/products-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { PRICE_CORRECTION_TYPES, CORRECTION_TYPES } from '../../shared/products/products-api.js';
+import { CHANGES, CREATES, READS } from '../../shared/tool-annotations.js';
 
 // Common ISV authentication properties
 const ISV_AUTH_PROPS = {
@@ -47,6 +48,7 @@ function validateISVAuth(args) {
  */
 export const createScheduleTool = {
   name: "payware_products_create_schedule",
+  annotations: CREATES,
   description: "Create a price schedule for a merchant's product (ISV operation)",
 
   inputSchema: {
@@ -172,6 +174,7 @@ export const createScheduleTool = {
  */
 export const getSchedulesTool = {
   name: "payware_products_get_schedules",
+  annotations: READS,
   description: "Get all price schedules for a merchant's product (ISV operation)",
 
   inputSchema: {
@@ -258,6 +261,7 @@ ${schedulesList}`
  */
 export const getScheduleTool = {
   name: "payware_products_get_schedule",
+  annotations: READS,
   description: "Get detailed information about a specific price schedule (ISV operation)",
 
   inputSchema: {
@@ -341,6 +345,7 @@ export const getScheduleTool = {
  */
 export const updateScheduleTool = {
   name: "payware_products_update_schedule",
+  annotations: CHANGES,
   description: "Update an existing price schedule (ISV operation)",
 
   inputSchema: {
@@ -452,6 +457,7 @@ export const updateScheduleTool = {
  */
 export const deleteScheduleTool = {
   name: "payware_products_delete_schedule",
+  annotations: CHANGES,
   description: "Delete a price schedule (ISV operation). This action cannot be undone.",
 
   inputSchema: {

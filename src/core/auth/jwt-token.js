@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { normalizePrivateKey, getKeyInfo } from '../utils/key-utils.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { createDeterministicJSON } from '../utils/json-serializer.js';
+import { LOCAL } from '../../shared/tool-annotations.js';
 
 /**
  * Generate SHA-256 hash for JWT contentSha256 header (PREFERRED)
@@ -132,6 +133,7 @@ const IAT_MAX_FUTURE_SKEW_SECONDS = 60;
 
 export const validateJWTTokenTool = {
   name: "payware_authentication_validate_jwt",
+  annotations: LOCAL,
   description: "Validate and debug a payware JWT: decode header and payload, check the claims against the API's rules (algorithm, audience including the ISV on-behalf form, 5-minute freshness), and verify the contentSha256 hash against the request body when one is given",
   inputSchema: {
     type: "object",
@@ -374,6 +376,7 @@ ${issues.some(i => i.includes('hash mismatch')) ? '- Use deterministic JSON seri
  */
 export const testJWTTokenTool = {
   name: "payware_authentication_test_jwt",
+  annotations: LOCAL,
   description: "Test JWT token creation process with detailed step-by-step breakdown, showing deterministic JSON serialization, SHA-256 hash calculation, and final JWT structure",
   inputSchema: {
     type: "object",
@@ -604,6 +607,7 @@ ${deterministicJson}
  */
 export const createJWTTokenTool = {
   name: "payware_authentication_create_jwt_token",
+  annotations: LOCAL,
   description: "Create JWT token for payware API authentication according to official documentation",
   inputSchema: {
     type: "object",

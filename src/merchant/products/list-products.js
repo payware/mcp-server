@@ -1,11 +1,13 @@
 import { getProducts } from '../../shared/products/products-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * List products tool implementation for merchants
  */
 export const listProductsTool = {
   name: "payware_products_list_products",
+  annotations: READS,
   description: "Get a list of all products for the merchant account",
 
   inputSchema: {
@@ -18,8 +20,7 @@ export const listProductsTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for authentication (uses environment-specific private key as default)",
-        default: getPrivateKeySafe()
+        description: "RSA private key for authentication (uses environment-specific private key as default)"
       },
       useSandbox: {
         type: "boolean",

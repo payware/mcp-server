@@ -5,8 +5,11 @@
  * Use this to check token status and present information in POS software UI.
  */
 
+import { READS } from '../../shared/tool-annotations.js';
+
 export const getTokenInfoTool = {
   name: 'payware_authorization_oauth2_get_token_info',
+  annotations: READS,
   description: `Get information about an OAuth2 access token.
 
 This endpoint exposes information about access tokens, including their status.

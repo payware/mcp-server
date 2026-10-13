@@ -31,6 +31,9 @@ import { isvPOITools } from './poi/index.js';
 // Shop tools
 import { isvShopTools } from './shops/index.js';
 
+// Campaigns, placements and airings - one definition shared by merchants and ISVs
+import { placementTools } from '../shared/placements/tools.js';
+
 // Merchant onboarding: invitations, and the reference data their forms need
 import { isvInvitationTools } from './invitations/index.js';
 import { isvReferenceTools } from './reference/index.js';
@@ -72,6 +75,9 @@ export const isvTools = [
 
   // Shop lookup - needed before any call that takes a shopCode
   ...isvShopTools,
+
+  // Campaigns, placements and airings, on behalf of the merchant
+  ...placementTools('isv'),
 
   // Merchant onboarding. These come BEFORE a merchant exists, so they authenticate as the ISV
   // itself rather than on behalf of anyone - they are how the merchantPartnerId + oauth2Token pair

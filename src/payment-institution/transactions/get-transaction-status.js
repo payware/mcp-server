@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * Get transaction status via payware API (active transactions)
@@ -54,6 +55,7 @@ export async function getPITransactionStatus({
  */
 export const getPITransactionStatusTool = {
   name: "payware_operations_get_transaction_status",
+  annotations: READS,
   description: `Get the current status of an active payware transaction as a financial institution.
 
 **Use Cases:**
@@ -96,7 +98,7 @@ Four rules a payer-facing app must follow:
 4. **A missing field is usually a plan boundary, not an error.** \`imageUrl\` and \`termsUrl\` are
    Standard and above; \`termsText\` and the descriptions are universal.
 
-For a \`pr\`/\`ps\` identifier the values are resolved live (product -> shop -> merchant fallback, then
+For a \`pr\`, \`pl\` or \`ps\` identifier the values are resolved live (product -> shop -> merchant fallback, then
 plan gating); for the resulting \`pw\` transaction they are the snapshot frozen at creation, so what
 you get always reflects what the payer could have been shown at scan time.
 
@@ -105,14 +107,14 @@ strings at the smallest unit their own currency can be paid in - not always two 
 **the value to echo back unchanged at finalize**; \`feeFixed\` and \`feeRate\` are informational, and
 recomputing the fee from them is rejected with ERR_FEE_MISMATCH.
 
-**Note:** This endpoint only returns active transactions. Use \`payware_pi_get_transaction_history\` for completed/expired transactions.`,
+**Note:** This endpoint only returns active transactions. Use \`payware_operations_get_transaction_history\` for completed/expired transactions.`,
   inputSchema: {
     type: "object",
     properties: {
       transactionId: {
         type: "string",
-        description: "Transaction ID to check status. Format: 2-char prefix + 8-char ID. Supports: 'pw' (standard), 'pr' (product), 'ps' (soundbite)",
-        pattern: "^(pw|pr|ps)[0-9A-Za-z]{8}$"
+        description: "Transaction ID to check status. Format: 2-char prefix + 8-char ID. Supports: 'pw' (standard), 'pr' (product), 'pl' (placement: pays as its product, and the payment is attributed to the placement), 'ps' (soundbite)",
+        pattern: "^(pw|pr|pl|ps)[0-9A-Za-z]{8}$"
       },
       partnerId: {
         type: "string",
@@ -121,8 +123,7 @@ recomputing the fee from them is rejected with ERR_FEE_MISMATCH.
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for JWT token creation. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "RSA private key for JWT token creation. Uses environment-specific private key as default."
       },
       useSandbox: {
         type: "boolean",
@@ -159,6 +160,8 @@ recomputing the fee from them is rejected with ERR_FEE_MISMATCH.
       privateKey,
       useSandbox
     });
+    // The success text quotes the endpoint. The helper above keeps its own baseUrl, so it needs one here.
+    const baseUrl = useSandbox ? getSandboxUrl() : getProductionUrl();
 
     if (result.success) {
       const tx = result.transaction;
@@ -209,8 +212,8 @@ ${JSON.stringify(result.transaction, null, 2)}
 **Next Steps:**
 1. ${!tx.payerAccount ? 'Transaction waiting for payer to process' : 'Transaction processed, waiting for finalization'}
 2. ${tx.timeToLive && parseInt(tx.timeToLive) < 60 ? '⚠️ Transaction expires soon!' : 'Monitor remaining TTL'}
-3. Use \`payware_pi_process_transaction\` if you need to process this transaction
-4. Use \`payware_pi_finalize_transaction\` to confirm/decline after processing
+3. Use \`payware_operations_process_transaction\` if you need to process this transaction
+4. Use \`payware_operations_finalize_transaction\` to confirm/decline after processing
 
 **⚠️ Transaction State:**
 - This is an **active** transaction
@@ -240,18 +243,18 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 
 **Common Issues:**
 1. **ERR_MISSING_TRANSACTION (404)**: Transaction not found, expired, or already completed
-2. **Invalid Transaction ID**: Check transaction ID format (10 chars: 'pw'/'pr'/'ps' + 8 chars)
+2. **Invalid Transaction ID**: Check transaction ID format (10 chars: 'pw'/'pr'/'pl'/'ps' + 8 chars)
 3. **Authentication Issues**: Verify JWT token and partner credentials
 
 **Troubleshooting:**
-1. Verify transaction ID is correct: 10 characters total, starts with 'pw' (standard), 'pr' (product), or 'ps' (soundbite)
+1. Verify transaction ID is correct: 10 characters total, starts with 'pw' (standard), 'pr' (product), 'pl' (placement) or 'ps' (soundbite)
 2. Check if transaction has expired or been completed
-3. Use \`payware_pi_get_transaction_history\` for completed/expired transactions
+3. Use \`payware_operations_get_transaction_history\` for completed/expired transactions
 4. Verify your partner credentials and API access
 5. Ensure transaction was created or you have access to it
 
 **Alternative Actions:**
-- If transaction is completed: Use \`payware_pi_get_transaction_history\`
+- If transaction is completed: Use \`payware_operations_get_transaction_history\`
 - If transaction ID is wrong: Verify the correct transaction ID
 - If access issues: Check your payment institution credentials`
         }]

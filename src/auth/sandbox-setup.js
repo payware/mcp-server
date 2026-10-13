@@ -3,6 +3,7 @@
  */
 
 import { getPartnerIdSafe, getPrivateKeySafe } from '../config/env.js';
+import { LOCAL } from '../shared/tool-annotations.js';
 
 const SANDBOX_CONFIG = {
   baseUrl: 'https://sandbox.payware.eu/api',
@@ -90,6 +91,7 @@ export function generateSandboxConfig(partnerId, privateKey = null) {
  */
 export const setupSandboxAuthTool = {
   name: "payware_authentication_setup_sandbox_auth",
+  annotations: LOCAL,
   description: "Setup sandbox authentication configuration for payware API",
   inputSchema: {
     type: "object",

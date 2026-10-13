@@ -1,12 +1,14 @@
 import { createProduct } from '../../shared/products/products-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { PRODUCT_TYPES, OVERLAP_PRIORITY } from '../../shared/products/products-api.js';
+import { CREATES } from '../../shared/tool-annotations.js';
 
 /**
  * Create product tool implementation for ISVs
  */
 export const createProductTool = {
   name: "payware_products_create_product",
+  annotations: CREATES,
   description: `Create a new product for inventory management and payment processing on behalf of a merchant (ISV operation).
 
 **ISV Authentication**: Requires ISV credentials and OAuth2 token from target merchant.

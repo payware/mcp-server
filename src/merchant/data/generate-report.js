@@ -1,11 +1,13 @@
 import { generateReport, REPORT_TYPES, LOCALES } from '../../shared/data/data-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { CREATES } from '../../shared/tool-annotations.js';
 
 /**
  * Generate report tool for merchants
  */
 export const generateReportTool = {
   name: "payware_data_generate_report",
+  annotations: CREATES,
   description: `Generate an asynchronous data report for merchant data analysis and reporting. Production only - not supported in sandbox.
 
 ⚠️ **Running a report is entitlement-checked as of 2026-08-22.** Naming a report answers **403

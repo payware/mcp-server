@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { describeApiError } from '../../shared/api-errors.js';
+import { CREATES } from '../../shared/tool-annotations.js';
 
 /**
  * Create a transaction via payware API on behalf of a merchant (ISV)
@@ -145,6 +146,7 @@ export async function createTransaction({
 
 export const createTransactionTool = {
   name: 'payware_operations_create_transaction',
+  annotations: CREATES,
   description: `Create a new transaction through payware as an ISV on behalf of a merchant.
 
 ISV partners can create transactions for merchants they have authorization for via OAuth2.

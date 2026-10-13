@@ -18,6 +18,7 @@ import {
 // Import partner type and configuration
 import { getPartnerTypeSafe, getPartnerType } from './config/env.js';
 import { getPartnerConfig, getPartnerDisplayInfo } from './config/partner-types.js';
+import { filterToolsets } from './config/toolsets.js';
 
 // Import tool registries
 import { getSharedTools } from './shared/index.js';
@@ -71,11 +72,13 @@ class PaywareMCPServer {
         allTools = getMerchantTools();
     }
 
-    // Only log in development mode to avoid interfering with MCP transport
-    // Debugging disabled to prevent MCP JSON-RPC protocol corruption
-    // These logs interfere with the MCP client communication
-    // console.log messages on stdout break the JSON-RPC protocol
-    return allTools;
+    // PAYWARE_MCP_TOOLSETS narrows the list; a filtered-out tool is not listed and cannot be called.
+    // Warnings go to stderr, which MCP clients keep in their server log, never to stdout.
+    const { tools, warnings } = filterToolsets(allTools, process.env.PAYWARE_MCP_TOOLSETS);
+    for (const warning of warnings) {
+      process.stderr.write(`Warning: ${warning}\n`);
+    }
+    return tools;
   }
 
   setupToolHandlers() {
@@ -90,7 +93,8 @@ class PaywareMCPServer {
         tools: this.tools.map(tool => ({
           name: tool.name,
           description: `[${this.partnerInfo.name}] ${tool.description}`,
-          inputSchema: tool.inputSchema
+          inputSchema: tool.inputSchema,
+          annotations: tool.annotations
         }))
       };
     });

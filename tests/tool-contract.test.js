@@ -239,3 +239,69 @@ describe('surface coverage', () => {
     });
   }
 });
+
+describe('tool text', () => {
+  test('names only tools that exist', () => {
+    // Descriptions and results steer the model to the next tool by name, so a renamed tool leaves a
+    // trail of instructions to call something that is not there. payware_pi_* and
+    // payware_transactions_* survived the move to payware_operations_* in 13 files this way.
+    const names = new Set(ROLES.flatMap(r => r.tools.map(t => t.name)));
+    // Group prefixes ("payware_data") are legitimate in prose and in the registries.
+    const isPrefix = token => [...names].some(n => n.startsWith(`${token}_`));
+    // Not a tool name: an identifier in generated sample code.
+    const NOT_TOOLS = new Set(['payware_client']);
+
+    const walk = dir => readdirSync(dir, { withFileTypes: true }).flatMap(e =>
+      e.isDirectory() ? walk(new URL(`${e.name}/`, dir)) : e.name.endsWith('.js') ? [new URL(e.name, dir)] : []);
+
+    const unknown = [];
+    for (const file of walk(new URL('../src/', import.meta.url))) {
+      for (const [token] of readFileSync(file, 'utf8').matchAll(/\bpayware_[a-z0-9_]*[a-z0-9]\b/g)) {
+        if (!names.has(token) && !isPrefix(token) && !NOT_TOOLS.has(token)) {
+          unknown.push(`${file.pathname.split('/src/')[1]}: ${token}`);
+        }
+      }
+    }
+    assert.deepEqual([...new Set(unknown)], [], 'these name a tool that does not exist');
+  });
+});
+
+describe('annotations', () => {
+  const HINTS = ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'];
+
+  for (const role of ROLES) {
+    test(`${role.name}: every tool sets all four hints`, () => {
+      // Left out, a hint takes the protocol default, which is the cautious one - so an unannotated
+      // read is presented to the user as a destructive call. See src/shared/tool-annotations.js.
+      for (const tool of role.tools) {
+        assert.ok(tool.annotations, `${tool.name}: no annotations - use a preset from src/shared/tool-annotations.js`);
+        for (const hint of HINTS) {
+          assert.equal(typeof tool.annotations[hint], 'boolean', `${tool.name}: ${hint} must be true or false`);
+        }
+        if (tool.annotations.readOnlyHint) {
+          assert.equal(tool.annotations.destructiveHint, false, `${tool.name}: read-only cannot be destructive`);
+        }
+      }
+    });
+  }
+
+  test('a tool is annotated the same in every role, unless declared', () => {
+    // The merchant's download_export can also save the file locally (saveToFile), which the ISV and
+    // financial institution versions cannot, so only the merchant's writes.
+    const DECLARED = { payware_data_download_export: ['merchant'] };
+    const byName = new Map();
+    for (const role of ROLES) {
+      for (const tool of role.tools) {
+        if (DECLARED[tool.name]?.includes(role.name)) continue;
+        if (!byName.has(tool.name)) byName.set(tool.name, []);
+        byName.get(tool.name).push({ role: role.name, annotations: tool.annotations });
+      }
+    }
+    for (const [name, entries] of byName) {
+      for (const other of entries.slice(1)) {
+        assert.deepEqual(other.annotations, entries[0].annotations,
+          `${name}: annotated differently for ${entries[0].role} and ${other.role}`);
+      }
+    }
+  });
+});

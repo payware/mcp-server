@@ -4,6 +4,7 @@ import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { readFileSync } from 'fs';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { CREATES } from '../../shared/tool-annotations.js';
 
 /**
  * Get transaction information using Soundbite file via payware API
@@ -73,6 +74,7 @@ export async function getSoundbiteTransaction({
  */
 export const soundbiteTransactionTool = {
   name: "payware_operations_soundbite_transaction",
+  annotations: CREATES,
   description: `Get transaction information using a Soundbite SDK output file. This allows payment institutions to process transactions using audio-based identifiers.
 
 **Soundbite Integration:**
@@ -105,8 +107,7 @@ export const soundbiteTransactionTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for JWT token creation. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "RSA private key for JWT token creation. Uses environment-specific private key as default."
       },
       useSandbox: {
         type: "boolean",
@@ -199,8 +200,8 @@ ${JSON.stringify(result.transaction, null, 2)}
 1. Transaction successfully identified from soundbite file
 2. Use transaction ID: \`${tx.transactionId || 'N/A'}\` for further operations
 3. ${!tx.payerAccount ? 'Process this transaction if you are the payer' : 'Transaction ready for finalization'}
-4. Use \`payware_pi_process_transaction\` to process payment
-5. Use \`payware_pi_finalize_transaction\` to confirm/decline
+4. Use \`payware_operations_process_transaction\` to process payment
+5. Use \`payware_operations_finalize_transaction\` to confirm/decline
 
 **♿ Accessibility Note:**
 - Soundbite provides audio-based alternative to QR/barcode scanning

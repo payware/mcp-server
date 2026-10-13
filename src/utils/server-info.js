@@ -5,12 +5,14 @@
 import { readFileSync } from 'fs';
 import { getPartnerTypeSafe, getSandboxUrl, getProductionUrl } from '../config/env.js';
 import { getPartnerDisplayInfo, getPartnerConfig } from '../config/partner-types.js';
+import { LOCAL } from '../shared/tool-annotations.js';
 
 /**
  * Get server information tool implementation
  */
 export const getServerInfoTool = {
   name: "payware_utils_server_info",
+  annotations: LOCAL,
   description: "Get MCP server version, status, and environment information",
   inputSchema: {
     type: "object",

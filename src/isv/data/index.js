@@ -19,10 +19,12 @@ import {
   LOCALES
 } from '../../shared/data/data-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { CHANGES, CREATES, READS } from '../../shared/tool-annotations.js';
 
 // Create ISV data tool factory
-const createISVDataTool = (toolName, apiFunction, description, additionalParams = {}) => ({
+const createISVDataTool = (toolName, apiFunction, description, additionalParams = {}, annotations) => ({
   name: `payware_data_${toolName}`,
+  annotations,
   description: `${description} (ISV acting on behalf of merchant)`,
   inputSchema: {
     type: "object",
@@ -43,8 +45,7 @@ const createISVDataTool = (toolName, apiFunction, description, additionalParams 
       },
       privateKey: {
         type: "string",
-        description: "ISV RSA private key for authentication. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "ISV RSA private key for authentication. Uses environment-specific private key as default."
       },
       ...additionalParams
     },
@@ -104,6 +105,7 @@ ${JSON.stringify(result.data, null, 2)}
  */
 export const generateReportTool = {
   name: "payware_data_generate_report",
+  annotations: CREATES,
   description: "Generate an asynchronous data report for ISV data analysis and reporting on behalf of merchants. Production only - not supported in sandbox.",
   inputSchema: {
     type: "object",
@@ -156,8 +158,7 @@ export const generateReportTool = {
       },
       privateKey: {
         type: "string",
-        description: "ISV RSA private key for authentication. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "ISV RSA private key for authentication. Uses environment-specific private key as default."
       }
     },
     required: ["reportUnitId", "merchantPartnerId", "oauth2Token"]
@@ -232,7 +233,7 @@ This feature requires proper OAuth2 authorization from the merchant and is only 
 };
 
 // Create all other ISV data tools
-export const listReportsTool = createISVDataTool('list_reports', listReports, 'List All Available Reports', {});
+export const listReportsTool = createISVDataTool('list_reports', listReports, 'List All Available Reports', {}, READS);
 
 export const getReportRequestsTool = createISVDataTool('get_report_requests', getReportRequests, 'Get Report Request History', {
   reportId: {
@@ -240,21 +241,21 @@ export const getReportRequestsTool = createISVDataTool('get_report_requests', ge
     description: "The report unit ID (path) to get execution history for (e.g., '/processedTransactions')",
     enum: Object.values(REPORT_TYPES)
   }
-});
+}, READS);
 
 export const getExportListTool = createISVDataTool('get_export_list', getExportList, 'Get Export List for Request', {
   requestId: {
     type: "string",
     description: "The request ID (UUID) to get exports for"
   }
-});
+}, READS);
 
 export const getReportStatusTool = createISVDataTool('get_report_status', getReportStatus, 'Get Report Status', {
   requestId: {
     type: "string",
     description: "The request ID returned from the report generation request (UUID format)"
   }
-});
+}, READS);
 
 export const exportReportTool = createISVDataTool('export_report', exportReport, 'Export Report', {
   requestId: {
@@ -267,35 +268,35 @@ export const exportReportTool = createISVDataTool('export_report', exportReport,
     enum: Object.values(EXPORT_FORMATS),
     default: EXPORT_FORMATS.PDF
   }
-});
+}, CREATES);
 
 export const getExportStatusTool = createISVDataTool('get_export_status', getExportStatus, 'Get Export Status', {
   exportId: {
     type: "string",
     description: "The export ID returned from the export request (UUID format)"
   }
-});
+}, READS);
 
 export const downloadExportTool = createISVDataTool('download_export', downloadExport, 'Download Export', {
   exportId: {
     type: "string",
     description: "The export ID from the export request (UUID format)"
   }
-});
+}, READS);
 
 export const cancelReportTool = createISVDataTool('cancel_report', cancelReport, 'Cancel Report', {
   requestId: {
     type: "string",
     description: "The request ID of the report to cancel (UUID format)"
   }
-});
+}, CHANGES);
 
 export const cancelExportTool = createISVDataTool('cancel_export', cancelExport, 'Cancel Export', {
   exportId: {
     type: "string",
     description: "The export ID of the export to cancel (UUID format)"
   }
-});
+}, CHANGES);
 
 /**
  * All ISV data tools

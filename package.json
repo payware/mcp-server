@@ -1,6 +1,6 @@
 {
   "name": "@payware/mcp-server",
-  "version": "1.3.3",
+  "version": "1.4.0",
   "mcpName": "io.github.payware/mcp-server",
   "description": "Official MCP server for payware payment API integration",
   "main": "src/index.js",
@@ -15,19 +15,17 @@
     "proxy:dev": "node --watch src/proxy-server.js",
     "bridge": "node src/mcp-proxy.js",
     "inspector": "npx @modelcontextprotocol/inspector node src/mcp-proxy.js",
-    "test": "node --test tests/api-errors.test.js tests/json-serializer.test.js tests/request-contract.test.js tests/tool-contract.test.js",
-    "test:watch": "node --test --watch tests/api-errors.test.js tests/json-serializer.test.js tests/request-contract.test.js tests/tool-contract.test.js",
+    "test": "node --test tests/api-errors.test.js tests/json-serializer.test.js tests/proxy-server.test.js tests/request-contract.test.js tests/stdio-server.test.js tests/tool-contract.test.js tests/tool-routes.test.js tests/toolsets.test.js",
+    "test:watch": "node --test --watch tests/api-errors.test.js tests/json-serializer.test.js tests/proxy-server.test.js tests/request-contract.test.js tests/stdio-server.test.js tests/tool-contract.test.js tests/tool-routes.test.js tests/toolsets.test.js",
     "check": "node --check src/index.js && npm test"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.5.0",
-    "axios": "^1.6.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "axios": "^1.20.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.2",
-    "express": "^5.1.0",
-    "http-proxy-middleware": "^3.0.5",
-    "jsonwebtoken": "^9.0.0",
-    "node-forge": "^1.3.1"
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3"
   },
   "engines": {
     "node": ">=18.0.0"

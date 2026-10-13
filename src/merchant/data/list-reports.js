@@ -1,11 +1,13 @@
 import { listReports } from '../../shared/data/data-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * List all available reports tool for merchants
  */
 export const listReportsTool = {
   name: "payware_data_list_reports",
+  annotations: READS,
   description: "List all available report types with their configurations, descriptions, and visibility settings. Production only - not supported in sandbox.",
   inputSchema: {
     type: "object",

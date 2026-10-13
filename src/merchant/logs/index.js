@@ -12,12 +12,14 @@ import {
   LOG_LEVELS
 } from '../../shared/logs/logs-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { LOCAL, READS } from '../../shared/tool-annotations.js';
 
 /**
  * Query logs tool for merchants
  */
 export const queryLogsTool = {
   name: "payware_logs_query",
+  annotations: READS,
   description: "Query application logs with filters. Premium plan required. Returns paginated JSON log entries for debugging and monitoring your integration.",
   inputSchema: {
     type: "object",
@@ -174,6 +176,7 @@ Use cursor \`${nextCursor}\` to fetch the next page of results.` : ''}
  */
 export const getLogStatusTool = {
   name: "payware_logs_status",
+  annotations: READS,
   description: "Get log availability and storage information. Premium plan required. Shows if logs are available, total size, and file count.",
   inputSchema: {
     type: "object",
@@ -262,6 +265,7 @@ ${data.logsAvailable ? `
  */
 export const getLogDownloadUrlTool = {
   name: "payware_logs_download_url",
+  annotations: LOCAL,
   description: "Get download URL for logs archive. Premium plan required. Returns URL for downloading logs as gzipped JSON file.",
   inputSchema: {
     type: "object",

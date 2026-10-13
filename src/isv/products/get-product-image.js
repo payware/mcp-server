@@ -1,12 +1,14 @@
 import { getProductImage } from '../../shared/products/products-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { IMAGE_TYPES, IMAGE_FORMATS, QR_ERROR_CORRECTION, BARCODE_LOCATIONS } from '../../shared/products/products-api.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * Get product image tool implementation for ISVs
  */
 export const getProductImageTool = {
   name: "payware_products_get_product_image",
+  annotations: READS,
   description: `Generate a QR code or barcode image for a merchant's product (ISV operation).`,
 
   inputSchema: {

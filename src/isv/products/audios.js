@@ -6,6 +6,7 @@ import {
   deleteAudio
 } from '../../shared/products/products-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { CHANGES, CREATES, READS } from '../../shared/tool-annotations.js';
 
 // Common ISV authentication properties
 const ISV_AUTH_PROPS = {
@@ -46,9 +47,10 @@ function validateISVAuth(args) {
  */
 export const registerAudioTool = {
   name: "payware_products_register_audio",
+  annotations: CREATES,
   description: `Register an audio file (soundbite) for a merchant's product (ISV operation).
 
-**Supported formats:** Most audio/video formats (up to 200MB)
+**Supported formats:** MP3, WAV, OGG, M4A, FLAC, AAC, WMA, MP4, MOV, up to 100 MB, holding 2 to 120 seconds of audio
 **Note:** For video files, only the audio channel is registered`,
 
   inputSchema: {
@@ -139,6 +141,7 @@ ${audio.status === '1' ? '✅ Audio is ready for use in soundbite transactions' 
  */
 export const getAudiosTool = {
   name: "payware_products_get_audios",
+  annotations: READS,
   description: "Get all registered audio files for a merchant's product (ISV operation)",
 
   inputSchema: {
@@ -225,6 +228,7 @@ ${audiosList}`
  */
 export const getAudioTool = {
   name: "payware_products_get_audio",
+  annotations: READS,
   description: "Get detailed information about a specific audio file (ISV operation)",
 
   inputSchema: {
@@ -305,6 +309,7 @@ ${audio.status === '1' ? '✅ **Ready:** Audio is processed and ready for soundb
  */
 export const updateAudioTool = {
   name: "payware_products_update_audio",
+  annotations: CHANGES,
   description: "Update audio information (title) or reassign audio to another product (ISV operation)",
 
   inputSchema: {
@@ -327,7 +332,7 @@ export const updateAudioTool = {
       },
       newProductId: {
         type: "string",
-        description: "New product ID to reassign audio to (starts with 'pr')",
+        description: "Product to move the audio to (starts with 'pr'). Sent as a transfer, which keeps the fingerprint; the target must be in the same shop",
         pattern: "^pr[a-zA-Z0-9]+$"
       },
       useSandbox: {
@@ -400,6 +405,7 @@ ${newProductId ? `- Reassigned from product ${productId} to ${newProductId}` : '
  */
 export const deleteAudioTool = {
   name: "payware_products_delete_audio",
+  annotations: CHANGES,
   description: "Delete an audio file from a merchant's product (ISV operation). This action cannot be undone.",
 
   inputSchema: {

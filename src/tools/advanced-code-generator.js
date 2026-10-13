@@ -19,6 +19,7 @@
 import { CommonTemplates } from '../utils/code-examples/common/helpers.js';
 import { AuthGenerators } from '../utils/code-examples/common/auth-examples.js';
 import { createDeterministicJSON } from '../core/utils/json-serializer.js';
+import { LOCAL } from '../shared/tool-annotations.js';
 
 /**
  * Advanced payware Code Generator
@@ -1735,6 +1736,7 @@ export const advancedCodeGenerator = new AdvancedCodeGenerator();
  */
 export const generateCodeExampleTool = {
   name: 'payware_generate_code_example',
+  annotations: LOCAL,
   description: 'Generate production-ready payware API integration code examples with authentication, error handling, and environment configuration for any operation across 16 supported operations and 6 programming languages.',
 
   inputSchema: {
@@ -1875,6 +1877,7 @@ Use different parameters to explore all available options!
  */
 export const generateDocumentationTool = {
   name: 'payware_generate_documentation',
+  annotations: LOCAL,
   description: 'Generate comprehensive documentation for payware API integration with quick start instructions, authentication flows, operation examples, error handling patterns, and language-specific integration guides.',
 
   inputSchema: {

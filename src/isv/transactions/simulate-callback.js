@@ -1,5 +1,6 @@
 import { getPartnerIdSafe } from '../../config/env.js';
 import { generateMockCallback, simulateCallbackDelivery } from '../../merchant/transactions/simulate-callback.js';
+import { LOCAL } from '../../shared/tool-annotations.js';
 
 /**
  * Simulate the callback a merchant's endpoint receives, for an ISV building that handler.
@@ -17,6 +18,7 @@ import { generateMockCallback, simulateCallbackDelivery } from '../../merchant/t
  */
 export const simulateCallbackTool = {
   name: 'payware_operations_simulate_callback',
+  annotations: LOCAL,
   description: `Simulate the callback payload payware sends to a merchant's callbackUrl, for building and testing a webhook handler as an ISV.
 
 **Local only - this makes no API call.** payware has no endpoint that triggers a callback on demand,

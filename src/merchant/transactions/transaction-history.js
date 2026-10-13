@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * Get transaction history from payware API (for completed/expired transactions)
@@ -91,11 +92,12 @@ function formatTransactionHistory(transaction) {
  */
 export const getTransactionHistoryTool = {
   name: "payware_operations_get_transaction_history", 
+  annotations: READS,
   description: `Get history of completed/finalized transactions with final statuses.
 
 **Endpoint:** GET /transactions-history/{transactionId}
 **Use Case:** Retrieve transactions with final statuses: CONFIRMED, DECLINED, FAILED, EXPIRED, CANCELLED.
-**Note:** For ACTIVE transactions, use 'payware_transactions_get_transaction_status' instead.
+**Note:** For ACTIVE transactions, use 'payware_operations_get_transaction_status' instead.
 
 📦 **This is where the delivery address lives.** For a SHIPPABLE transaction, \`deliveryAddress\`
 (fullName, streetAddressLine1/2, zipCode, city, region, country, phoneNumber, email) is returned
@@ -129,8 +131,7 @@ retry once the window passes. The failure result exposes this as \`error.throttl
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for JWT token creation. Can use PAYWARE_PRIVATE_KEY_PATH env var as default.",
-        default: getPrivateKeySafe()
+        description: "RSA private key for JWT token creation. Can use PAYWARE_PRIVATE_KEY_PATH env var as default."
       },
       useSandbox: {
         type: "boolean",
@@ -262,7 +263,7 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 1. Verify transaction ID is correct: 10 characters total, starts with 'pw' (standard), 'pr' (product), or 'ps' (soundbite)
 2. Ensure transaction exists and you have access to it
 3. If getting rate limit errors, wait 60 seconds before retrying
-4. For ACTIVE transactions, use 'payware_transactions_get_transaction_status' instead
+4. For ACTIVE transactions, use 'payware_operations_get_transaction_status' instead
 5. This endpoint only returns transactions with final statuses (CONFIRMED, DECLINED, FAILED, EXPIRED, CANCELLED)`;
 
       return {

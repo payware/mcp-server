@@ -1,12 +1,14 @@
 import { updateProduct } from '../../shared/products/products-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { PRODUCT_TYPES, OVERLAP_PRIORITY } from '../../shared/products/products-api.js';
+import { CHANGES } from '../../shared/tool-annotations.js';
 
 /**
  * Update product tool implementation for ISVs
  */
 export const updateProductTool = {
   name: "payware_products_update_product",
+  annotations: CHANGES,
   description: `Update an existing product on behalf of a merchant (ISV operation). Only provide the fields you want to change.`,
 
   inputSchema: {

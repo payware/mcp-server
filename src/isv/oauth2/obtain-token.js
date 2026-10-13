@@ -5,8 +5,11 @@
  * This is the first step in the ISV authorization flow.
  */
 
+import { CREATES } from '../../shared/tool-annotations.js';
+
 export const obtainTokenTool = {
   name: 'payware_authorization_oauth2_obtain_token',
+  annotations: CREATES,
   description: `Obtain an OAuth2 access token for a merchant.
 
 ISVs must be authorized by payware registered merchants to make requests on their behalf.

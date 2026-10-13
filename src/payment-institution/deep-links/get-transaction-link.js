@@ -1,16 +1,18 @@
 import { getTransactionDeepLink } from '../../shared/deep-links/api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { ADDS } from '../../shared/tool-annotations.js';
 
 /**
  * Get deep link for a payment institution transaction
  */
 export const getTransactionLinkTool = {
   name: "payware_deep_links_get_transaction_link",
+  annotations: ADDS,
   description: `Get an active deep link for a transaction where the payment institution acts as source (SRC) or destination (DST). Returns a clickable URL that redirects to the payware mobile app.
 
 **Deep Link Format:**
 - Web URL: https://go.payware.eu/{transactionId}
-- Mobile Redirect: payware://{transactionId}
+- Mobile Redirect: payware:/{transactionId} (one slash: the identifier is case-sensitive, so it must not sit in the URI host, which redirect services lowercase)
 
 **Use Cases:**
 - P2P payments initiated via messaging services
@@ -19,6 +21,7 @@ export const getTransactionLinkTool = {
 
 **Important Notes:**
 - Deep links are only supported in production environment
+- Apps that open payware links must accept \`payware:\` followed by one, two or three slashes (QR codes and NFC tags carry \`payware://{id}\`): read the identifier after the scheme and any slashes, up to \`/\`, \`?\` or \`#\`, and keep its case
 - Link expiration is synchronized with the referenced transaction
 - Payment institutions only manage transaction links (no product links)
 - Traditional deep links that route to app content when app is installed`,
@@ -38,8 +41,7 @@ export const getTransactionLinkTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for JWT token creation. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "RSA private key for JWT token creation. Uses environment-specific private key as default."
       }
     },
     required: ["transactionId"]
@@ -83,7 +85,7 @@ export const getTransactionLinkTool = {
 **Deep Link Details:**
 - Transaction ID: ${transactionId}
 - Web URL: ${linkUrl}
-- Mobile Redirect: payware://${transactionId}
+- Mobile Redirect: payware:/${transactionId}
 
 **Payment Institution Info:**
 - Partner ID: ${partnerId}
@@ -106,7 +108,7 @@ ${JSON.stringify(result.data, null, 2)}
 
 **Usage:**
 1. Share the web URL: \`${linkUrl}\`
-2. On mobile devices, it will redirect to: \`payware://${transactionId}\`
+2. On mobile devices, it will redirect to: \`payware:/${transactionId}\`
 3. Link expires when the transaction expires
 4. Use for P2P transaction notifications and sharing`
         }]
@@ -129,7 +131,7 @@ ${JSON.stringify(result.data, null, 2)}
 5. **Invalid transaction ID**: Ensure transaction ID format is correct
 
 **Troubleshooting:**
-1. Verify transaction exists using \`payware_transactions_get_transaction_status\`
+1. Verify transaction exists using \`payware_operations_get_transaction_status\`
 2. Check if running in production environment
 3. Ensure JWT authentication is working
 4. Confirm payment institution role in transaction

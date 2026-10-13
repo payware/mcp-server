@@ -3,6 +3,7 @@ import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { COMMITS } from '../../shared/tool-annotations.js';
 
 /**
  * Finalize a transaction as a payment institution via payware API
@@ -98,6 +99,7 @@ export async function finalizeTransaction({
  */
 export const finalizeTransactionTool = {
   name: "payware_operations_finalize_transaction",
+  annotations: COMMITS,
   description: `Finalize a transaction as a payment institution. This updates the transaction status after execution in your payment network.
 
 **Payment Institution Finalization:**
@@ -164,8 +166,7 @@ export const finalizeTransactionTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for JWT token creation. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "RSA private key for JWT token creation. Uses environment-specific private key as default."
       },
       useSandbox: {
         type: "boolean",
@@ -233,6 +234,8 @@ export const finalizeTransactionTool = {
       privateKey,
       useSandbox
     });
+    // The success text quotes the endpoint. The helper above keeps its own baseUrl, so it needs one here.
+    const baseUrl = useSandbox ? getSandboxUrl() : getProductionUrl();
 
     if (result.success) {
       const statusEmojis = {
@@ -277,7 +280,7 @@ ${JSON.stringify(result.transaction, null, 2)}
 ${status === 'CONFIRMED' ?
   `1. ✅ Payment completed successfully
 2. Transaction funds should be processed in your network
-3. Use \`payware_pi_get_transaction_history\` to retrieve details later` :
+3. Use \`payware_operations_get_transaction_history\` to retrieve details later` :
   `1. ⚠️ Payment not completed due to: ${statusMessage || status}
 2. Transaction marked as ${status} in payware system
 3. All parties notified via callbacks`

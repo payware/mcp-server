@@ -1,11 +1,13 @@
 import { deleteProduct } from '../../shared/products/products-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { CHANGES } from '../../shared/tool-annotations.js';
 
 /**
  * Delete product tool implementation for merchants
  */
 export const deleteProductTool = {
   name: "payware_products_delete_product",
+  annotations: CHANGES,
   description: "Delete a product from the merchant account. This action cannot be undone.",
 
   inputSchema: {
@@ -23,8 +25,7 @@ export const deleteProductTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for authentication (uses environment-specific private key as default)",
-        default: getPrivateKeySafe()
+        description: "RSA private key for authentication (uses environment-specific private key as default)"
       },
       useSandbox: {
         type: "boolean",

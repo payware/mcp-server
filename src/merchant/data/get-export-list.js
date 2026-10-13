@@ -1,11 +1,13 @@
 import { getExportList } from '../../shared/data/data-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * Get export list for request tool for merchants
  */
 export const getExportListTool = {
   name: "payware_data_get_export_list",
+  annotations: READS,
   description: "Get all export attempts for a specific report request. Returns list of exports in various formats with their status and download information. Production only - not supported in sandbox.",
   inputSchema: {
     type: "object",

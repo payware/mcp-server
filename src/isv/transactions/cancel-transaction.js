@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { describeApiError } from '../../shared/api-errors.js';
+import { CHANGES } from '../../shared/tool-annotations.js';
 
 /**
  * Cancel a transaction via payware API as an ISV
@@ -77,6 +78,7 @@ export async function cancelTransaction({ transactionId, statusMessage, merchant
 
 export const cancelTransactionTool = {
   name: 'payware_operations_cancel_transaction',
+  annotations: CHANGES,
   description: `Cancel an active transaction as an ISV on behalf of a merchant.
 
 **Endpoint:** PATCH /transactions/{transactionId} with \`{"status":"CANCELLED","statusMessage":"..."}\`

@@ -6,15 +6,17 @@ import {
   deleteAudio
 } from '../../shared/products/products-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { CHANGES, CREATES, READS } from '../../shared/tool-annotations.js';
 
 /**
  * Register audio tool implementation for merchants
  */
 export const registerAudioTool = {
   name: "payware_products_register_audio",
+  annotations: CREATES,
   description: `Register an audio file (soundbite) for a product to enable audio-based payment initiation.
 
-**Supported formats:** Most audio/video formats (up to 200MB)
+**Supported formats:** MP3, WAV, OGG, M4A, FLAC, AAC, WMA, MP4, MOV, up to 100 MB, holding 2 to 120 seconds of audio
 **Note:** For video files, only the audio channel is registered`,
 
   inputSchema: {
@@ -36,8 +38,7 @@ export const registerAudioTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for authentication (uses environment-specific private key as default)",
-        default: getPrivateKeySafe()
+        description: "RSA private key for authentication (uses environment-specific private key as default)"
       },
       useSandbox: {
         type: "boolean",
@@ -126,8 +127,8 @@ ${audio.status === '1' ? '✅ Audio is ready for use in soundbite transactions' 
 
 **Troubleshooting:**
 1. Verify the audio file path exists and is accessible
-2. Check file size (max 200MB)
-3. Ensure supported audio/video format
+2. Check file size (max 100 MB) and length (2 to 120 seconds of audio)
+3. Ensure the format is MP3, WAV, OGG, M4A, FLAC, AAC, WMA, MP4 or MOV
 4. Verify the product ID exists and belongs to your account
 5. Check available storage space`
         }]
@@ -141,6 +142,7 @@ ${audio.status === '1' ? '✅ Audio is ready for use in soundbite transactions' 
  */
 export const getAudiosTool = {
   name: "payware_products_get_audios",
+  annotations: READS,
   description: "Get all registered audio files for a product",
 
   inputSchema: {
@@ -158,8 +160,7 @@ export const getAudiosTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for authentication (uses environment-specific private key as default)",
-        default: getPrivateKeySafe()
+        description: "RSA private key for authentication (uses environment-specific private key as default)"
       },
       useSandbox: {
         type: "boolean",
@@ -253,6 +254,7 @@ ${audiosList}
  */
 export const getAudioTool = {
   name: "payware_products_get_audio",
+  annotations: READS,
   description: "Get detailed information about a specific audio file",
 
   inputSchema: {
@@ -274,8 +276,7 @@ export const getAudioTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for authentication (uses environment-specific private key as default)",
-        default: getPrivateKeySafe()
+        description: "RSA private key for authentication (uses environment-specific private key as default)"
       },
       useSandbox: {
         type: "boolean",
@@ -367,6 +368,7 @@ ${audio.status === '1' ? '✅ **Ready:** Audio is processed and ready for soundb
  */
 export const updateAudioTool = {
   name: "payware_products_update_audio",
+  annotations: CHANGES,
   description: "Update audio information (title) or reassign audio to another product",
 
   inputSchema: {
@@ -388,7 +390,7 @@ export const updateAudioTool = {
       },
       newProductId: {
         type: "string",
-        description: "New product ID to reassign audio to (starts with 'pr')",
+        description: "Product to move the audio to (starts with 'pr'). Sent as a transfer, which keeps the fingerprint; the target must be in the same shop",
         pattern: "^pr[a-zA-Z0-9]+$"
       },
       partnerId: {
@@ -398,8 +400,7 @@ export const updateAudioTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for authentication (uses environment-specific private key as default)",
-        default: getPrivateKeySafe()
+        description: "RSA private key for authentication (uses environment-specific private key as default)"
       },
       useSandbox: {
         type: "boolean",
@@ -501,6 +502,7 @@ ${JSON.stringify(audio, null, 2)}
  */
 export const deleteAudioTool = {
   name: "payware_products_delete_audio",
+  annotations: CHANGES,
   description: "Delete an audio file from a product. This action cannot be undone.",
 
   inputSchema: {
@@ -522,8 +524,7 @@ export const deleteAudioTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for authentication (uses environment-specific private key as default)",
-        default: getPrivateKeySafe()
+        description: "RSA private key for authentication (uses environment-specific private key as default)"
       },
       useSandbox: {
         type: "boolean",

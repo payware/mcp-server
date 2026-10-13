@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { CREATES } from '../../shared/tool-annotations.js';
 
 /**
  * Create a transaction via payware API
@@ -196,6 +197,7 @@ Original error: ${enhancedMessage}`;
  */
 export const createTransactionTool = {
   name: "payware_operations_create_transaction",
+  annotations: CREATES,
   description: `Create a new payware transaction. Parameters map to the following API structure:
 
 📋 **ROOT LEVEL** (Transaction metadata):
@@ -524,7 +526,7 @@ ${JSON.stringify(result.transaction, null, 2)}
 
 **Next Steps:**
 1. Save the transaction ID: \`${result.transaction.transactionId || 'N/A'}\`
-2. Use \`payware_transactions_get_transaction_status\` to check status
+2. Use \`payware_operations_get_transaction_status\` to check status
 3. Wait for callback notification (if callback URL provided)
 4. Process payment through payware interface`
         }]

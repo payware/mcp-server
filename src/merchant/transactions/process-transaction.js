@@ -3,6 +3,7 @@ import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { COMMITS } from '../../shared/tool-annotations.js';
 
 /**
  * Process a transaction via payware API (for merchants accepting payments)
@@ -107,6 +108,7 @@ export async function processTransaction({
  */
 export const processTransactionTool = {
   name: "payware_operations_process_transaction",
+  annotations: COMMITS,
   description: `Process a PEER transaction (for merchants accepting payments by scanning customer QR/barcode).
 
 **Use Case:** Merchant scans customer's payware QR code or barcode to accept payment.
@@ -138,8 +140,8 @@ export const processTransactionTool = {
     properties: {
       transactionId: {
         type: "string",
-        description: "Transaction ID to process. Format: 2-char prefix + 8-char ID. Supports: 'pw' (standard), 'pr' (product), 'ps' (soundbite)",
-        pattern: "^(pw|pr|ps)[0-9A-Za-z]{8}$"
+        description: "Transaction ID to process. Format: 2-char prefix + 8-char ID. Supports: 'pw' (standard), 'pr' (product), 'pl' (placement: pays as its product, and the payment is attributed to the placement), 'ps' (soundbite)",
+        pattern: "^(pw|pr|pl|ps)[0-9A-Za-z]{8}$"
       },
       amount: {
         type: ["number", "string"], 
@@ -207,8 +209,7 @@ export const processTransactionTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for JWT token creation. Can use PAYWARE_PRIVATE_KEY_PATH env var as default.",
-        default: getPrivateKeySafe()
+        description: "RSA private key for JWT token creation. Can use PAYWARE_PRIVATE_KEY_PATH env var as default."
       },
       useSandbox: {
         type: "boolean",

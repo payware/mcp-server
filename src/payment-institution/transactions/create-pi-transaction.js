@@ -3,6 +3,7 @@ import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { CREATES } from '../../shared/tool-annotations.js';
 
 /**
  * Create a payment institution transaction via payware API
@@ -150,6 +151,7 @@ export async function createPITransaction({
  */
 export const createPITransactionTool = {
   name: "payware_operations_create_transaction",
+  annotations: CREATES,
   description: `Create a new payware transaction as a payment institution. Payment institutions must specify their role and account details.
 
 **Payment Institution Features:**
@@ -245,8 +247,7 @@ export const createPITransactionTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for JWT token creation. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe(true)
+        description: "RSA private key for JWT token creation. Uses environment-specific private key as default."
       },
       passbackParams: {
         type: "string",
@@ -437,7 +438,7 @@ ${JSON.stringify(result.transaction, null, 2)}
 **Next Steps:**
 1. Save the transaction ID: \`${result.transaction.transactionId || 'N/A'}\`
 2. ${role === 'SRC' ? 'Share transaction ID with payee for processing' : 'Wait for payer to process this transaction'}
-3. Use \`payware_pi_get_transaction_status\` to check status
+3. Use \`payware_operations_get_transaction_status\` to check status
 4. Monitor callback notifications (if callback URL provided)
 5. ${role === 'SRC' ? 'Complete payment through payware interface' : 'Handle incoming payment processing'}`
         }]

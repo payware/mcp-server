@@ -3,6 +3,7 @@ import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { CHANGES, CREATES, READS } from '../../shared/tool-annotations.js';
 
 /**
  * Merchant invitations - how an ISV onboards a merchant onto payware.
@@ -181,6 +182,7 @@ ${result.error.guidance ? `\n${result.error.guidance}` : ''}
 
 export const createInvitationTool = {
   name: 'payware_isv_create_invitation',
+  annotations: CREATES,
   description: `Invite a merchant to join payware through this ISV. **This is the start of the ISV onboarding flow.**
 
 **Endpoint:** POST /isv/invitations -> 201 Created
@@ -300,6 +302,7 @@ to start acting on their behalf.
 
 export const listInvitationsTool = {
   name: 'payware_isv_list_invitations',
+  annotations: READS,
   description: `List the merchant invitations this ISV has created, newest first.
 
 **Endpoint:** GET /isv/invitations - paginated
@@ -362,6 +365,7 @@ to was deleted.
 
 export const getInvitationTool = {
   name: 'payware_isv_get_invitation',
+  annotations: READS,
   description: `Get full details of one invitation, including its link and the merchant data it pre-fills.
 
 **Endpoint:** GET /isv/invitations/{invitationId}
@@ -416,6 +420,7 @@ ${inv.invitationLink}
 
 export const cancelInvitationTool = {
   name: 'payware_isv_cancel_invitation',
+  annotations: CHANGES,
   description: `Cancel a PENDING invitation. **The link stops working immediately.**
 
 **Endpoint:** DELETE /isv/invitations/{invitationId} -> 204 No Content

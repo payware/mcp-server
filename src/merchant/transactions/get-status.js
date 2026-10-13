@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
  * Get transaction status from payware API
@@ -67,11 +68,12 @@ function formatTransactionStatus(transaction) {
  */
 export const getTransactionStatusTool = {
   name: "payware_operations_get_transaction_status", 
+  annotations: READS,
   description: `Get status of an ACTIVE transaction by ID (for completed/expired transactions use transaction history tool).
 
 **Endpoint:** GET /transactions/{transactionId}
 **Use Case:** Check status of ACTIVE transactions only. This endpoint only returns transactions with ACTIVE status.
-**Note:** For transactions with final statuses (CONFIRMED, DECLINED, FAILED, EXPIRED, CANCELLED), use 'payware_transactions_get_history' instead.
+**Note:** For transactions with final statuses (CONFIRMED, DECLINED, FAILED, EXPIRED, CANCELLED), use 'payware_operations_get_transaction_history' instead.
 
 🛍️ **Product-originated transactions carry a nested \`product\` object.** Since 2026-07-22 the
 presentation fields are grouped under \`product\` rather than sitting flat on the response - the old
@@ -123,8 +125,7 @@ with ERR_FEE_MISMATCH. Echo \`fee\` back unchanged instead.`,
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for JWT token creation. Can use PAYWARE_PRIVATE_KEY_PATH env var as default.",
-        default: getPrivateKeySafe()
+        description: "RSA private key for JWT token creation. Can use PAYWARE_PRIVATE_KEY_PATH env var as default."
       },
       useSandbox: {
         type: "boolean",

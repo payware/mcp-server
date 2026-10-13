@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { CHANGES } from '../../shared/tool-annotations.js';
 
 /**
  * Cancel pending price on a POI via ISV authentication
@@ -57,6 +58,7 @@ export async function cancelPOIPrice({ poiId, merchantPartnerId, oauth2Token, us
  */
 export const cancelPOIPriceTool = {
   name: "payware_poi_cancel_price",
+  annotations: CHANGES,
   description: `Cancel a pending price on a POI, resetting it to IDLE state.
 
 **ISV Authentication:** Uses ISV JWT with merchant partner ID and OAuth2 token.

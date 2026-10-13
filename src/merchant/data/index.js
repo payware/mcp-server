@@ -20,12 +20,14 @@ import { exportReportTool } from './export-report.js';
 import { listReportsTool } from './list-reports.js';
 import { getReportRequestsTool } from './get-report-requests.js';
 import { getExportListTool } from './get-export-list.js';
+import { ADDS, CHANGES, READS } from '../../shared/tool-annotations.js';
 
 /**
  * Get export status tool for merchants
  */
 export const getExportStatusTool = {
   name: "payware_data_get_export_status",
+  annotations: READS,
   description: "Get the status of a report export request. Use this to monitor export progress.",
   inputSchema: {
     type: "object",
@@ -41,8 +43,7 @@ export const getExportStatusTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for authentication. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "RSA private key for authentication. Uses environment-specific private key as default."
       }
     },
     required: ["exportId"]
@@ -117,6 +118,7 @@ ${downloadInfo}
  */
 export const downloadExportTool = {
   name: "payware_data_download_export",
+  annotations: ADDS,
   description: "Download a READY export file. The export must be in READY status. Returns binary data for the file.",
   inputSchema: {
     type: "object",
@@ -127,7 +129,7 @@ export const downloadExportTool = {
       },
       saveToFile: {
         type: "boolean",
-        description: "Whether to save the downloaded file to disk. If true, saves to /mnt/d/git/payware/mcp/downloads/. If false, only shows metadata/preview.",
+        description: "Whether to save the downloaded file to disk. If true, saves it to a payware-mcp-downloads folder in the system temp directory and returns the path. If false, only shows metadata/preview.",
         default: false
       },
       partnerId: {
@@ -181,11 +183,14 @@ export const downloadExportTool = {
         };
         const extension = extensionMap[contentType] || 'bin';
         const filename = `report_${exportId.substring(0, 8)}.${extension}`;
-        const filepath = `/mnt/d/git/payware/mcp/downloads/${filename}`;
+        // The temp directory is writable wherever the server runs; its working directory, set by the
+        // MCP client, often is not. This was a fixed developer path, which no other machine has.
+        const os = await import('os');
+        const path = await import('path');
+        const filepath = path.join(os.tmpdir(), 'payware-mcp-downloads', filename);
 
         // Save file to downloads directory
         const fs = await import('fs');
-        const path = await import('path');
         const downloadDir = path.dirname(filepath);
 
         // Create downloads directory if it doesn't exist
@@ -222,7 +227,7 @@ ${savedFileInfo}${contentPreview}
 **Summary:**
 ✅ ${saveToFile ? 'File saved to disk and' : 'File'} downloaded successfully
 
-${saveToFile ? '**Tip:** The file has been saved and can be opened with the appropriate application.' : '**Tip:** Use `saveToFile: true` parameter to save the file to disk at `/mnt/d/git/payware/mcp/downloads/`'}`
+${saveToFile ? '**Tip:** The file has been saved and can be opened with the appropriate application.' : '**Tip:** Use `saveToFile: true` parameter to save the file to disk'}`
         }]
       };
     } catch (error) {
@@ -236,6 +241,7 @@ ${saveToFile ? '**Tip:** The file has been saved and can be opened with the appr
  */
 export const cancelReportTool = {
   name: "payware_data_cancel_report",
+  annotations: CHANGES,
   description: "Cancel a running report generation. Only reports in QUEUED status can be cancelled.",
   inputSchema: {
     type: "object",
@@ -251,8 +257,7 @@ export const cancelReportTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for authentication. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "RSA private key for authentication. Uses environment-specific private key as default."
       }
     },
     required: ["requestId"]
@@ -307,6 +312,7 @@ Only reports in QUEUED status can be cancelled. Reports that are already READY, 
  */
 export const cancelExportTool = {
   name: "payware_data_cancel_export",
+  annotations: CHANGES,
   description: "Cancel a running export process. Only exports in QUEUED status can be cancelled.",
   inputSchema: {
     type: "object",
@@ -322,8 +328,7 @@ export const cancelExportTool = {
       },
       privateKey: {
         type: "string",
-        description: "RSA private key for authentication. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "RSA private key for authentication. Uses environment-specific private key as default."
       }
     },
     required: ["exportId"]

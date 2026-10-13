@@ -19,10 +19,12 @@ import {
   LOCALES
 } from '../../shared/data/data-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { CHANGES, CREATES, READS } from '../../shared/tool-annotations.js';
 
 // Create a payment institution tool factory
-const createPIDataTool = (toolName, apiFunction, description, additionalParams = {}) => ({
+const createPIDataTool = (toolName, apiFunction, description, additionalParams = {}, annotations) => ({
   name: `payware_data_${toolName}`,
+  annotations,
   description: `${description} (Payment Institution data access)`,
   inputSchema: {
     type: "object",
@@ -35,8 +37,7 @@ const createPIDataTool = (toolName, apiFunction, description, additionalParams =
       },
       privateKey: {
         type: "string",
-        description: "Payment Institution RSA private key for authentication. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "Payment Institution RSA private key for authentication. Uses environment-specific private key as default."
       },
       ...additionalParams
     },
@@ -78,6 +79,7 @@ const createPIDataTool = (toolName, apiFunction, description, additionalParams =
  */
 export const generateReportTool = {
   name: "payware_data_generate_report",
+  annotations: CREATES,
   description: "Generate an asynchronous data report for Payment Institution analysis. Focuses on P2P transaction flows and cross-institution payments. Production only.",
   inputSchema: {
     type: "object",
@@ -122,8 +124,7 @@ export const generateReportTool = {
       },
       privateKey: {
         type: "string",
-        description: "Payment Institution RSA private key for authentication. Uses environment-specific private key as default.",
-        default: getPrivateKeySafe()
+        description: "Payment Institution RSA private key for authentication. Uses environment-specific private key as default."
       }
     },
     required: ["reportUnitId"]
@@ -221,7 +222,7 @@ This feature is only available in the production environment, not in sandbox.
 };
 
 // Create all other PI data tools
-export const listReportsTool = createPIDataTool('list_reports', listReports, 'List All Available Reports', {});
+export const listReportsTool = createPIDataTool('list_reports', listReports, 'List All Available Reports', {}, READS);
 
 export const getReportRequestsTool = createPIDataTool('get_report_requests', getReportRequests, 'Get Report Request History', {
   reportId: {
@@ -229,21 +230,21 @@ export const getReportRequestsTool = createPIDataTool('get_report_requests', get
     description: "The report unit ID (path) to get execution history for (e.g., '/processedTransactions')",
     enum: Object.values(REPORT_TYPES)
   }
-});
+}, READS);
 
 export const getExportListTool = createPIDataTool('get_export_list', getExportList, 'Get Export List for Request', {
   requestId: {
     type: "string",
     description: "The request ID (UUID) to get exports for"
   }
-});
+}, READS);
 
 export const getReportStatusTool = createPIDataTool('get_report_status', getReportStatus, 'Get Report Status', {
   requestId: {
     type: "string",
     description: "The request ID returned from the report generation request (UUID format)"
   }
-});
+}, READS);
 
 export const exportReportTool = createPIDataTool('export_report', exportReport, 'Export Report', {
   requestId: {
@@ -256,35 +257,35 @@ export const exportReportTool = createPIDataTool('export_report', exportReport, 
     enum: Object.values(EXPORT_FORMATS),
     default: EXPORT_FORMATS.PDF
   }
-});
+}, CREATES);
 
 export const getExportStatusTool = createPIDataTool('get_export_status', getExportStatus, 'Get Export Status', {
   exportId: {
     type: "string",
     description: "The export ID returned from the export request (UUID format)"
   }
-});
+}, READS);
 
 export const downloadExportTool = createPIDataTool('download_export', downloadExport, 'Download Export', {
   exportId: {
     type: "string",
     description: "The export ID from the export request (UUID format)"
   }
-});
+}, READS);
 
 export const cancelReportTool = createPIDataTool('cancel_report', cancelReport, 'Cancel Report', {
   requestId: {
     type: "string",
     description: "The request ID of the report to cancel (UUID format)"
   }
-});
+}, CHANGES);
 
 export const cancelExportTool = createPIDataTool('cancel_export', cancelExport, 'Cancel Export', {
   exportId: {
     type: "string",
     description: "The export ID of the export to cancel (UUID format)"
   }
-});
+}, CHANGES);
 
 /**
  * All Payment Institution data tools
