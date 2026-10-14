@@ -28,6 +28,7 @@ export async function processPITransaction({
   deliveryAddress,
   // Payment method for POI transactions (Payment Choice Architecture)
   paymentMethod,
+  idempotencyKey,
   useSandbox = true
 }) {
   if (!transactionId) {
@@ -85,7 +86,8 @@ export async function processPITransaction({
   const headers = {
     'Authorization': `Bearer ${tokenData.token}`,
     'Content-Type': 'application/json',
-    'Api-Version': '1'  // Required: current API version
+    'Api-Version': '1', // Required: current API version
+    ...(idempotencyKey && { 'Idempotency-Key': idempotencyKey })
   };
 
   try {
@@ -101,6 +103,7 @@ export async function processPITransaction({
       success: true,
       transaction: response.data,
       requestId: response.headers['x-request-id'],
+      replayed: response.headers?.['idempotent-replayed'] === 'true',
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -148,6 +151,11 @@ export const processPITransactionTool = {
   inputSchema: {
     type: "object",
     properties: {
+      idempotencyKey: {
+        type: "string",
+        description: "Optional. Sent as the Idempotency-Key header. Use one value per payment (a UUID is typical) and the same value on every retry of it: a retry with the same key and body within 24 hours returns the transaction the first call created instead of a new one, and the result reports replayed: true. The same key with a different body is refused (422 ERR_IDEMPOTENCY_KEY_REUSED); a retry while the first call still runs gets 409 ERR_IDEMPOTENCY_KEY_IN_PROGRESS.",
+        pattern: "^[\\x21-\\x7E]{1,255}$"
+      },
       transactionId: {
         type: "string",
         description: "Transaction ID to process. Format: 2-char prefix + 8-char ID. Supports: 'pw' (standard), 'pr' (product), 'pl' (placement: pays as its product, and the payment is attributed to the placement), 'ps' (soundbite)",
@@ -294,6 +302,7 @@ export const processPITransactionTool = {
       privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       paymentMethod,
       deliveryAddress,
+      idempotencyKey,
       useSandbox = true
     } = args;
 
@@ -340,6 +349,7 @@ export const processPITransactionTool = {
       privateKey,
       paymentMethod,
       deliveryAddress,
+      idempotencyKey,
       useSandbox
     });
 
@@ -404,7 +414,7 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 **Timestamp:** ${result.timestamp}
 
 **Common Payment Institution Issues:**
-1. **ERR_MISSING_TRANSACTION**: Transaction ID not found or expired
+1. **ERR_MISSING_TRANSACTION**: Transaction ID not found. **ERR_TRANSACTION_EXPIRED** (also 404): its time to live has run out and it is closed as unpaid
 2. **ERR_ALREADY_PROCESSED**: Transaction already processed
 3. **ERR_MISSING_PARTNER_ACCOUNT**: Account parameter missing or empty
 4. **ERR_MISSING_FRIENDLY_NAME**: Friendly name parameter missing

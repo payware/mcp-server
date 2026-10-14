@@ -40,6 +40,7 @@ export async function createTransaction({
   barBarHeight,
   barFontSize,
   barHumanReadableLocation,
+  idempotencyKey,
   useSandbox = true
 }) {
   if (!reasonL1) {
@@ -142,7 +143,8 @@ export async function createTransaction({
   const headers = {
     'Authorization': `Bearer ${tokenData.token}`,
     'Content-Type': 'application/json',
-    'Api-Version': '1' // Required: current API version
+    'Api-Version': '1', // Required: current API version
+    ...(idempotencyKey && { 'Idempotency-Key': idempotencyKey })
   };
   
   try {
@@ -160,6 +162,7 @@ export async function createTransaction({
       success: true,
       transaction: response.data,
       requestId: response.headers['x-request-id'],
+      replayed: response.headers?.['idempotent-replayed'] === 'true',
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -269,6 +272,11 @@ ISV's software is running on that producer's hardware.`,
   inputSchema: {
     type: "object",
     properties: {
+      idempotencyKey: {
+        type: "string",
+        description: "Optional. Sent as the Idempotency-Key header. Use one value per payment (a UUID is typical) and the same value on every retry of it: a retry with the same key and body within 24 hours returns the transaction the first call created instead of a new one, and the result reports replayed: true. The same key with a different body is refused (422 ERR_IDEMPOTENCY_KEY_REUSED); a retry while the first call still runs gets 409 ERR_IDEMPOTENCY_KEY_IN_PROGRESS.",
+        pattern: "^[\\x21-\\x7E]{1,255}$"
+      },
       type: {
         type: "string",
         enum: ["PLAIN", "QR", "BARCODE"],
@@ -446,6 +454,7 @@ ISV's software is running on that producer's hardware.`,
       barBarHeight,
       barFontSize,
       barHumanReadableLocation,
+      idempotencyKey,
       useSandbox = true
     } = args;
     
@@ -490,6 +499,7 @@ ISV's software is running on that producer's hardware.`,
       barBarHeight,
       barFontSize,
       barHumanReadableLocation,
+      idempotencyKey,
       useSandbox
     });
     

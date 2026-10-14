@@ -502,3 +502,45 @@ describe('error responses reach the caller intact', () => {
     assert.equal(result.error.retryable, false);
   });
 });
+
+describe('Idempotency-Key', () => {
+  // A bank retrying "pay this product" after a timeout made a second payment until the server learned
+  // the header (2026-10-14). The tools pass it through, and only when the caller gives one.
+  test('is sent when given, and a replay is reported', async () => {
+    const { processPITransaction } = await import('../src/payment-institution/transactions/process-pi-transaction.js');
+    server.respondWith(200, { transactionId: 'pw12345678', status: 'ACTIVE' }, { 'Idempotent-Replayed': 'true' });
+
+    const result = await asMerchant(() => processPITransaction({
+      ...MERCHANT_AUTH, transactionId: 'pr12345678', account: 'ACC1', friendlyName: 'Payer',
+      currency: 'EUR', reasonL1: 'Test', idempotencyKey: '6f1c9a1e-3d4b-4c55-9a7e-2b1f0e8d7c6a'
+    }));
+
+    assert.equal(server.lastRequest.headers['idempotency-key'], '6f1c9a1e-3d4b-4c55-9a7e-2b1f0e8d7c6a');
+    assert.equal(server.lastRequest.contentHashMatches, true);
+    assert.equal(result.replayed, true);
+  });
+
+  test('is absent when not given, as before', async () => {
+    const { createTransaction } = await import('../src/merchant/transactions/create-transaction.js');
+    server.respondWith(200, { transactionId: 'pw12345678' });
+
+    const result = await asMerchant(() => createTransaction({
+      ...MERCHANT_AUTH, amount: '1.00', currency: 'EUR', reasonL1: 'Test'
+    }));
+
+    assert.equal(server.lastRequest.headers['idempotency-key'], undefined);
+    assert.equal(result.replayed, false);
+  });
+
+  test('reaches the wire on the ISV tools too', async () => {
+    const { processTransaction } = await import('../src/isv/transactions/process-transaction.js');
+    server.respondWith(200, { transactionId: 'pw12345678', status: 'ACTIVE' });
+
+    await asIsv(() => processTransaction({
+      ...ISV_AUTH, transactionId: 'pr12345678', amount: '1.00', currency: 'EUR', reasonL1: 'Test',
+      idempotencyKey: 'isv-retry-1'
+    }));
+
+    assert.equal(server.lastRequest.headers['idempotency-key'], 'isv-retry-1');
+  });
+});

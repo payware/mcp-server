@@ -37,6 +37,7 @@ export async function createTransaction({
   barBarHeight,
   barFontSize,
   barHumanReadableLocation,
+  idempotencyKey,
   useSandbox = true
 }) {
   // ISV-specific validation
@@ -132,13 +133,17 @@ export async function createTransaction({
       headers: {
         'Authorization': `Bearer ${jwtData.token}`,
         'Content-Type': 'application/json',
-        'Api-Version': '1'
+        'Api-Version': '1',
+        ...(idempotencyKey && { 'Idempotency-Key': idempotencyKey })
       },
       // Tell axios to send the string as-is, don't serialize it again
       transformRequest: [(data) => data]
     });
 
-    return response.data;
+    // A retry answered from the first call (Idempotency-Key) says so in a header, not in the body.
+    return response.headers?.['idempotent-replayed'] === 'true'
+      ? { ...response.data, replayed: true }
+      : response.data;
   } catch (error) {
     throw describeApiError(error, 'call the payware API');
   }
@@ -200,6 +205,11 @@ merchant role if the terminal producer is meant to be attributed.
     type: 'object',
     required: ['merchantPartnerId', 'oauth2Token', 'reasonL1'],
     properties: {
+      idempotencyKey: {
+        type: "string",
+        description: "Optional. Sent as the Idempotency-Key header. Use one value per payment (a UUID is typical) and the same value on every retry of it: a retry with the same key and body within 24 hours returns the transaction the first call created instead of a new one, and the result reports replayed: true. The same key with a different body is refused (422 ERR_IDEMPOTENCY_KEY_REUSED); a retry while the first call still runs gets 409 ERR_IDEMPOTENCY_KEY_IN_PROGRESS.",
+        pattern: "^[\\x21-\\x7E]{1,255}$"
+      },
       // ISV Authentication
       merchantPartnerId: {
         type: 'string',

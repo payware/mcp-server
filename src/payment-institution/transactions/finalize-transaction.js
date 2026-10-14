@@ -313,7 +313,7 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 **Timestamp:** ${result.timestamp}
 
 **Common Finalization Issues:**
-1. **ERR_MISSING_TRANSACTION**: Transaction ID not found or expired
+1. **ERR_MISSING_TRANSACTION**: Transaction ID not found. **ERR_TRANSACTION_EXPIRED** (also 404): the time to live ran out before the finalize arrived, and the transaction is closed as unpaid
 2. **ERR_TRANSACTION_NOT_PROCESSED**: Transaction hasn't been processed yet
 3. **ERR_ALREADY_PROCESSED**: Transaction already finalized
 4. **ERR_INVALID_STATUS**: Invalid status value provided
