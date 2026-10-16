@@ -258,7 +258,9 @@ agreement with payware. Three fields, all optional:
   characters. payware records it and never interprets it: no format, no uniqueness enforcement, and
   nothing about pricing or attribution depends on it.
 - \`terminalManufacturer\` - device manufacturer as the terminal reports it. Max 64 chars, no control
-  characters. Recorded for provenance; a mismatch is surfaced in settlement review, never blocked.
+  characters. Recorded for provenance. payware's internal attribution review counts each producer's
+  sales by reported manufacturer, so a build running on another vendor's hardware stands out; it is
+  never blocked.
 
 Two things worth knowing:
 1. **It never changes what the merchant is charged.** The producer's share comes out of payware's own

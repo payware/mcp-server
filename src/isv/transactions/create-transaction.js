@@ -171,11 +171,13 @@ now returns 403, check the merchant's plan first.
 answers **403 ERR_SHOP_NOT_IN_SCOPE**, and \`payware_shops_list\` returns only the in-scope ones.
 Omitting \`shop\` uses the merchant's default shop, which may itself be out of scope.
 
-ℹ️ **Producer attribution does not apply here.** \`producerPartnerId\` / \`terminalId\` /
-\`terminalManufacturer\` are accepted on direct merchant calls only. Whoever made the API call owns the
-sale, so an ISV call is an ISV sale even when the ISV's software is running on a hardware producer's
-terminal. Do not try to pass them through - use \`payware_operations_create_transaction\` from the
-merchant role if the terminal producer is meant to be attributed.
+ℹ️ **Producer attribution does not apply here.** Whoever made the API call owns the sale, so an ISV
+call is an ISV sale even when the ISV's software is running on a hardware producer's terminal, and the
+producer earns nothing from it. This tool therefore does not send \`producerPartnerId\` /
+\`terminalId\` / \`terminalManufacturer\`. The server does accept them on an ISV call - it checks
+them (an unrecognised producer is a 400) and records them for provenance - but they never move the
+sale to the producer. Use \`payware_operations_create_transaction\` from the merchant role if the
+terminal producer is meant to be attributed.
 
 **Transaction Types:**
 - PLAIN: Basic transaction without visual codes
