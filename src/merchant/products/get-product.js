@@ -104,7 +104,6 @@ ${product.upc ? `- UPC: ${product.upc}` : ''}
 ${product.imageUrl ? `- Image: ${product.imageUrl}` : ''}
 ${product.termsUrl ? `- Terms URL: ${product.termsUrl}` : ''}
 ${product.termsText ? `- Terms Text: ${product.termsText.substring(0, 100)}${product.termsText.length > 100 ? '...' : ''}` : ''}
-${product.deepLink && product.deepLink !== '-' ? `- Deep Link: ${product.deepLink}` : ''}
 
 **API Response:**
 \`\`\`json

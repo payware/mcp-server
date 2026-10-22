@@ -170,12 +170,6 @@ export const CommonTemplates = {
       download_export: '/data/exports/{id}',
       cancel_report: '/data/reports/{id}',
 
-      // Deep link endpoints
-      get_transaction_link: '/deeplinks/transactions/{id}',
-      get_product_link: '/deeplinks/products/{id}',
-      delete_transaction_link: '/deeplinks/transactions/{id}',
-      delete_product_link: '/deeplinks/products/{id}',
-
       // OAuth2 endpoints (ISV only). Plural /tokens, and served from the host root rather than
       // under /api. The singular paths that used to be listed here - /oauth2/token,
       // /oauth2/token/info, /oauth2/token/simple - do not exist on any payware environment.
@@ -214,8 +208,6 @@ export const CommonTemplates = {
       list_audios: 'GET',
       get_report_status: 'GET',
       download_export: 'GET',
-      get_transaction_link: 'GET',
-      get_product_link: 'GET',
       get_token_info: 'GET',
       get_pi_transaction_status: 'GET',
       get_pi_transaction_history: 'GET',
@@ -247,9 +239,7 @@ export const CommonTemplates = {
       delete_product: 'DELETE',
       delete_schedule: 'DELETE',
       delete_audio: 'DELETE',
-      cancel_report: 'DELETE',
-      delete_transaction_link: 'DELETE',
-      delete_product_link: 'DELETE'
+      cancel_report: 'DELETE'
     };
 
     return methods[operation] || 'POST';

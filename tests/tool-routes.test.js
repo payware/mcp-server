@@ -68,11 +68,6 @@ const ROUTES = {
   payware_operations_get_transaction_history: `GET /transactions-history/${TX}`,
   payware_operations_soundbite_transaction: 'POST /transactions',
 
-  payware_deep_links_get_transaction_link: `GET /transactions/${TX}/link`,
-  payware_deep_links_delete_transaction_link: `DELETE /transactions/${TX}/link`,
-  payware_deep_links_get_product_link: `GET /products/${PRODUCT}/link`,
-  payware_deep_links_delete_product_link: `DELETE /products/${PRODUCT}/link`,
-
   payware_products_list_products: 'GET /products',
   payware_products_create_product: 'POST /products',
   payware_products_get_product: `GET /products/${PRODUCT}`,
@@ -138,8 +133,6 @@ const ROUTES = {
   payware_products_update_placement: `PUT /products/${PRODUCT}/placements/${PLACEMENT}`,
   payware_products_delete_placement: `DELETE /products/${PRODUCT}/placements/${PLACEMENT}`,
   payware_products_get_placement_image: `GET /products/${PRODUCT}/placements/${PLACEMENT}/image`,
-  // A GET that mints the short link on first request, hence ADDS rather than READS.
-  payware_products_get_placement_link: `GET /products/${PRODUCT}/placements/${PLACEMENT}/link`,
   payware_products_get_placement_stats: `GET /products/${PRODUCT}/placements/${PLACEMENT}/stats`,
   payware_products_list_airings: `GET /products/${PRODUCT}/placements/${PLACEMENT}/airings`,
   payware_products_create_airing: `POST /products/${PRODUCT}/placements/${PLACEMENT}/airings`,
@@ -199,8 +192,7 @@ const RESPONSES = {
   payware_products_list_airings: [],
   payware_products_replace_airings: [],
   payware_products_get_next_airings: [],
-  payware_products_get_airing_calendar: [],
-  payware_products_get_placement_link: `https://go.payware.eu/${PLACEMENT}`
+  payware_products_get_airing_calendar: []
 };
 
 const { publicKey, privateKey } = generateTestKeyPair();

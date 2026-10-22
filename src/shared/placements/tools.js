@@ -319,7 +319,7 @@ const SPECS = [
     name: 'payware_products_create_placement',
     annotations: CREATES,
     title: 'Placement created',
-    description: 'Create a placement for a product; up to 1,000 per product. The response carries its placementId, which goes on the medium wherever the product ID would: a QR code (payware://{placementId}), an NFC tag, a BLE beacon, a link, a barcode or an SMS. A bank resolving it pays for the product, and the payment is attributed to the placement. For a SOUNDBITE carrier, add airing rules so taps during the airing are attributed.\n\n**Endpoint:** POST /products/{productId}/placements (PRM plan)',
+    description: 'Create a placement for a product; up to 1,000 per product. The response carries its placementId, which goes on the medium wherever the product ID would: a QR code (its payware link, or payware:{placementId}), an NFC tag, a BLE beacon, a link, a barcode or an SMS. A bank resolving it pays for the product, and the payment is attributed to the placement. For a SOUNDBITE carrier, add airing rules so taps during the airing are attributed.\n\n**Endpoint:** POST /products/{productId}/placements (PRM plan)',
     properties: { productId: PRODUCT_ID, ...PLACEMENT_FIELDS },
     required: ['productId', 'name', 'medium', 'carriers'],
     request: (a) => ({ method: 'POST', path: `/products/${enc(a.productId)}/placements`, body: pick(a, PLACEMENT_FIELDS) })
@@ -350,17 +350,17 @@ const SPECS = [
     name: 'payware_products_delete_placement',
     annotations: CHANGES,
     title: 'Placement deleted',
-    description: 'Delete a placement. **Its printed codes stop resolving**, its short link is retired and its ID is never reused. To stop airing and attribution but keep printed codes working, replace it with active false instead.\n\n**Endpoint:** DELETE /products/{productId}/placements/{placementId} (PRM plan)',
+    description: 'Delete a placement. **Its printed codes and its payware link stop resolving**, and its ID is never reused. To stop airing and attribution but keep printed codes working, replace it with active false instead.\n\n**Endpoint:** DELETE /products/{productId}/placements/{placementId} (PRM plan)',
     properties: { productId: PRODUCT_ID, placementId: PLACEMENT_ID },
     required: ['productId', 'placementId'],
     request: (a) => ({ method: 'DELETE', path: `/products/${enc(a.productId)}/placements/${enc(a.placementId)}` }),
-    present: (r, a) => [{ type: 'text', text: `Placement ${a.placementId} deleted. Its codes no longer resolve and its short link is retired.` }]
+    present: (r, a) => [{ type: 'text', text: `Placement ${a.placementId} deleted. Its codes and payware link no longer resolve.` }]
   },
   {
     name: 'payware_products_get_placement_image',
     annotations: READS,
     title: 'Placement image',
-    description: 'A placement\'s QR code (carrying payware://{placementId}) or Code 128 barcode (carrying the plain ID), for print. PNG and JPG come back as an image, SVG as its markup.\n\n**Endpoint:** GET /products/{productId}/placements/{placementId}/image',
+    description: 'A placement\'s QR code (carrying the placement\'s payware link, https://go.payware.eu/{placementId}, which needs no API call) or Code 128 barcode (carrying the plain ID), for print. PNG and JPG come back as an image, SVG as its markup.\n\n**Endpoint:** GET /products/{productId}/placements/{placementId}/image',
     properties: {
       productId: PRODUCT_ID,
       placementId: PLACEMENT_ID,
@@ -375,19 +375,6 @@ const SPECS = [
       binary: true
     }),
     present: (r, a) => image(a.placementId, r)
-  },
-  {
-    name: 'payware_products_get_placement_link',
-    annotations: ADDS,
-    title: 'Placement link',
-    description: 'A placement\'s short link, https://go.payware.eu/{placementId}, made on the first request and the same afterwards. On a phone it opens payware:/{placementId} in the payment app; a payment through it is attributed to the placement.\n\n**Endpoint:** GET /products/{productId}/placements/{placementId}/link (PRM plan)',
-    properties: { productId: PRODUCT_ID, placementId: PLACEMENT_ID },
-    required: ['productId', 'placementId'],
-    request: (a) => ({ method: 'GET', path: `/products/${enc(a.productId)}/placements/${enc(a.placementId)}/link` }),
-    present: (r, a) => [{
-      type: 'text',
-      text: `Short link of placement ${a.placementId}:\n\n${typeof r.data === 'string' ? r.data : JSON.stringify(r.data)}`
-    }]
   },
   {
     name: 'payware_products_get_placement_stats',

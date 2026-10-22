@@ -71,12 +71,6 @@ export {
   generateDataExample
 } from './shared/data.js';
 
-export {
-  DeepLinkOperations,
-  DeepLinksGenerators,
-  generateDeepLinksExample
-} from './shared/deep-links.js';
-
 // P2P operations removed - P2P transfers are regular transactions
 // where the receiving party is a payment institution customer
 
@@ -134,13 +128,6 @@ export class PaywareMCPGenerator {
         'cancel_report', 'list_reports', 'get_analytics_summary', 'create_custom_report'
       ],
 
-      // Deep links
-      deeplinks: [
-        'get_transaction_link', 'get_product_link', 'create_custom_link',
-        'delete_transaction_link', 'delete_product_link', 'list_active_links',
-        'get_link_analytics', 'create_batch_links'
-      ],
-
 
       // Soundbites
       soundbites: [
@@ -179,9 +166,6 @@ export class PaywareMCPGenerator {
 
       case 'data':
         return generateDataExample(operation, language, partnerType, options);
-
-      case 'deeplinks':
-        return generateDeepLinksExample(operation, language, partnerType, options);
 
 
       case 'soundbites':
@@ -263,8 +247,7 @@ export class PaywareMCPGenerator {
     const available = {
       auth: ['authentication'],
       transactions: this.operations.transactions,
-      data: this.operations.data,
-      deeplinks: this.operations.deeplinks
+      data: this.operations.data
     };
 
     // Add partner-specific operations

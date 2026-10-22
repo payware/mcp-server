@@ -164,7 +164,7 @@ it acts for, so this endpoint answers **403** (\`ERR_METHOD_NOT_ALLOWED_FOR_CURR
 that merchant is on **Basic**. Acting on behalf is no longer sufficient on its own - before
 2026-08-21 it was, and an ISV serving a Basic merchant could reach the transaction, product, shop and
 report APIs regardless of that merchant's plan. The same applies to
-\`payware_products_*\`, \`payware_deep_links_*\` and \`payware_data_*\`. If a call that used to work
+\`payware_products_*\` and \`payware_data_*\`. If a call that used to work
 now returns 403, check the merchant's plan first.
 
 ⚠️ **Shop scope.** An ISV reaches only the shops the merchant assigned it. Naming any other shop

@@ -56,9 +56,9 @@ describe('filterToolsets', () => {
     assert.ok(!tools.some(t => t.name === 'payware_operations_create_transaction'));
   });
 
-  test('names are forgiving about case, spaces and hyphens', () => {
-    const { selected, warnings } = filterToolsets(merchant, ' Deep-Links , PLACEMENTS ');
-    assert.deepEqual(selected, ['placements', 'deep_links']);
+  test('names are forgiving about case and spaces', () => {
+    const { selected, warnings } = filterToolsets(merchant, ' Products , PLACEMENTS ');
+    assert.deepEqual(selected, ['products', 'placements']);
     assert.deepEqual(warnings, []);
   });
 

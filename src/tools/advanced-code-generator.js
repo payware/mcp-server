@@ -191,20 +191,6 @@ class AdvancedCodeGenerator {
       },
 
 
-      // Deep links
-      get_transaction_link: {
-        description: 'Get deep link for transaction',
-        endpoint: '/deeplinks/transactions/{id}',
-        method: 'GET',
-        partnerTypes: ['merchant', 'isv', 'payment_institution'],
-        sampleBody: null,
-        queryParams: {
-          type: 'QR_CODE',
-          format: 'PNG',
-          size: '256x256'
-        }
-      },
-
       // Soundbites (Payment Institution only)
       register_audio: {
         description: 'Register audio file for a product',
@@ -663,7 +649,6 @@ ${operation.replace('-', '_')}Example()
     if (operation.includes('product')) return 'products';
     if (operation.includes('token')) return 'oauth2';
     if (operation.includes('report')) return 'data';
-    if (operation.includes('link')) return 'deeplinks';
     if (operation.includes('audio') || operation.includes('soundbite')) return 'soundbites';
     return 'misc';
   }
@@ -1509,15 +1494,6 @@ echo "✅ Request completed"`;
         go: 'fmt.Printf("Transaction ID: %s\\n", responseBody)',
         ruby: 'puts "Transaction ID: #{response.body}"',
         php: 'echo "Transaction ID: " . $result[\'transactionId\'] . "\\n";'
-      },
-      get_transaction_link: {
-        java: 'System.out.println("Deep link URL: " + response.body());',
-        nodejs: 'console.log("Deep link URL:", result.deepLinkUrl);',
-        python: 'print(f"Deep link URL: {result[\'deepLinkUrl\']}")',
-        csharp: 'Console.WriteLine($"Deep link URL: {responseContent}");',
-        go: 'fmt.Printf("Deep link URL: %s\\n", responseBody)',
-        ruby: 'puts "Deep link URL: #{result[\'deepLinkUrl\']}"',
-        php: 'echo "Deep link URL: " . $result[\'deepLinkUrl\'] . "\\n";'
       }
     };
 
@@ -1744,7 +1720,7 @@ export const generateCodeExampleTool = {
     properties: {
       operation: {
         type: 'string',
-        description: 'payware API operation to generate code for. Categories: AUTHENTICATION (authentication), TRANSACTIONS (create_transaction, get_transaction_status, process_transaction, cancel_transaction, get_transaction_history), PRODUCTS - merchant/ISV only (create_product, get_product, list_products, update_product, delete_product), OAUTH2 - ISV only (obtain_token, get_token_info), REPORTS (generate_report, get_report_status, export_report), DEEP LINKS (get_transaction_link, get_product_link), AUDIO/SOUNDBITES - merchant/ISV only (register_audio, get_audios, get_audio, update_audio, delete_audio)',
+        description: 'payware API operation to generate code for. Categories: AUTHENTICATION (authentication), TRANSACTIONS (create_transaction, get_transaction_status, process_transaction, cancel_transaction, get_transaction_history), PRODUCTS - merchant/ISV only (create_product, get_product, list_products, update_product, delete_product), OAUTH2 - ISV only (obtain_token, get_token_info), REPORTS (generate_report, get_report_status, export_report), AUDIO/SOUNDBITES - merchant/ISV only (register_audio, get_audios, get_audio, update_audio, delete_audio)',
         enum: [
           'authentication',
           'create_transaction',
@@ -1762,8 +1738,6 @@ export const generateCodeExampleTool = {
           'generate_report',
           'get_report_status',
           'export_report',
-          'get_transaction_link',
-          'get_product_link',
           'register_audio',
           'get_audios',
           'get_audio',
@@ -1778,7 +1752,7 @@ export const generateCodeExampleTool = {
       },
       partner_type: {
         type: 'string',
-        description: 'payware partner type determines available operations. merchant: transactions, products, reports, deep links. isv: all merchant operations plus OAuth2 token management for multiple merchants. payment_institution: transactions, advanced settlement features.',
+        description: 'payware partner type determines available operations. merchant: transactions, products, reports. isv: all merchant operations plus OAuth2 token management for multiple merchants. payment_institution: transactions, advanced settlement features.',
         enum: ['merchant', 'isv', 'payment_institution']
       },
       include_comments: {

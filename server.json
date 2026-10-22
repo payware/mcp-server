@@ -8,12 +8,12 @@
     "url": "https://github.com/payware/mcp-server",
     "source": "github"
   },
-  "version": "1.5.1",
+  "version": "2.0.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@payware/mcp-server",
-      "version": "1.5.1",
+      "version": "2.0.0",
       "transport": {
         "type": "stdio"
       },
@@ -63,7 +63,7 @@
         },
         {
           "name": "PAYWARE_MCP_TOOLSETS",
-          "description": "Comma-separated toolsets to load, e.g. products,placements. Unset loads every tool. Toolsets: auth, transactions, products, placements, deep_links, data, logs, poi, shops, onboarding, utils",
+          "description": "Comma-separated toolsets to load, e.g. products,placements. Unset loads every tool. Toolsets: auth, transactions, products, placements, data, logs, poi, shops, onboarding, utils",
           "isRequired": false,
           "format": "string"
         }

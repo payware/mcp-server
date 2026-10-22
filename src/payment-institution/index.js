@@ -26,7 +26,6 @@ import { simulatePICallbackTool } from './transactions/simulate-pi-callback.js';
 import { paymentInstitutionDataTools } from './data/index.js';
 
 // Deep links tools
-import { paymentInstitutionDeepLinksTools } from './deep-links/index.js';
 
 // Import shared tools
 import { sharedTools } from '../shared/index.js';
@@ -49,10 +48,7 @@ export const paymentInstitutionTools = [
   simulatePICallbackTool,
 
   // Data management
-  ...paymentInstitutionDataTools,
-
-  // Deep links management
-  ...paymentInstitutionDeepLinksTools
+  ...paymentInstitutionDataTools
 ];
 
 /**
@@ -78,10 +74,6 @@ export function getPaymentInstitutionTools() {
     // Data tools keep their data grouping
     else if (tool.name.startsWith('payware_data_')) {
       newName = tool.name; // Keep data grouping
-    }
-    // Deep links tools keep their deep_links grouping
-    else if (tool.name.startsWith('payware_deep_links_')) {
-      newName = tool.name; // Keep deep_links grouping
     }
 
     return {

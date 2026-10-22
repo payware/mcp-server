@@ -8,13 +8,14 @@ import { createJWTForPartner } from '../core/auth/jwt-factory.js';
  * but adds the merchant it is acting for in the `aud` claim and that merchant's OAuth2 token in
  * `sub` - which is what makes the call an on-behalf call rather than an ISV-for-itself call.
  *
- * **Note on duplication.** Four near-identical private copies of this function already exist, in
- * `shared/products/products-api.js`, `shared/data/data-api.js`, `shared/deep-links/api.js` and
- * `shared/logs/logs-api.js`. This is the shared one, used by everything added since. The four were
+ * **Note on duplication.** Three near-identical private copies of this function exist, in
+ * `shared/products/products-api.js`, `shared/data/data-api.js` and `shared/logs/logs-api.js` (a
+ * fourth, in the deep-links tools, went with them). This is the shared one, used by everything added
+ * since. The three were
  * deliberately left alone rather than swept into it: they are on live, working paths, they differ in
- * small ways that look accidental but have not been proven so (deep-links defaults `requestBody` to
- * `''` where the others pass `undefined`, and for a GET those are not always the same thing to a
- * hash calculation), and consolidating them is a refactor of authentication with no test suite
+ * small ways that look accidental but have not been proven so (the removed deep-links copy defaulted
+ * `requestBody` to `''` where the others pass `undefined`, and for a GET those are not always the
+ * same thing to a hash calculation), and consolidating them is a refactor of authentication with no test suite
  * behind it. Do it as its own change, with the `''`-vs-`undefined` question answered first, not as a
  * side effect of adding a tool.
  *

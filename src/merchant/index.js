@@ -18,7 +18,6 @@ import { merchantDataTools } from './data/index.js';
 import { merchantProductTools } from './products/index.js';
 
 // Deep links tools
-import { merchantDeepLinksTools } from './deep-links/index.js';
 
 // Logs tools (Premium feature)
 import { merchantLogsTools } from './logs/index.js';
@@ -57,7 +56,6 @@ export const merchantTools = [
   ...merchantProductTools,
 
   // Deep links management
-  ...merchantDeepLinksTools,
 
   // Logs management (Premium feature)
   ...merchantLogsTools,
@@ -96,10 +94,6 @@ export function getMerchantTools() {
     // Product tools keep their products grouping
     else if (tool.name.startsWith('payware_products_')) {
       newName = tool.name; // Keep products grouping
-    }
-    // Deep links tools keep their deep_links grouping
-    else if (tool.name.startsWith('payware_deep_links_')) {
-      newName = tool.name; // Keep deep_links grouping
     }
     // Logs tools keep their logs grouping
     else if (tool.name.startsWith('payware_logs_')) {

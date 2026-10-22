@@ -108,7 +108,7 @@ Every tool definition goes into the assistant's context on every turn, and a mer
 PAYWARE_MCP_TOOLSETS=products,placements
 ```
 
-Toolsets: `auth`, `transactions`, `products`, `placements`, `deep_links`, `data`, `logs`, `poi`, `shops`, `onboarding`, `utils`. Unset, or `all`, loads every tool. An unknown name is ignored with a warning in the server log. A tool outside the chosen toolsets is neither listed nor callable; this narrows what the assistant is offered and does not change what your partner account may do. An ISV that obtains OAuth2 tokens through this server includes `auth`.
+Toolsets: `auth`, `transactions`, `products`, `placements`, `data`, `logs`, `poi`, `shops`, `onboarding`, `utils`. Unset, or `all`, loads every tool. An unknown name is ignored with a warning in the server log. A tool outside the chosen toolsets is neither listed nor callable; this narrows what the assistant is offered and does not change what your partner account may do. An ISV that obtains OAuth2 tokens through this server includes `auth`.
 
 ### 3. Start the MCP Server
 
@@ -232,7 +232,6 @@ Supports 60+ operations across all partner types:
 - **Products**: create_product, get_product, update_product, delete_product, list_products, get_product_image, create_schedule, update_schedule, delete_schedule, list_schedules
 - **OAuth2** (ISV only): obtain_token, get_token_info, create_token_simple, refresh_token, revoke_token, list_active_tokens
 - **Data**: generate_report, get_report_status, export_report, download_export, cancel_report, list_reports, get_analytics_summary, create_custom_report
-- **Deep Links**: get_transaction_link, get_product_link, create_custom_link, delete_transaction_link, delete_product_link, list_active_links, get_link_analytics, create_batch_links
 - **P2P** (Payment Institution): initiate_p2p_transfer, accept_p2p_transfer, reject_p2p_transfer, get_p2p_transfer_status, list_p2p_transfers, cancel_p2p_transfer, create_p2p_link, get_p2p_analytics
 - **Soundbites** (Payment Institution): register_audio, get_audio, update_audio, delete_audio, list_audios, create_soundbite_transaction, stream_audio, download_audio, get_soundbite_analytics, create_audio_playlist, get_audio_preview
 
@@ -384,9 +383,6 @@ Generate production-ready code examples for any payware operation.
 **P2P Operations (payment_institution only):**
 - `initiate_p2p_transfer` - Initiate peer-to-peer transfer
 - `accept_p2p_transfer` - Accept P2P transfer
-
-**Deep Links (all partner types):**
-- `get_transaction_link` - Get deep link for transaction
 
 **Soundbites (payment_institution only):**
 - `register_audio` - Register audio content for soundbite transactions

@@ -23,7 +23,6 @@ import { isvDataTools } from './data/index.js';
 import { isvProductTools } from './products/index.js';
 
 // Deep links tools
-import { isvDeepLinksTools } from './deep-links/index.js';
 
 // POI tools
 import { isvPOITools } from './poi/index.js';
@@ -68,7 +67,6 @@ export const isvTools = [
   ...isvProductTools,
 
   // Deep links management
-  ...isvDeepLinksTools,
 
   // POI management
   ...isvPOITools,
@@ -117,10 +115,6 @@ export function getISVTools() {
     // Product tools keep their products grouping
     else if (tool.name.startsWith('payware_products_')) {
       newName = tool.name; // Keep products grouping
-    }
-    // Deep links tools keep their deep_links grouping
-    else if (tool.name.startsWith('payware_deep_links_')) {
-      newName = tool.name; // Keep deep_links grouping
     }
     // POI tools keep their poi grouping
     else if (tool.name.startsWith('payware_poi_')) {

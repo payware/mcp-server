@@ -94,7 +94,6 @@ PORT=3000
 | `transactions` | Create, process, finalize, cancel and look up transactions, and simulate callbacks |
 | `products` | Products, price schedules, audio and product images |
 | `placements` | Campaigns, placements, airing rules and the airing calendar |
-| `deep_links` | Shareable links for transactions and products |
 | `data` | Reports and exports |
 | `logs` | API logs (Premium) |
 | `poi` | Points of interaction (ISV) |
@@ -102,7 +101,7 @@ PORT=3000
 | `onboarding` | ISV merchant invitations and the reference data their forms need |
 | `utils` | Code samples, documentation, request formatting and server information |
 
-Example: `PAYWARE_MCP_TOOLSETS=products,placements,shops`. Names are case-insensitive and `deep-links` works as well as `deep_links`. An unknown name is ignored with a warning on stderr, which MCP clients keep in their server log, and if no name is known every tool loads. A tool outside the chosen toolsets is neither listed nor callable. This is not access control: what a call may do is still decided by payware for your partner account.
+Example: `PAYWARE_MCP_TOOLSETS=products,placements,shops`. Names are case-insensitive. An unknown name is ignored with a warning on stderr, which MCP clients keep in their server log, and if no name is known every tool loads. A tool outside the chosen toolsets is neither listed nor callable. This is not access control: what a call may do is still decided by payware for your partner account.
 
 ## Available Tools
 
