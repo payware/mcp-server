@@ -177,7 +177,6 @@ ${tx.reasonL2 ? `- Reason L2: ${tx.reasonL2}` : ''}
 - BIC: ${tx.payeeBIC || 'N/A'}
 
 **Payer Information:**
-- Account: ${tx.payerAccount || 'N/A'}
 - Friendly Name: ${tx.payerFriendlyName || 'N/A'}
 - BIC: ${tx.payerBIC || 'N/A'}
 
@@ -199,7 +198,7 @@ ${JSON.stringify(result.transaction, null, 2)}
 **Next Steps:**
 1. Transaction successfully identified from soundbite file
 2. Use transaction ID: \`${tx.transactionId || 'N/A'}\` for further operations
-3. ${!tx.payerAccount ? 'Process this transaction if you are the payer' : 'Transaction ready for finalization'}
+3. Process this transaction as the payer
 4. Use \`payware_operations_process_transaction\` to process payment
 5. Use \`payware_operations_finalize_transaction\` to confirm/decline
 

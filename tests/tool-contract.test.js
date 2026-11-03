@@ -130,7 +130,7 @@ describe('tool contract', () => {
       // choose between them.
       payment_institution: [
         'callbackType', 'payeeAccount', 'payeeBIC', 'payeeFriendlyName',
-        'payerAccount', 'payerBIC', 'payerFriendlyName', 'reasonL1', 'reasonL2', 'timeToLive'
+        'payerBIC', 'payerFriendlyName', 'reasonL1', 'reasonL2', 'timeToLive'
       ],
       // The ISV simulator labels its output with the merchant whose callback it models. It is a
       // display label, not an on-behalf credential - simulation is local and calls nothing.

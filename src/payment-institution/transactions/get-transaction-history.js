@@ -68,7 +68,7 @@ export const getPITransactionHistoryTool = {
 - Complete transaction details
 - Final status (CONFIRMED, DECLINED, FAILED, EXPIRED)
 - Status message (for failed/declined transactions)
-- Payee/payer account details and BICs
+- Payee account, friendly names and BICs (payware does not keep the payer's account)
 - Transaction amounts, currency, and timestamps
 - Creation and processing timeline
 
@@ -170,7 +170,6 @@ ${tx.reasonL2 ? `- Reason L2: ${tx.reasonL2}` : ''}
 - BIC: ${tx.payeeBIC || 'N/A'}
 
 **Payer Information:**
-- Account: ${tx.payerAccount || 'N/A'}
 - Friendly Name: ${tx.payerFriendlyName || 'N/A'}
 - BIC: ${tx.payerBIC || 'N/A'}
 

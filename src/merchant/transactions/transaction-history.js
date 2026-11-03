@@ -184,7 +184,7 @@ ${result.transaction.paymentMethod ? `- Payment Method: ${result.transaction.pay
 
 **Parties:**
 - Payee: ${result.transaction.payeeFriendlyName || 'N/A'} (${result.transaction.payeeAccount || 'N/A'})
-- Payer: ${result.transaction.payerFriendlyName || 'N/A'} (${result.transaction.payerAccount || 'N/A'})
+- Payer: ${result.transaction.payerFriendlyName || 'N/A'}
 - Payee BIC: ${result.transaction.payeeBIC || 'N/A'}
 - Payer BIC: ${result.transaction.payerBIC || 'N/A'}
 

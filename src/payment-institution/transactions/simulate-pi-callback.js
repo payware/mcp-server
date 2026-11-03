@@ -22,7 +22,6 @@ export function generateMockPICallback(transactionId, callbackType = 'TRANSACTIO
     payeeAccount = 'M-1W-1account2',
     payeeFriendlyName = 'payware',
     payerBIC = 'SBBICID1',
-    payerAccount = 'payerAccount',
     payerFriendlyName = 'Demo Financial Institution',
     reasonL1 = '57',
     reasonL2 = null,
@@ -81,7 +80,6 @@ export function generateMockPICallback(transactionId, callbackType = 'TRANSACTIO
       payeeAccount,
       payeeFriendlyName,
       payerBIC,
-      payerAccount,
       payerFriendlyName,
       reasonL1,
       ...(reasonL2 && { reasonL2 }),
@@ -215,11 +213,6 @@ export const simulatePICallbackTool = {
         description: "Payer's BIC code",
         default: "SBBICID1"
       },
-      payerAccount: {
-        type: "string",
-        description: "Payer account identifier",
-        default: "payerAccount"
-      },
       payerFriendlyName: {
         type: "string",
         description: "Payer friendly name",
@@ -276,7 +269,6 @@ export const simulatePICallbackTool = {
       payeeAccount = 'M-1W-1account2',
       payeeFriendlyName = 'payware',
       payerBIC = 'SBBICID1',
-      payerAccount = 'payerAccount',
       payerFriendlyName = 'Demo Financial Institution',
       reasonL1 = '57',
       reasonL2,
@@ -302,7 +294,6 @@ export const simulatePICallbackTool = {
       payeeAccount,
       payeeFriendlyName,
       payerBIC,
-      payerAccount,
       payerFriendlyName,
       reasonL1,
       reasonL2,

@@ -61,13 +61,13 @@ export const getPITransactionStatusTool = {
 **Use Cases:**
 - Check transaction status and details
 - Monitor transaction progress
-- Get participant information (payee/payer accounts, BICs)
+- Get participant information (payee account, friendly names, BICs)
 - Check remaining time to live
 - Fetch what to display to the payer for a product-originated transaction
 
 **Response includes:**
 - Transaction ID and type
-- Payee/payer account details and BICs
+- Payee account, friendly names and BICs (payware does not keep the payer's account)
 - Transaction amount and currency
 - Reason lines and creation timestamp
 - Remaining time to live
@@ -195,7 +195,6 @@ ${tx.reasonL2 ? `- Reason L2: ${tx.reasonL2}` : ''}
 - BIC: ${tx.payeeBIC || 'N/A'}
 
 **Payer Information:**
-- Account: ${tx.payerAccount || 'N/A'}
 - Friendly Name: ${tx.payerFriendlyName || 'N/A'}
 - BIC: ${tx.payerBIC || 'N/A'}
 
@@ -210,7 +209,7 @@ ${JSON.stringify(result.transaction, null, 2)}
 - Timestamp: ${result.timestamp}
 
 **Next Steps:**
-1. ${!tx.payerAccount ? 'Transaction waiting for payer to process' : 'Transaction processed, waiting for finalization'}
+1. Process it if your institution has not yet; once processed, finalize it
 2. ${tx.timeToLive && parseInt(tx.timeToLive) < 60 ? '⚠️ Transaction expires soon!' : 'Monitor remaining TTL'}
 3. Use \`payware_operations_process_transaction\` if you need to process this transaction
 4. Use \`payware_operations_finalize_transaction\` to confirm/decline after processing
