@@ -167,7 +167,8 @@ ${tx.reasonL2 ? `- Reason L2: ${tx.reasonL2}` : ''}
 **Payee Information:**
 - Account: ${tx.payeeAccount || 'N/A'}
 - Friendly Name: ${tx.payeeFriendlyName || 'N/A'}
-- BIC: ${tx.payeeBIC || 'N/A'}
+- Registered Name: ${tx.payeeRegisteredName || 'N/A'}
+${tx.payeeRegisteredId ? `- Registered ID: ${tx.payeeRegisteredId}\n` : ''}${tx.payeeVatId ? `- VAT ID: ${tx.payeeVatId}\n` : ''}- BIC: ${tx.payeeBIC || 'N/A'}
 
 **Payer Information:**
 - Friendly Name: ${tx.payerFriendlyName || 'N/A'}

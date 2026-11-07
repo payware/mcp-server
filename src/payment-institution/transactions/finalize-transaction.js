@@ -7,7 +7,7 @@ import { COMMITS } from '../../shared/tool-annotations.js';
 
 /**
  * Finalize a transaction as a payment institution via payware API
- * Payment institutions can update transaction status after execution in their network
+ * Payment institutions finalize a transaction after the payer confirms and before any money moves
  * @param {Object} params - Transaction finalization parameters
  * @returns {Object} Transaction finalization response
  */
@@ -100,10 +100,10 @@ export async function finalizeTransaction({
 export const finalizeTransactionTool = {
   name: "payware_operations_finalize_transaction",
   annotations: COMMITS,
-  description: `Finalize a transaction as a payment institution. This updates the transaction status after execution in your payment network.
+  description: `Finalize a transaction as a payment institution, after the payer confirms and you reserve the funds, and before you move any money. Once payware accepts a CONFIRMED finalization, execute the Merchant Leg (amount minus fee, to the payee) and, where fee is greater than zero, the Fee Leg (fee, to payware's fee account \`feeAccount\` from the process response), each in full, with the transaction ID as remittance information. Nothing is deducted from either transfer.
 
 **Payment Institution Finalization:**
-- **CONFIRMED**: Transaction executed successfully (requires amount, fee, currency)
+- **CONFIRMED**: The payer confirmed and the funds are reserved; execute both transfers once payware accepts (requires amount, fee, currency)
 - **CANCELLED**: Transaction cancelled by creator
 - **DECLINED**: Transaction declined by payment institution (requires statusMessage)
 - **FAILED**: Transaction failed during execution (requires statusMessage)
@@ -113,7 +113,7 @@ export const finalizeTransactionTool = {
 - Currency must match the processing currency of the transaction
 - Amount/fee required for CONFIRMED status
 - StatusMessage required for CANCELLED/DECLINED/FAILED status
-- **fee**: payware calculates it, the institution executes it. Echo the \`fee\` from the process response verbatim - do not recompute it from \`feeFixed\`/\`feeRate\` and do not re-round it, or the call is rejected with ERR_FEE_MISMATCH.
+- **fee**: the amount of the Fee Leg, payware's fee plus VAT where it applies (\`feeVat\` in the process response shows the VAT part). payware calculates it, the institution transfers it in full to payware's fee account. Echo the \`fee\` from the process response verbatim - do not recompute it from \`feeFixed\`/\`feeRate\` and do not re-round it, or the call is rejected with ERR_FEE_MISMATCH.
 
 **API Request Structure:**
 \`\`\`json
@@ -150,7 +150,7 @@ export const finalizeTransactionTool = {
       },
       fee: {
         type: ["number", "string"],
-        description: "The payware transaction fee. Echo back the `fee` value from the process/get response EXACTLY - payware calculates the fee and the institution executes it. Do not recompute it from feeFixed/feeRate and do not re-round it; it already carries the currency's smallest payable unit (2 decimals for EUR/USD, 0 for JPY, 3 for KWD). A recomputed value is rejected with ERR_FEE_MISMATCH. Required for CONFIRMED status; use 0 when no fee applies.",
+        description: "The amount of the Fee Leg: payware's fee plus VAT where it applies. Echo back the `fee` value from the process/get response EXACTLY - payware calculates it and the institution transfers it in full to payware's fee account. Do not recompute it from feeFixed/feeRate and do not re-round it; it already carries the currency's smallest payable unit (2 decimals for EUR/USD, 0 for JPY, 3 for KWD). A recomputed value is rejected with ERR_FEE_MISMATCH. Required for CONFIRMED status; use 0 when no fee applies.",
         minimum: 0,
         maximum: 9999999999999.99
       },
@@ -258,7 +258,7 @@ export const finalizeTransactionTool = {
 **Finalization Details:**
 ${statusMessage ? `- Status Message: ${statusMessage}` : ''}
 ${amount ? `- Final Amount: ${amount} ${currency}` : ''}
-${fee !== undefined ? `- Fee Collected: ${fee} ${currency}` : ''}
+${fee !== undefined ? `- Fee Leg: ${fee} ${currency}` : ''}
 ${result.transaction.paymentMethod ? `- Payment Method: ${result.transaction.paymentMethod}` : ''}
 
 **Transaction Response:**

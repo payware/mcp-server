@@ -102,10 +102,13 @@ For a \`pr\`, \`pl\` or \`ps\` identifier the values are resolved live (product 
 plan gating); for the resulting \`pw\` transaction they are the snapshot frozen at creation, so what
 you get always reflects what the payer could have been shown at scan time.
 
-💰 **Amounts follow the currency.** \`amount\`, \`fee\`, \`payerAmount\` and \`payeeAmount\` are decimal
-strings at the smallest unit their own currency can be paid in - not always two decimals. \`fee\` is
-**the value to echo back unchanged at finalize**; \`feeFixed\` and \`feeRate\` are informational, and
-recomputing the fee from them is rejected with ERR_FEE_MISMATCH.
+💰 **Amounts follow the currency.** \`amount\`, \`fee\`, \`feeVat\`, \`payerAmount\` and \`payeeAmount\` are
+decimal strings at the smallest unit their own currency can be paid in - not always two decimals. \`fee\` is
+the Fee Leg: payware's fee plus VAT where it applies (\`feeVat\` states the VAT). The payer approves one
+payment with two payees, the merchant's net amount and the Fee Leg to \`feeAccount\` (payware's account with
+your institution, \`account\` in your institution's format). \`fee\` is **the value to echo back unchanged at
+finalize**; \`feeFixed\` and \`feeRate\` are informational, and recomputing the fee from them is rejected
+with ERR_FEE_MISMATCH.
 
 **Note:** This endpoint only returns active transactions. Use \`payware_operations_get_transaction_history\` for completed/expired transactions.`,
   inputSchema: {
@@ -188,11 +191,16 @@ recomputing the fee from them is rejected with ERR_FEE_MISMATCH.
 - Amount: ${tx.amount || 'N/A'} ${tx.currency || 'N/A'}
 ${tx.paymentMethod ? `- Payment Method: ${tx.paymentMethod}\n` : ''}- Reason L1: ${tx.reasonL1 || 'N/A'}
 ${tx.reasonL2 ? `- Reason L2: ${tx.reasonL2}` : ''}
-
+${tx.fee !== undefined && tx.fee !== null ? `
+**Fee Leg:**
+- Amount: ${tx.fee} ${tx.currency || ''} (VAT included: ${tx.feeVat ?? '0'})
+- To: ${tx.feeAccount ? `${tx.feeAccount.account}, ${tx.feeAccount.name}${tx.feeAccount.bic ? `, ${tx.feeAccount.bic}` : ''}` : (Number(tx.fee) > 0 ? 'no fee account configured for your institution' : 'no Fee Leg')}
+` : ''}
 **Payee Information:**
 - Account: ${tx.payeeAccount || 'N/A'}
 - Friendly Name: ${tx.payeeFriendlyName || 'N/A'}
-- BIC: ${tx.payeeBIC || 'N/A'}
+- Registered Name: ${tx.payeeRegisteredName || 'N/A'}
+${tx.payeeRegisteredId ? `- Registered ID: ${tx.payeeRegisteredId}\n` : ''}${tx.payeeVatId ? `- VAT ID: ${tx.payeeVatId}\n` : ''}- BIC: ${tx.payeeBIC || 'N/A'}
 
 **Payer Information:**
 - Friendly Name: ${tx.payerFriendlyName || 'N/A'}

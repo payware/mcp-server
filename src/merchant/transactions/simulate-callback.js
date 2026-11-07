@@ -197,7 +197,7 @@ TRANSACTION_PROCESSED, which merchants do not receive).`,
       },
       fee: {
         type: "string",
-        description: "The payware fee on this transaction, at the currency's smallest payable unit (e.g. '0.29'). Not always two decimals - it follows the currency. Pass null to model the anomaly case, where a transaction has no recorded fee and the server OMITS the property entirely; that is deliberately distinguishable from a genuine '0.00'."
+        description: "payware's fee on this transaction plus VAT where it applies, at the currency's smallest payable unit (e.g. '0.29'). The payer's institution transfers it to payware alongside the merchant's payment, and amount is net of it. Not always two decimals - it follows the currency. Pass null to model the anomaly case, where a transaction has no recorded fee and the server OMITS the property entirely; that is deliberately distinguishable from a genuine '0.00'."
       },
       feeFixed: {
         type: "string",

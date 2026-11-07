@@ -129,7 +129,8 @@ describe('tool contract', () => {
       // window - so the FI simulator needs the fields to build both payloads, and a callbackType to
       // choose between them.
       payment_institution: [
-        'callbackType', 'payeeAccount', 'payeeBIC', 'payeeFriendlyName',
+        'callbackType', 'payeeAccount', 'payeeBIC', 'payeeFriendlyName', 'payeeRegisteredName',
+        'payeeRegisteredId', 'payeeVatId',
         'payerBIC', 'payerFriendlyName', 'reasonL1', 'reasonL2', 'timeToLive'
       ],
       // The ISV simulator labels its output with the merchant whose callback it models. It is a

@@ -188,7 +188,8 @@ const RESPONSES = {
   payware_data_export_report: { outputResource: { exportId: EXPORT, status: 'QUEUED' } },
   payware_poi_list: [],
   payware_campaigns_list_campaigns: [],
-  payware_products_list_placements: [],
+  // A page (PlacementPageDTO): a product has no limit on its placements.
+  payware_products_list_placements: { content: [], number: 0, size: 50, totalElements: 0, totalPages: 0 },
   payware_products_list_airings: [],
   payware_products_replace_airings: [],
   payware_products_get_next_airings: [],

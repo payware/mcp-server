@@ -21,6 +21,12 @@ export function generateMockPICallback(transactionId, callbackType = 'TRANSACTIO
     payeeBIC = 'SBBICID1',
     payeeAccount = 'M-1W-1account2',
     payeeFriendlyName = 'payware',
+    // The payee's identity, for Verification of Payee (server V107, 2026-11-03): the registered name with its legal
+    // form, and for a company its registration and VAT numbers. The server sends them when a merchant is the payee and
+    // omits them when a bank's customer is; the two numbers are also omitted for a person.
+    payeeRegisteredName = null,
+    payeeRegisteredId = null,
+    payeeVatId = null,
     payerBIC = 'SBBICID1',
     payerFriendlyName = 'Demo Financial Institution',
     reasonL1 = '57',
@@ -79,6 +85,9 @@ export function generateMockPICallback(transactionId, callbackType = 'TRANSACTIO
       payeeBIC,
       payeeAccount,
       payeeFriendlyName,
+      ...(payeeRegisteredName && { payeeRegisteredName }),
+      ...(payeeRegisteredId && { payeeRegisteredId }),
+      ...(payeeVatId && { payeeVatId }),
       payerBIC,
       payerFriendlyName,
       reasonL1,
@@ -208,6 +217,18 @@ export const simulatePICallbackTool = {
         description: "Payee friendly name",
         default: "payware"
       },
+      payeeRegisteredName: {
+        type: "string",
+        description: "Payee's registered name with its legal form, to verify the payee with payeeAccount (Verification of Payee). Set it to model a merchant payee; leave it out to model a bank's customer as the payee, for whom the server sends none"
+      },
+      payeeRegisteredId: {
+        type: "string",
+        description: "Payee company's registration number, for verifying a legal person by an identifier instead of its name. Sent for a company only"
+      },
+      payeeVatId: {
+        type: "string",
+        description: "Payee company's VAT number, for verifying a legal person by an identifier instead of its name. Sent for a company that has one"
+      },
       payerBIC: {
         type: "string",
         description: "Payer's BIC code",
@@ -268,6 +289,9 @@ export const simulatePICallbackTool = {
       payeeBIC = 'SBBICID1',
       payeeAccount = 'M-1W-1account2',
       payeeFriendlyName = 'payware',
+      payeeRegisteredName,
+      payeeRegisteredId,
+      payeeVatId,
       payerBIC = 'SBBICID1',
       payerFriendlyName = 'Demo Financial Institution',
       reasonL1 = '57',
@@ -293,6 +317,9 @@ export const simulatePICallbackTool = {
       payeeBIC,
       payeeAccount,
       payeeFriendlyName,
+      payeeRegisteredName,
+      payeeRegisteredId,
+      payeeVatId,
       payerBIC,
       payerFriendlyName,
       reasonL1,

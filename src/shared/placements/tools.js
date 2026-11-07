@@ -91,7 +91,7 @@ const RANGE_FORMS = 'a date (YYYY-MM-DD, the start of that day in UTC) or an ISO
 
 const STATS_RANGE = {
   from: { type: 'string', description: `Start of the period: ${RANGE_FORMS}. Default: 30 days before to` },
-  to: { type: 'string', description: `End of the period, exclusive, in the same forms. Default: now. At most 400 days after from` }
+  to: { type: 'string', description: `End of the period, exclusive, in the same forms. Default: now. Any length: impressions are kept for good` }
 };
 
 const CAMPAIGN_FIELDS = {
@@ -310,16 +310,20 @@ const SPECS = [
     name: 'payware_products_list_placements',
     annotations: READS,
     title: 'Placements',
-    description: `List a product's placements. A placement is one way the product is distributed - a poster, a TV spot, a packaging label - with its own ID (pl + 8 characters), so every payment it starts is attributed to it.\n\n**Endpoint:** GET /products/{productId}/placements\n\n${PLAN_NOTE}`,
-    properties: { productId: PRODUCT_ID },
+    description: `List a product's placements. A placement is one way the product is distributed - a poster, a TV spot, a packaging label - with its own ID (pl + 8 characters), so every payment it starts is attributed to it. One page at a time, newest first: a product has no limit on its placements, and the response is { content, number, size, totalElements, totalPages }, so ask for the next page while number + 1 < totalPages.\n\n**Endpoint:** GET /products/{productId}/placements\n\n${PLAN_NOTE}`,
+    properties: {
+      productId: PRODUCT_ID,
+      page: { type: 'integer', description: 'The page, counted from 0. Default: 0', minimum: 0 },
+      size: { type: 'integer', description: 'Placements per page, 1 to 100. Default: 50', minimum: 1, maximum: 100 }
+    },
     required: ['productId'],
-    request: (a) => ({ method: 'GET', path: `/products/${enc(a.productId)}/placements` })
+    request: (a) => ({ method: 'GET', path: `/products/${enc(a.productId)}/placements`, query: { page: a.page, size: a.size } })
   },
   {
     name: 'payware_products_create_placement',
     annotations: CREATES,
     title: 'Placement created',
-    description: 'Create a placement for a product; up to 1,000 per product. The response carries its placementId, which goes on the medium wherever the product ID would: a QR code (its payware link, or payware:{placementId}), an NFC tag, a BLE beacon, a link, a barcode or an SMS. A bank resolving it pays for the product, and the payment is attributed to the placement. For a SOUNDBITE carrier, add airing rules so taps during the airing are attributed.\n\n**Endpoint:** POST /products/{productId}/placements (PRM plan)',
+    description: 'Create a placement for a product; a product has no limit on its placements. The response carries its placementId, which goes on the medium wherever the product ID would: a QR code (its payware link, or payware:{placementId}), an NFC tag, a BLE beacon, a link, a barcode or an SMS. A bank resolving it pays for the product, and the payment is attributed to the placement. For a SOUNDBITE carrier, add airing rules so taps during the airing are attributed.\n\n**Endpoint:** POST /products/{productId}/placements (PRM plan)',
     properties: { productId: PRODUCT_ID, ...PLACEMENT_FIELDS },
     required: ['productId', 'name', 'medium', 'carriers'],
     request: (a) => ({ method: 'POST', path: `/products/${enc(a.productId)}/placements`, body: pick(a, PLACEMENT_FIELDS) })

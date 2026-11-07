@@ -384,8 +384,9 @@ ${JSON.stringify(result.transaction, null, 2)}
 1. **TRANSACTION_PROCESSED** callback will be sent to counterparty
 2. Wait for callback notification to your URL (if provided)
 3. Monitor transaction status for completion
-4. Use \`payware_operations_finalize_transaction\` to confirm/decline the transaction
-5. Handle final TRANSACTION_FINALIZED callbacks
+4. Use \`payware_operations_finalize_transaction\` to confirm/decline the transaction, echoing \`fee\` unchanged
+5. After a CONFIRMED finalization, execute the merchant's net amount and, where \`fee\` is above zero, the Fee Leg to \`feeAccount\`
+6. Handle final TRANSACTION_FINALIZED callbacks
 
 **⚠️ Important:**
 - As a payment institution, you must finalize this transaction

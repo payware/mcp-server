@@ -84,7 +84,7 @@ A POI sale's callback also carries \`poiId\`, the POI that created the transacti
       },
       fee: {
         type: 'string',
-        description: "The payware fee, at the currency's smallest payable unit (e.g. '0.29'). Pass null to model the anomaly case where a transaction has no recorded fee and the server OMITS the property - deliberately distinguishable from a genuine '0.00'."
+        description: "payware's fee plus VAT where it applies, at the currency's smallest payable unit (e.g. '0.29'). The payer's institution transfers it to payware alongside the merchant's payment, and amount is net of it. Pass null to model the anomaly case where a transaction has no recorded fee and the server OMITS the property - deliberately distinguishable from a genuine '0.00'."
       },
       feeFixed: {
         type: 'string',
