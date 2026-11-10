@@ -22,13 +22,7 @@ export async function setPOIPrice({ poiId, amount, currency, ttlSeconds, merchan
     throw new Error('Currency is required');
   }
 
-  if (!merchantPartnerId) {
-    throw new Error('Merchant Partner ID is required for ISV operations');
-  }
 
-  if (!oauth2Token) {
-    throw new Error('OAuth2 token is required for ISV operations');
-  }
 
   const isvPartnerId = getPartnerIdSafe();
   const privateKey = getPrivateKeySafe(useSandbox);
@@ -65,7 +59,7 @@ export async function setPOIPrice({ poiId, amount, currency, ttlSeconds, merchan
     return {
       success: true,
       result: response.data,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -139,8 +133,6 @@ payware_poi_get_status to read that sale's transaction and outcome.
     if (!poiId) throw new Error("POI ID is required");
     if (!amount) throw new Error("Amount is required");
     if (!currency) throw new Error("Currency is required");
-    if (!merchantPartnerId) throw new Error("Merchant Partner ID is required");
-    if (!oauth2Token) throw new Error("OAuth2 token is required");
 
     const result = await setPOIPrice({
       poiId, amount, currency, ttlSeconds, merchantPartnerId, oauth2Token, useSandbox
@@ -168,7 +160,7 @@ payware_poi_get_status to read that sale's transaction and outcome.
 3. Or poll payware_poi_get_status every 2-3 seconds with this sessionToken until transactionStatus is final
 4. To cancel, use payware_poi_cancel_price - possible only before the scan
 
-**ISV -> Merchant:** ${getPartnerIdSafe()} -> ${merchantPartnerId}
+${merchantPartnerId ? `**ISV -> Merchant:** ${getPartnerIdSafe()} -> ${merchantPartnerId}` : ''}
 **Request ID:** ${result.requestId || 'N/A'}
 **Timestamp:** ${result.timestamp}`
         }]

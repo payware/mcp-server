@@ -2,6 +2,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -67,6 +68,9 @@ describe('handshake', () => {
     const init = responses.get('init');
     assert.equal(init.result.protocolVersion, '2025-06-18');
     assert.ok(init.result.capabilities.tools, 'the server must advertise tools');
+    // It announced '1.0.0' from the initial commit until 2.2.0, whatever had been released.
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    assert.equal(init.result.serverInfo.version, pkg.version, 'serverInfo.version must be the package version');
   });
 });
 

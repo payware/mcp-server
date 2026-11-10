@@ -1,6 +1,8 @@
 /**
  * Simulate payment institution callback scenarios for testing
- * Payment institutions receive TRANSACTION_PROCESSED and TRANSACTION_FINALIZED callbacks
+ * Payment institutions receive TRANSACTION_PROCESSED and TRANSACTION_FINALIZED callbacks. The
+ * EXECUTING finalize (the execution lock, server docs/execution-lock.md) sends no callback of its
+ * own: TRANSACTION_FINALIZED follows the CONFIRMED or FAILED that completes it.
  */
 
 /**
@@ -11,6 +13,7 @@
  * @returns {Object} Mock callback payload
  */
 import { LOCAL } from '../../shared/tool-annotations.js';
+import { feeVatFor } from '../../merchant/transactions/simulate-callback.js';
 
 export function generateMockPICallback(transactionId, callbackType = 'TRANSACTION_PROCESSED', options = {}) {
   const {
@@ -48,7 +51,9 @@ export function generateMockPICallback(transactionId, callbackType = 'TRANSACTIO
     feeRate = '0.0150',
     // Pass fee: null to model the anomaly the server reports by OMITTING the property - a
     // transaction with no recorded fee. Deliberately distinguishable from a genuine '0.00'.
-    fee: feeOverride = undefined
+    fee: feeOverride = undefined,
+    // The VAT inside fee (split fee model): present exactly when fee is, zero when none applies.
+    feeVat: feeVatOverride = undefined
   } = options;
 
   // Calculate fee like the server: |payerAmount - amount| or |payeeAmount - amount|.
@@ -67,7 +72,7 @@ export function generateMockPICallback(transactionId, callbackType = 'TRANSACTIO
   // JSON rather than sent as null. Emitting "passbackParams": null here taught integrators to expect
   // a shape the server never sends.
   const feeFields = {
-    ...(fee !== null && fee !== undefined && { fee }),
+    ...(fee !== null && fee !== undefined && { fee, feeVat: feeVatFor(fee, feeVatOverride) }),
     ...(feeFixed !== null && feeFixed !== undefined && { feeFixed }),
     ...(feeRate !== null && feeRate !== undefined && { feeRate })
   };
@@ -156,7 +161,7 @@ export async function simulatePICallbackDelivery(callbackUrl, payload) {
 export const simulatePICallbackTool = {
   name: "payware_operations_simulate_callback",
   annotations: LOCAL,
-  description: "Simulate payment institution callback scenarios for testing webhook handling. Payment institutions receive TRANSACTION_PROCESSED when merchant processes their transaction, and TRANSACTION_FINALIZED when transaction is completed.",
+  description: "Simulate payment institution callback scenarios for testing webhook handling. Payment institutions receive TRANSACTION_PROCESSED when merchant processes their transaction, and TRANSACTION_FINALIZED when transaction is completed: after the payer's institution's CONFIRMED or FAILED that follows its EXECUTING lock, or on DECLINED, CANCELLED or expiry. EXECUTING itself sends no callback, so there is none to simulate; while locked, the transaction is EXECUTING to the payer's institution and ACTIVE to the merchant.",
   inputSchema: {
     type: "object",
     additionalProperties: false,
@@ -189,8 +194,12 @@ export const simulatePICallbackTool = {
       },
       fee: {
         type: "string",
-        description: "Fee amount charged by payment institution (e.g., '0.60')",
+        description: "The Fee Leg: payware's fee plus VAT where it applies, at the currency's smallest payable unit (e.g. '0.60'). You transfer it to payware's feeAccount beside the merchant's net amount, and echo it unchanged at finalize. Pass null to model a transaction with no recorded fee, where the server omits the property.",
         default: "0.60"
+      },
+      feeVat: {
+        type: "string",
+        description: "The VAT included in fee (fee minus feeVat is payware's fee excluding VAT), at the same scale; zero when no VAT applies (reverse charge, or a merchant outside the EU). Present exactly when fee is (server TransactionCallbackPayload). Defaults to zero."
       },
       feeFixed: {
         type: "string",
@@ -256,7 +265,7 @@ export const simulatePICallbackTool = {
       status: {
         type: "string",
         enum: ["CONFIRMED", "DECLINED", "FAILED", "CANCELLED"],
-        description: "Transaction status (only for TRANSACTION_FINALIZED callbacks)",
+        description: "Final transaction status (only for TRANSACTION_FINALIZED callbacks). EXECUTING is never a callback status: the lock sends no callback",
         default: "CONFIRMED"
       },
       statusMessage: {
@@ -284,6 +293,7 @@ export const simulatePICallbackTool = {
       amount = '57.00',
       currency = 'EUR',
       fee,
+      feeVat,
       feeFixed = '0.1000',
       feeRate = '0.0150',
       payeeBIC = 'SBBICID1',
@@ -312,6 +322,7 @@ export const simulatePICallbackTool = {
       amount,
       currency,
       fee,
+      feeVat,
       feeFixed,
       feeRate,
       payeeBIC,
@@ -387,8 +398,9 @@ ${deliveryResult.success ? '✅ Callback would be delivered successfully' : '❌
 **Transaction Flow:**
 1. Payment Institution creates transaction as SRC (payer) or DST (payee)
 2. Transaction can be processed by merchant OR payment institution → **TRANSACTION_PROCESSED** callback to PI
-3. Transaction can be finalized ONLY by payment institution → **TRANSACTION_FINALIZED** callback to PI
-4. Transaction can be cancelled ONLY by its issuer (creator)
+3. The payer's institution sends EXECUTING immediately before money moves (the lock) → no callback; the transaction stays ACTIVE to the merchant
+4. It sends CONFIRMED once the Merchant Leg has completed, or FAILED if it was rejected → **TRANSACTION_FINALIZED** callback
+5. Transaction can be cancelled ONLY by its issuer (creator), and only before the lock
 
 **Integration Testing:**
 1. Use this payload to test your payment institution callback handler

@@ -59,7 +59,7 @@ export const getProductTool = {
 
     // Get ISV credentials
     const isvPartnerId = getPartnerIdSafe();
-    const privateKey = getPrivateKeySafe();
+    const privateKey = getPrivateKeySafe(useSandbox);
 
     if (!isvPartnerId) {
       throw new Error("ISV Partner ID is required. Set PAYWARE_PARTNER_ID environment variable.");

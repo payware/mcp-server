@@ -156,13 +156,9 @@ response = requests.post(url, data=json_body, headers=headers)
 
 ### Node.js Implementation:
 \`\`\`javascript
-// Helper function for deterministic JSON
-function createDeterministicJSON(obj) {
-  return JSON.stringify(obj, Object.keys(obj).sort());
-}
-
-// CORRECT: Use deterministic JSON
-const jsonBody = createDeterministicJSON(payload);
+// Serialize once and send that exact string. (JSON.stringify(obj, Object.keys(obj).sort()) is not a
+// sorted serialization: a key list filters every level, so it drops all nested fields.)
+const jsonBody = JSON.stringify(payload);
 const jwtToken = createJWTToken(jsonBody);
 const response = await axios.post(url, jsonBody, {headers});
 \`\`\`

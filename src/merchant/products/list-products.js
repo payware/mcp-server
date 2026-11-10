@@ -34,7 +34,7 @@ export const listProductsTool = {
   async handler(args) {
     const {
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(),
+      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
     } = args;
 

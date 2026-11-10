@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
-import { getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { getApiUrl } from '../../config/env.js';
 import { describeApiError } from '../api-errors.js';
 
 /**
@@ -94,6 +94,7 @@ export async function queryLogs({
   limit = 1000,
   cursor,
   partnerType,
+  useSandbox = true,
   ...authParams
 }) {
   const headers = await createAuthHeaders(partnerType, authParams);
@@ -109,7 +110,7 @@ export async function queryLogs({
   if (cursor) queryParams.append('cursor', cursor);
 
   const queryString = queryParams.toString();
-  const url = `${getProductionUrl()}/logs${queryString ? '?' + queryString : ''}`;
+  const url = `${getApiUrl(useSandbox)}/logs${queryString ? '?' + queryString : ''}`;
 
   try {
     const response = await axios.get(url, { headers });
@@ -135,13 +136,14 @@ export async function queryLogs({
  */
 export async function getLogStatus({
   partnerType,
+  useSandbox = true,
   ...authParams
 }) {
   const headers = await createAuthHeaders(partnerType, authParams);
 
   try {
     const response = await axios.get(
-      `${getProductionUrl()}/logs/status`,
+      `${getApiUrl(useSandbox)}/logs/status`,
       { headers }
     );
 
@@ -149,7 +151,7 @@ export async function getLogStatus({
       success: true,
       data: response.data,
       requestInfo: {
-        url: `${getProductionUrl()}/logs/status`,
+        url: `${getApiUrl(useSandbox)}/logs/status`,
         method: 'GET',
         statusCode: response.status
       }
@@ -168,6 +170,7 @@ export async function getLogDownloadUrl({
   from,
   to,
   partnerType,
+  useSandbox = true,
   ...authParams
 }) {
   // Build query parameters for the download URL
@@ -176,7 +179,7 @@ export async function getLogDownloadUrl({
   if (to) queryParams.append('to', to);
 
   const queryString = queryParams.toString();
-  const downloadUrl = `${getProductionUrl()}/logs/download${queryString ? '?' + queryString : ''}`;
+  const downloadUrl = `${getApiUrl(useSandbox)}/logs/download${queryString ? '?' + queryString : ''}`;
 
   // Note: The actual download requires authentication headers
   // This returns the URL structure that would be used
@@ -206,6 +209,7 @@ export async function downloadLogs({
   from,
   to,
   partnerType,
+  useSandbox = true,
   ...authParams
 }) {
   const headers = await createAuthHeaders(partnerType, authParams);
@@ -216,7 +220,7 @@ export async function downloadLogs({
   if (to) queryParams.append('to', to);
 
   const queryString = queryParams.toString();
-  const url = `${getProductionUrl()}/logs/download${queryString ? '?' + queryString : ''}`;
+  const url = `${getApiUrl(useSandbox)}/logs/download${queryString ? '?' + queryString : ''}`;
 
   try {
     const response = await axios.get(url, {

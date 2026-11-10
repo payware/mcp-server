@@ -3,6 +3,7 @@ import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
 import { READS } from '../../shared/tool-annotations.js';
+import { transactionSummary } from '../../shared/transaction-summary.js';
 
 /**
  * Get transaction status from payware API as an ISV
@@ -49,7 +50,7 @@ export async function getTransactionStatus({ transactionId, merchantPartnerId, o
     return {
       success: true,
       transaction: response.data,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -91,6 +92,14 @@ export const getTransactionStatusTool = {
 **Note:** For transactions with final statuses (CONFIRMED, DECLINED, FAILED, EXPIRED, CANCELLED), use 'payware_operations_get_transaction_history' instead.
 
 **Required:** Merchant Partner ID and OAuth2 token for ISV authentication.
+
+⏳ **ACTIVE can outlast \`timeToLive\`. Never infer EXPIRED from the clock.** Once the payer's institution has
+started the payment (it locks the transaction immediately before the money moves, which you do not see),
+the transaction stays ACTIVE past \`timeToLive\` until the money has moved: seconds for an instant or
+internal transfer, days for a deferred one (a transaction created with \`deferredAllowed: true\`). Its
+\`timeToLive\` then stops at the value it had when the payment started. Keep polling, or wait for the
+callback: a transaction is EXPIRED only when payware says so, in the callback or in transaction history,
+and one that is no longer returned here has a final status there.
 
 🛍️ **Product-originated transactions carry a nested \`product\` object** (productId, type, name,
 descriptions, imageUrl, imageDigest, imageContentType, imageBytes, termsUrl, termsText, regularPrice,
@@ -165,12 +174,7 @@ compare them as strings.`,
 - OAuth2 Token: ${oauth2Token.substring(0, 8)}...
 
 **Transaction Details:**
-- ID: ${result.transaction.id || 'N/A'}
-- Type: ${result.transaction.type || 'N/A'}
-- Amount: ${result.transaction.trData ? `${result.transaction.trData.amount} ${result.transaction.trData.currency}` : 'N/A'}
-${result.transaction.paymentMethod ? `- Payment Method: ${result.transaction.paymentMethod}\n` : ''}- Description: ${result.transaction.description || 'N/A'}
-- Created: ${result.transaction.createdAt || 'N/A'}
-- Updated: ${result.transaction.updatedAt || 'N/A'}
+${transactionSummary(result.transaction)}
 
 **Full Response:**
 \`\`\`json
@@ -181,7 +185,7 @@ ${JSON.stringify(result.transaction, null, 2)}
 **Timestamp:** ${result.timestamp}
 
 **Status Meanings:**
-- ⏳ ACTIVE: Active transaction pending processing or finalizing
+- ⏳ ACTIVE: pending - not yet paid, or paid by the payer's institution with the money still moving. It can stay ACTIVE past \`timeToLive\` (seconds for an instant transfer, days with \`deferredAllowed\`), so never treat it as expired from the clock
 
 **Note:** Only ACTIVE transactions are returned by this endpoint. For final statuses (CONFIRMED, DECLINED, FAILED, EXPIRED, CANCELLED), use the transaction history tool.`
         }]

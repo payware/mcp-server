@@ -33,7 +33,7 @@ function validateISVAuth(args) {
   }
 
   const isvPartnerId = getPartnerIdSafe();
-  const privateKey = getPrivateKeySafe();
+  const privateKey = getPrivateKeySafe(args.useSandbox ?? true);
 
   if (!isvPartnerId || !privateKey) {
     throw new Error("ISV credentials are required");
@@ -48,7 +48,9 @@ function validateISVAuth(args) {
 export const registerAudioTool = {
   name: "payware_products_register_audio",
   annotations: CREATES,
-  description: `Register an audio file (soundbite) for a merchant's product (ISV operation).
+  description: `Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).
+
+Register an audio file (soundbite) for a merchant's product (ISV operation).
 
 **Supported formats:** MP3, WAV, OGG, M4A, FLAC, AAC, WMA, MP4, MOV, up to 100 MB, holding 2 to 120 seconds of audio
 **Note:** For video files, only the audio channel is registered`,
@@ -142,7 +144,7 @@ ${audio.status === '1' ? '✅ Audio is ready for use in soundbite transactions' 
 export const getAudiosTool = {
   name: "payware_products_get_audios",
   annotations: READS,
-  description: "Get all registered audio files for a merchant's product (ISV operation)",
+  description: "Get all registered audio files for a merchant's product (ISV operation). Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).",
 
   inputSchema: {
     type: "object",
@@ -229,7 +231,7 @@ ${audiosList}`
 export const getAudioTool = {
   name: "payware_products_get_audio",
   annotations: READS,
-  description: "Get detailed information about a specific audio file (ISV operation)",
+  description: "Get detailed information about a specific audio file (ISV operation). Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).",
 
   inputSchema: {
     type: "object",
@@ -310,7 +312,7 @@ ${audio.status === '1' ? '✅ **Ready:** Audio is processed and ready for soundb
 export const updateAudioTool = {
   name: "payware_products_update_audio",
   annotations: CHANGES,
-  description: "Update audio information (title) or reassign audio to another product (ISV operation)",
+  description: "Update audio information (title) or reassign audio to another product (ISV operation). Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).",
 
   inputSchema: {
     type: "object",
@@ -406,7 +408,7 @@ ${newProductId ? `- Reassigned from product ${productId} to ${newProductId}` : '
 export const deleteAudioTool = {
   name: "payware_products_delete_audio",
   annotations: CHANGES,
-  description: "Delete an audio file from a merchant's product (ISV operation). This action cannot be undone.",
+  description: "Delete an audio file from a merchant's product (ISV operation). This action cannot be undone. Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).",
 
   inputSchema: {
     type: "object",

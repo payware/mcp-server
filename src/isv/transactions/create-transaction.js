@@ -2,7 +2,9 @@ import axios from 'axios';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { describeApiError } from '../../shared/api-errors.js';
+import { QR_OPTION_PROPERTIES, BARCODE_OPTION_PROPERTIES, buildQrOptions, buildBarOptions } from '../../shared/media-options.js';
 import { CREATES } from '../../shared/tool-annotations.js';
+import { checkDeferredAllowed, deferredAllowedOption, DEFERRED_ALLOWED_DESCRIPTION } from '../../shared/deferred-transfer.js';
 
 /**
  * Create a transaction via payware API on behalf of a merchant (ISV)
@@ -25,6 +27,13 @@ export async function createTransaction({
   shop,
   timeToLive = 120,
   passbackParams,
+  // Opt-in to a deferred Merchant Leg (trOptions.deferredAllowed, server docs/execution-lock.md).
+  deferredAllowed,
+  // Never sent by this tool (see the description). Read only so that an opt-in on a terminal sale is
+  // refused as the server would refuse it.
+  producerPartnerId,
+  terminalId,
+  terminalManufacturer,
   // QR Options
   qrFormat,
   qrBorder,
@@ -66,25 +75,12 @@ export async function createTransaction({
     throw new Error('Transaction type must be PLAIN, QR, or BARCODE');
   }
 
-  // Build QR options if applicable
-  const qrOptions = {};
-  if (type === 'QR') {
-    if (qrFormat) qrOptions.qrFormat = qrFormat;
-    if (qrBorder !== undefined) qrOptions.qrBorder = qrBorder;
-    if (qrErrorCorrection) qrOptions.qrErrorCorrection = qrErrorCorrection;
-    if (qrScale) qrOptions.qrScale = qrScale;
-    if (qrVersion) qrOptions.qrVersion = qrVersion;
-  }
+  // A terminal sale stays instant or internal: the server answers 400 ERR_DEFERRED_TRANSFER_NOT_ALLOWED.
+  checkDeferredAllowed(deferredAllowed, { producerPartnerId, terminalId, terminalManufacturer });
 
-  // Build barcode options if applicable
-  const barOptions = {};
-  if (type === 'BARCODE') {
-    if (barFormat) barOptions.barFormat = barFormat;
-    if (barModuleWidth) barOptions.barModuleWidth = barModuleWidth;
-    if (barBarHeight) barOptions.barBarHeight = barBarHeight;
-    if (barFontSize) barOptions.barFontSize = barFontSize;
-    if (barHumanReadableLocation) barOptions.barHumanReadableLocation = barHumanReadableLocation;
-  }
+  const qrOptions = buildQrOptions(type, { qrFormat, qrBorder, qrErrorCorrection, qrScale, qrVersion });
+
+  const barOptions = buildBarOptions(type, { barFormat, barModuleWidth, barBarHeight, barFontSize, barHumanReadableLocation });
 
   // Build request body according to documentation structure
   const requestBody = {
@@ -103,10 +99,11 @@ export async function createTransaction({
     },
     trOptions: {
       type,
-      timeToLive
+      timeToLive,
+      ...deferredAllowedOption(deferredAllowed)
     },
-    ...(type === 'QR' && Object.keys(qrOptions).length > 0 && { qrOptions }),
-    ...(type === 'BARCODE' && Object.keys(barOptions).length > 0 && { barOptions })
+    ...(qrOptions && { qrOptions }),
+    ...(barOptions && { barOptions })
   };
 
   // Get ISV credentials
@@ -179,29 +176,24 @@ them (an unrecognised producer is a 400) and records them for provenance - but t
 sale to the producer. Use \`payware_operations_create_transaction\` from the merchant role if the
 terminal producer is meant to be attributed.
 
+⏳ **Deferred Merchant Leg** (optional, \`deferredAllowed\`, sent as \`trOptions.deferredAllowed\`). By default
+the payer's institution pays with an instant or an internal transfer; \`deferredAllowed: true\` also lets it
+use an ordinary credit transfer that settles later. Not for a till or terminal sale: an opt-in that carries
+producer or terminal fields is refused with 400 \`ERR_DEFERRED_TRANSFER_NOT_ALLOWED\`, and this tool refuses it
+before sending. **A deferred payment stays ACTIVE, i.e. pending, until the transfer settles, which can take
+days**, so it can stay ACTIVE past its \`timeToLive\`: keep polling or wait for the callback, and never treat it
+as expired yourself. Echoed as \`deferredAllowed: true\` when set.
+
 **Transaction Types:**
 - PLAIN: Basic transaction without visual codes
 - QR: Transaction with QR code for mobile payments
 - BARCODE: Transaction with barcode for scanning
 
-**Required for all transactions:**
-- Merchant Partner ID and OAuth2 token (ISV authentication)
-- reasonL1 (transaction description)
-- amount (transaction value)
+**Required:** Merchant Partner ID and OAuth2 token (ISV authentication), currency and reasonL1. amount is optional; without it the tool sends 0.00, an amount the payer sets.
 
-**QR Code Options** (when type='QR'):
-- qrFormat: PNG, SVG (default: PNG)
-- qrBorder: Border width in modules (0-10, default: 4)
-- qrErrorCorrection: L, M, Q, H (default: M)
-- qrScale: Scale factor (1-10, default: 4)
-- qrVersion: QR version (1-40, auto if not specified)
+**QR code options** (type QR): qrFormat PNG, JPG or SVG (default SVG); qrBorder 1-10 modules (default 4); qrErrorCorrection LOW, MEDIUM, QUARTILE or HIGH (default QUARTILE); qrScale 1-100 pixels per module (default 16); qrVersion 1-40 (default 3).
 
-**Barcode Options** (when type='BARCODE'):
-- barFormat: CODE128, EAN13, etc.
-- barModuleWidth: Width of bars in pixels
-- barBarHeight: Height of bars in pixels
-- barFontSize: Font size for human readable text
-- barHumanReadableLocation: TOP, BOTTOM, NONE`,
+**Barcode options** (type BARCODE): barFormat PNG, JPG or SVG (default SVG); barModuleWidth 1-10 (default 2); barBarHeight 15-1000 (default 100); barFontSize 0-24 (default 12); barHumanReadableLocation NONE, BOTTOM or TOP (default NONE).`,
 
   inputSchema: {
     type: 'object',
@@ -267,65 +259,21 @@ terminal producer is meant to be attributed.
       timeToLive: {
         type: 'number',
         default: 120,
-        description: 'Transaction validity in minutes'
+        description: "Time allowed for payment initiation in seconds. Once the payer's institution has started the payment, the transaction stays ACTIVE past it until the money has moved (seconds for an instant transfer, days with deferredAllowed); never infer EXPIRED from the clock."
+      },
+      deferredAllowed: {
+        type: 'boolean',
+        description: DEFERRED_ALLOWED_DESCRIPTION
       },
       passbackParams: {
         type: ['string', 'object'],
         description: 'Additional parameters to pass back in callbacks'
       },
 
-      // QR Code options (when type='QR')
-      qrFormat: {
-        type: 'string',
-        enum: ['PNG', 'SVG'],
-        description: 'QR code image format'
-      },
-      qrBorder: {
-        type: 'number',
-        minimum: 0,
-        maximum: 10,
-        description: 'QR code border width in modules'
-      },
-      qrErrorCorrection: {
-        type: 'string',
-        enum: ['L', 'M', 'Q', 'H'],
-        description: 'QR error correction level'
-      },
-      qrScale: {
-        type: 'number',
-        minimum: 1,
-        maximum: 10,
-        description: 'QR code scale factor'
-      },
-      qrVersion: {
-        type: 'number',
-        minimum: 1,
-        maximum: 40,
-        description: 'QR code version (size)'
-      },
+      // QR and barcode options: one definition for every create tool (shared/media-options.js)
+      ...QR_OPTION_PROPERTIES,
+      ...BARCODE_OPTION_PROPERTIES,
 
-      // Barcode options (when type='BARCODE')
-      barFormat: {
-        type: 'string',
-        description: 'Barcode format (e.g., CODE128, EAN13)'
-      },
-      barModuleWidth: {
-        type: 'number',
-        description: 'Barcode module width in pixels'
-      },
-      barBarHeight: {
-        type: 'number',
-        description: 'Barcode height in pixels'
-      },
-      barFontSize: {
-        type: 'number',
-        description: 'Font size for human readable text'
-      },
-      barHumanReadableLocation: {
-        type: 'string',
-        enum: ['TOP', 'BOTTOM', 'NONE'],
-        description: 'Location of human readable text'
-      },
       useSandbox: {
         type: 'boolean',
         description: 'Use sandbox environment for testing',
@@ -349,8 +297,8 @@ terminal producer is meant to be attributed.
 - **Type**: ${params.type}
 - **Amount**: ${params.amount || 'N/A'} ${params.currency || 'EUR'}
 - **Reason**: ${params.reasonL1}
-- **TTL**: ${params.timeToLive || 120} minutes
-
+- **TTL**: ${params.timeToLive || 120} seconds
+${result.deferredAllowed === true ? '- **Deferred Merchant Leg allowed**: yes - the payment may stay ACTIVE until the transfer settles, which can take days\n' : ''}
 🔗 **Integration Details:**
 - **ISV Partner**: ${getPartnerIdSafe()}
 - **Target Merchant**: ${params.merchantPartnerId}

@@ -17,13 +17,7 @@ export async function getPOIQRCode({ poiId, format = 'PNG', merchantPartnerId, o
     throw new Error('POI ID is required');
   }
 
-  if (!merchantPartnerId) {
-    throw new Error('Merchant Partner ID is required for ISV operations');
-  }
 
-  if (!oauth2Token) {
-    throw new Error('OAuth2 token is required for ISV operations');
-  }
 
   // Create ISV JWT token (GET request - no body)
   const jwtData = await createJWTForPartner({
@@ -58,7 +52,7 @@ export async function getPOIQRCode({ poiId, format = 'PNG', merchantPartnerId, o
         format,
         size: response.data.length
       },
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -80,7 +74,7 @@ export const getPOIQRCodeTool = {
 
 **Formats:** PNG (default), SVG, JPG
 
-Returns base64-encoded image data that can be saved or displayed.
+Returns the image itself (MCP image content); an SVG comes back as its markup.
 
 **Required:** POI ID, and the merchant partner ID and OAuth2 token to act on its behalf.`,
 
@@ -123,33 +117,21 @@ Returns base64-encoded image data that can be saved or displayed.
 
     if (result.success) {
       const img = result.image;
-      const sizeKB = (img.size / 1024).toFixed(2);
-
+      // The whole image. This returned the first 100 base64 characters, which is not an image.
+      const summary = `📱 **POI QR code** for ${poiId}: ${img.format}, ${img.size} bytes, ${img.contentType}. Print it or show it at the point of sale; payers scan it to pay the price set on the POI.`;
+      if (/svg/i.test(img.contentType || img.format)) {
+        return {
+          content: [{
+            type: "text",
+            text: `${summary}\n\n\`\`\`xml\n${Buffer.from(img.base64, 'base64').toString('utf8')}\n\`\`\``
+          }]
+        };
+      }
       return {
-        content: [{
-          type: "text",
-          text: `📱 **POI QR Code Generated**
-
-**POI ID:** ${poiId}
-**Format:** ${img.format}
-**Size:** ${sizeKB} KB
-**Content-Type:** ${img.contentType}
-
-**Base64 Image Data:**
-\`\`\`
-${img.base64.substring(0, 100)}...
-\`\`\`
-
-**Usage:**
-- Save as file: decode base64 and write to ${poiId}.${format.toLowerCase()}
-- Display in HTML: \`<img src="data:${img.contentType};base64,${img.base64.substring(0, 20)}...">\`
-- Print for physical placement at point of sale
-
-**Full base64 length:** ${img.base64.length} characters
-
-**Request ID:** ${result.requestId || 'N/A'}
-**Timestamp:** ${result.timestamp}`
-        }]
+        content: [
+          { type: "image", data: img.base64, mimeType: img.contentType || (format === 'JPG' ? 'image/jpeg' : 'image/png') },
+          { type: "text", text: summary }
+        ]
       };
     } else {
       return {

@@ -6,34 +6,52 @@ import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } 
 import { describeApiError } from '../api-errors.js';
 
 /**
- * Available report types from the Data API documentation
+ * The report ids in the server's registry. The list endpoint returns each as a `path`
+ * ('/processedTransactionsMTD'); a run takes the bare id, which DataRetrievalRequest checks against
+ * ^[A-Za-z0-9_-]{1,64}$. These were sent with the slash, so every run answered 400.
  */
 export const REPORT_TYPES = {
   // Standard reports
-  CURRENT_WEEK_TRANSACTIONS: '/processedTransactionsWTD',
-  CURRENT_MONTH_TRANSACTIONS: '/processedTransactionsMTD',
-  CURRENT_YEAR_TRANSACTIONS: '/processedTransactionsYTD',
-  PRODUCTS_LIST: '/productsList',
-  SHOPS_LIST: '/shopsList',
-  SALES_PER_PRODUCT: '/salesPerProduct',
-  PAYMENT_PROFILES: '/paymentProfiles',
-  TRANSACTIONS_PER_WEBPOS: '/transactionsPerWebPOS',
-  PARTNER_PROFILE: '/partnerProfile',
+  CURRENT_WEEK_TRANSACTIONS: 'processedTransactionsWTD',
+  CURRENT_MONTH_TRANSACTIONS: 'processedTransactionsMTD',
+  CURRENT_YEAR_TRANSACTIONS: 'processedTransactionsYTD',
+  PRODUCTS_LIST: 'productsList',
+  SHOPS_LIST: 'shopsList',
+  SALES_PER_PRODUCT: 'salesPerProduct',
+  PAYMENT_PROFILES: 'paymentProfiles',
+  TRANSACTIONS_PER_WEBPOS: 'transactionsPerWebPOS',
+  PARTNER_PROFILE: 'partnerProfile',
 
   // Premium reports
-  PROCESSED_TRANSACTIONS: '/processedTransactions',
-  SCHEDULES_LIST: '/schedulesList',
-  TRANSACTIONS_PER_PRODUCT: '/processedTransactionsPerProduct'
+  PROCESSED_TRANSACTIONS: 'processedTransactions',
+  SCHEDULES_LIST: 'schedulesList',
+  TRANSACTIONS_PER_PRODUCT: 'processedTransactionsPerProduct'
 };
 
 /**
- * Supported export formats
+ * A report id as the server takes it: the last segment of a path such as the list endpoint returns
+ * ('/processedTransactionsMTD' or '/reports/x' -> 'processedTransactionsMTD', 'x'), as the portal does.
+ */
+export function reportUnitIdOf(value) {
+  return String(value ?? '').split('/').filter(Boolean).pop() ?? '';
+}
+
+/**
+ * The export formats, exactly the server's ReportOutputFormat. Anything else is not refused: the
+ * server silently falls back to the report's default format (ReportBaseController.validateOutputFormat),
+ * so an offered 'json' produced a PDF.
  */
 export const EXPORT_FORMATS = {
   PDF: 'pdf',
+  XLS: 'xls',
+  XLSX: 'xlsx',
+  RTF: 'rtf',
   CSV: 'csv',
-  EXCEL: 'xlsx',
-  JSON: 'json'
+  HTML: 'html',
+  XML: 'xml',
+  DOCX: 'docx',
+  ODT: 'odt',
+  ODS: 'ods'
 };
 
 /**
@@ -104,12 +122,12 @@ export async function generateReport({
   partnerType,
   ...authParams
 }) {
-  if (!reportUnitId) {
-    throw new Error('reportUnitId is required (e.g., "/processedTransactions")');
+  const unitId = reportUnitIdOf(reportUnitId);
+  if (!unitId) {
+    throw new Error('reportUnitId is required (e.g., "processedTransactions")');
   }
-
-  if (!Object.values(REPORT_TYPES).includes(reportUnitId)) {
-    console.warn(`Warning: reportUnitId "${reportUnitId}" is not in the known report types list`);
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(unitId)) {
+    throw new Error(`Invalid reportUnitId "${reportUnitId}": a report id is 1-64 letters, digits, _ or -`);
   }
 
   if (!Object.values(LOCALES).includes(locale)) {
@@ -117,7 +135,7 @@ export async function generateReport({
   }
 
   const requestBody = {
-    reportUnitId,
+    reportUnitId: unitId,
     ignorePagination,
     locale,
     timeZone
@@ -289,6 +307,7 @@ export async function downloadExport({
       data: response.data,
       contentType: response.headers['content-type'],
       contentLength: response.headers['content-length'],
+      contentDisposition: response.headers['content-disposition'],
       requestInfo: {
         url: `${getProductionUrl()}/data-retrieval/export/${exportId}/download`,
         method: 'GET',
@@ -409,15 +428,16 @@ export async function getReportRequests({
   partnerType,
   ...authParams
 }) {
-  if (!reportId) {
-    throw new Error('reportId is required (e.g., "/processedTransactions")');
+  const unitId = reportUnitIdOf(reportId);
+  if (!unitId) {
+    throw new Error('reportId is required (e.g., "processedTransactions")');
   }
 
   const headers = await createAuthHeaders(partnerType, authParams);
 
   try {
     const response = await axios.get(
-      `${getProductionUrl()}/data-retrieval${reportId}`,
+      `${getProductionUrl()}/data-retrieval/${unitId}`,
       { headers }
     );
 
@@ -425,7 +445,7 @@ export async function getReportRequests({
       success: true,
       data: response.data,
       requestInfo: {
-        url: `${getProductionUrl()}/data-retrieval${reportId}`,
+        url: `${getProductionUrl()}/data-retrieval/${unitId}`,
         method: 'GET',
         statusCode: response.status
       }

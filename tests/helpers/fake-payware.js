@@ -15,10 +15,19 @@ import jwt from 'jsonwebtoken';
  *
  * It also verifies the content hash the way the server does, so a test that sends a body gets the
  * hash checked for free rather than having to assert on it.
+ *
+ * With a `model` (helpers/payware-model.js) it is a model of payware rather than a recorder: it routes,
+ * authenticates and validates as the server does, refuses what the server refuses, and answers with
+ * the server's DTO shapes. Without one it answers whatever is queued, which only the generated-program
+ * test still uses (those programs take their base URL from the test).
  */
+let sequence = 0;
+
 export class FakePaywareServer {
-  constructor({ publicKey } = {}) {
+  constructor({ publicKey, model = null, label = 'api' } = {}) {
     this.publicKey = publicKey;
+    this.model = model;
+    this.label = label;
     /** Every request received, in order, for assertions. */
     this.requests = [];
     /** Queued responses: { status, body, headers }. Falls back to `defaultResponse`. */
@@ -44,15 +53,23 @@ export class FakePaywareServer {
       req.on('data', c => chunks.push(c));
       req.on('end', () => {
         const rawBody = Buffer.concat(chunks).toString('utf8');
-        this.requests.push(this.#describe(req, rawBody));
+        const described = this.#describe(req, rawBody);
+        this.requests.push(described);
 
-        const next = this.queue.shift() || this.defaultResponse;
+        // The model refuses first, as payware would, without consuming a queued answer; a queued
+        // answer replaces the model's own, which then moves no state.
+        const refusal = this.model?.refuse(described);
+        const next = refusal
+          || this.queue.shift()
+          || (this.model ? this.model.respond(described) : this.defaultResponse);
+        described.response = { status: next.status, body: next.body };
         res.writeHead(next.status, {
           'Content-Type': 'application/json',
-          'x-request-id': 'test-request-id',
+          // The server's own header (config/logging/CorrelationIdInterceptor); it sends no x-request-id.
+          'X-Correlation-ID': 'test-correlation-id',
           ...next.headers
         });
-        res.end(typeof next.body === 'string' ? next.body : JSON.stringify(next.body));
+        res.end(Buffer.isBuffer(next.body) || typeof next.body === 'string' ? next.body : JSON.stringify(next.body));
       });
     });
 
@@ -113,6 +130,8 @@ export class FakePaywareServer {
 
     const url = new URL(req.url, 'http://127.0.0.1');
     return {
+      seq: sequence++,
+      host: this.label,
       method: req.method,
       path: url.pathname,
       query: Object.fromEntries(url.searchParams),

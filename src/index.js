@@ -16,9 +16,10 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 // Import partner type and configuration
-import { getPartnerTypeSafe, getPartnerType } from './config/env.js';
+import { getPartnerType } from './config/env.js';
 import { getPartnerConfig, getPartnerDisplayInfo } from './config/partner-types.js';
 import { filterToolsets } from './config/toolsets.js';
+import { PACKAGE_VERSION } from './config/package-info.js';
 
 // Import tool registries
 import { getSharedTools } from './shared/index.js';
@@ -28,14 +29,17 @@ import { getPaymentInstitutionTools } from './payment-institution/index.js';
 
 class PaywareMCPServer {
   constructor() {
-    this.partnerType = getPartnerTypeSafe();
+    // getPartnerType throws on a value that is not a partner type. getPartnerTypeSafe answered
+    // 'merchant' instead, so a typo in PAYWARE_PARTNER_TYPE served merchant tools, signed as whatever
+    // partner the key belonged to, and the warning below it could never fire.
+    this.partnerType = getPartnerType();
     this.partnerConfig = getPartnerConfig(this.partnerType);
     this.partnerInfo = getPartnerDisplayInfo(this.partnerType);
 
     this.server = new Server(
       {
         name: `payware-mcp-server-${this.partnerType}`,
-        version: '1.0.0',
+        version: PACKAGE_VERSION,
       },
       {
         capabilities: {
@@ -67,9 +71,7 @@ class PaywareMCPServer {
         allTools = getPaymentInstitutionTools();
         break;
       default:
-        // Send warning to stderr to avoid MCP protocol corruption
-        process.stderr.write(`Warning: Unknown partner type: ${this.partnerType}, defaulting to merchant tools\n`);
-        allTools = getMerchantTools();
+        throw new Error(`Unknown partner type: ${this.partnerType}`);
     }
 
     // PAYWARE_MCP_TOOLSETS narrows the list; a filtered-out tool is not listed and cannot be called.
@@ -114,28 +116,16 @@ class PaywareMCPServer {
         );
       }
 
-      try {
-        // Call the tool's handler with execution metadata
-        const startTime = Date.now();
-        const result = await tool.handler(args || {});
-        const duration = Date.now() - startTime;
-        
-        // Add execution metadata to response
-        if (result && result.content && Array.isArray(result.content)) {
-          result.content.forEach(content => {
-            if (content.type === 'text') {
-              content.text += `\n\n---\n**Execution Info:**\n- Partner Type: ${this.partnerInfo.name}\n- Tool: ${name}\n- Executed: ${timestamp}\n- Duration: ${duration}ms\n- Process ID: ${process.pid}\n- Status: ✅ Success`;
-            }
-          });
-        }
-        
-        return result;
-      } catch (error) {
-        throw new McpError(
-          ErrorCode.InternalError,
-          `Error executing tool ${name}: ${error.message}`
-        );
+      // The registries wrap every handler (shared/tool-result.js), so a failure arrives here as a result
+      // with isError, not as a throw. The execution info no longer claims success on every result.
+      const startTime = Date.now();
+      const result = await tool.handler(args || {});
+      const duration = Date.now() - startTime;
+      const last = result?.content?.filter(content => content.type === 'text').pop();
+      if (last) {
+        last.text += `\n\n---\n**Execution Info:**\n- Partner Type: ${this.partnerInfo.name}\n- Tool: ${name}\n- Executed: ${timestamp}\n- Duration: ${duration}ms\n- Result: ${result.isError ? 'error' : 'ok'}`;
       }
+      return result;
     });
   }
 

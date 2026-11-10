@@ -9,6 +9,7 @@ import express from 'express';
 import cors from 'cors';
 import { spawn } from 'child_process';
 import './config/env.js'; // Load environment variables
+import { PACKAGE_VERSION } from './config/package-info.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -80,7 +81,7 @@ class PaywareMCPProxy {
         status: 'healthy',
         timestamp: new Date().toISOString(),
         service: 'payware-mcp-proxy',
-        version: '1.0.0'
+        version: PACKAGE_VERSION
       });
     });
 
@@ -135,7 +136,7 @@ class PaywareMCPProxy {
     this.app.get('/', (req, res) => {
       res.json({
         name: 'payware MCP Proxy',
-        version: '1.0.0',
+        version: PACKAGE_VERSION,
         endpoints: {
           'GET /health': 'Health check',
           'GET /tools': 'List available MCP tools',

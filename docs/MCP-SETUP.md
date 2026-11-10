@@ -74,6 +74,9 @@ Create a `.env` file in the payware MCP directory:
 # API Configuration
 PAYWARE_SANDBOX_URL=https://sandbox.payware.eu/api
 PAYWARE_PRODUCTION_URL=https://api.payware.eu/api
+# Soundbite recognition (payment institutions; optional, these are the defaults)
+PAYWARE_SOUNDBITE_SANDBOX_URL=https://soundbite-sandbox.payware.eu/api
+PAYWARE_SOUNDBITE_PRODUCTION_URL=https://soundbite.payware.eu/api
 
 # Partner Configuration (set these for testing)
 PAYWARE_PARTNER_ID=your_partner_id
@@ -96,7 +99,7 @@ PORT=3000
 | `placements` | Campaigns, placements, airing rules and the airing calendar |
 | `data` | Reports and exports |
 | `logs` | API logs (Premium) |
-| `poi` | Points of interaction (ISV) |
+| `poi` | Points of interaction: terminals, their prices and QR codes (merchants, and ISVs for them) |
 | `shops` | Shop codes |
 | `onboarding` | ISV merchant invitations and the reference data their forms need |
 | `utils` | Code samples, documentation, request formatting and server information |

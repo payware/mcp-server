@@ -76,6 +76,35 @@ export function getProductionUrl() {
   return process.env.PAYWARE_PRODUCTION_URL || 'https://api.payware.eu/api';
 }
 
+/** The API base URL, with /api, of one environment. */
+export function getApiUrl(useSandbox = true) {
+  return useSandbox ? getSandboxUrl() : getProductionUrl();
+}
+
+/**
+ * The base URL of the /oauth2 endpoints, which are served at the host root, not under /api. The
+ * origin of the API URL: `apiUrl.replace('/api', '')` replaced the /api inside "//api.payware.eu" and
+ * gave https:/.payware.eu/api for production.
+ */
+export function getOAuthBaseUrl(useSandbox = true) {
+  return new URL(getApiUrl(useSandbox)).origin;
+}
+
+/**
+ * The base URL, with /api, of soundbite recognition, which has its own host: the API hosts refuse it
+ * with 421 ERR_SOUNDBITE_HOST (kb financial-institution/api, "Host and connection").
+ */
+export function getSoundbiteUrl(useSandbox = true) {
+  return useSandbox
+    ? process.env.PAYWARE_SOUNDBITE_SANDBOX_URL || 'https://soundbite-sandbox.payware.eu/api'
+    : process.env.PAYWARE_SOUNDBITE_PRODUCTION_URL || 'https://soundbite.payware.eu/api';
+}
+
+/** The environment variable that holds the private key path of one environment, for error texts. */
+export function privateKeyVariable(useSandbox = true) {
+  return useSandbox ? 'PAYWARE_SANDBOX_PRIVATE_KEY_PATH' : 'PAYWARE_PRODUCTION_PRIVATE_KEY_PATH';
+}
+
 /**
  * Get environment configuration object
  * @returns {Object} Configuration object with all environment settings

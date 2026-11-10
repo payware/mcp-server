@@ -32,7 +32,7 @@ export async function listShops({ partnerType, useSandbox = true, ...authParams 
       success: true,
       shops: response.data,
       count: Array.isArray(response.data) ? response.data.length : 0,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -60,8 +60,8 @@ product, creating a POI and batching POIs all take one, and an invalid code is a
 reasonable guess for a single-outlet merchant and the wrong outlet for everyone else - the sale lands
 against the wrong shop, and nothing about the response says so.
 
-**Returned per shop:** \`shopCode\` (the value to pass), \`name\`, and the address/contact fields the
-merchant configured.
+**Returned per shop** (server ShopDTO): \`code\` (the value to pass as \`shop\` / \`shopCode\`), \`name\`,
+\`isDefault\`, \`ecommerce\`, \`country\` and the shop's label, image and terms URLs.
 ${isIsv ? `
 ⚠️ **ISVs see only their assigned shops.** This returns the shops the merchant put in your scope, not
 every shop the merchant owns. That is deliberate and it is the same rule the write paths enforce:
@@ -132,9 +132,11 @@ ${result.error.guidance ? `\n${result.error.guidance}` : ''}
       }
 
       const shops = Array.isArray(result.shops) ? result.shops : [];
+      // ShopDTO calls the code `code`; reading `shopCode` and `city`, which it does not have, listed every
+      // shop as `undefined`.
       const list = shops.map(shop => {
-        const location = [shop.city, shop.country].filter(Boolean).join(', ');
-        return `🏬 **${shop.name || '(unnamed)'}** - \`${shop.shopCode}\`${location ? `\n   ${location}` : ''}`;
+        const flags = [shop.isDefault && 'default', shop.ecommerce && 'e-commerce', shop.country].filter(Boolean).join(', ');
+        return `🏬 **${shop.name || '(unnamed)'}** - \`${shop.code}\`${flags ? ` (${flags})` : ''}`;
       }).join('\n');
 
       return {
@@ -144,7 +146,7 @@ ${result.error.guidance ? `\n${result.error.guidance}` : ''}
 
 ${list || 'No shops returned.'}
 
-Pass a \`shopCode\` above as the \`shop\` parameter when creating a transaction, product or POI.
+Pass a code above as the \`shop\` / \`shopCode\` parameter when creating a transaction, product or POI.
 ${shops.length === 0 ? `
 **An empty list is not necessarily an error.**${isIsv ? ' As an ISV you see only the shops this merchant assigned to your scope - an empty list means none have been assigned yet.' : ' It means no shop is configured for this merchant yet.'}` : ''}
 

@@ -2,6 +2,14 @@
  * Simulate callback scenarios for testing
  */
 
+/** The VAT inside a fee, present exactly when the fee is, as the server does: zero at the fee's scale unless given. */
+export function feeVatFor(fee, feeVat) {
+  if (fee === null || fee === undefined) return undefined;
+  if (feeVat !== undefined && feeVat !== null) return feeVat;
+  const decimals = (String(fee).split('.')[1] || '').length;
+  return (0).toFixed(decimals);
+}
+
 /**
  * Generate mock callback payload
  * @param {string} transactionId - Transaction ID
@@ -29,7 +37,9 @@ export function generateMockCallback(transactionId, status = 'CONFIRMED', option
     feeRate = '0.0150',
     // Pass fee: null to model the anomaly the server reports by OMITTING the field - a transaction
     // with no recorded fee. That is deliberately distinguishable from a genuine "0.00".
-    fee: feeOverride = undefined
+    fee: feeOverride = undefined,
+    // The VAT inside fee (split fee model): present exactly when fee is, zero when none applies.
+    feeVat: feeVatOverride = undefined
   } = options;
 
   // Calculate fee like the server: |payerAmount - amount| or |payeeAmount - amount|.
@@ -55,7 +65,7 @@ export function generateMockCallback(transactionId, status = 'CONFIRMED', option
     ...(poiId && { poiId }),
     ...(passbackParams !== null && passbackParams !== undefined && { passbackParams }),
     amount,
-    ...(fee !== null && fee !== undefined && { fee }),
+    ...(fee !== null && fee !== undefined && { fee, feeVat: feeVatFor(fee, feeVatOverride) }),
     ...(feeFixed !== null && feeFixed !== undefined && { feeFixed }),
     ...(feeRate !== null && feeRate !== undefined && { feeRate }),
     currency,
@@ -199,6 +209,10 @@ TRANSACTION_PROCESSED, which merchants do not receive).`,
         type: "string",
         description: "payware's fee on this transaction plus VAT where it applies, at the currency's smallest payable unit (e.g. '0.29'). The payer's institution transfers it to payware alongside the merchant's payment, and amount is net of it. Not always two decimals - it follows the currency. Pass null to model the anomaly case, where a transaction has no recorded fee and the server OMITS the property entirely; that is deliberately distinguishable from a genuine '0.00'."
       },
+      feeVat: {
+        type: "string",
+        description: "The VAT included in fee (fee minus feeVat is payware's fee excluding VAT), at the same scale; zero when no VAT applies (reverse charge, or a merchant outside the EU). Present exactly when fee is (server TransactionCallbackPayload). Defaults to zero."
+      },
       feeFixed: {
         type: "string",
         description: "Fixed fee component of the applicable fee configuration, e.g. '0.1000'. Informational, for reconciliation. Present on FINALIZED callbacks since 2026-08-21 - before that a merchant got the total fee but not the breakdown that produced it. Pass null to model a transaction with no fee configuration, where it is omitted.",
@@ -238,6 +252,7 @@ TRANSACTION_PROCESSED, which merchants do not receive).`,
       // Defaulting it to '0.00' here made every simulated callback assert a zero fee, which is the
       // one value the real payload never sends for "no fee" - it omits the property instead.
       fee,
+      feeVat,
       feeFixed = '0.1000',
       feeRate = '0.0150',
       statusMessage,
@@ -254,6 +269,7 @@ TRANSACTION_PROCESSED, which merchants do not receive).`,
       amount,
       currency,
       fee,
+      feeVat,
       feeFixed,
       feeRate,
       statusMessage,

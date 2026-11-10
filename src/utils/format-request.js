@@ -117,24 +117,25 @@ export function formatTransactionRequest(data) {
 }
 
 /**
- * Format API headers
+ * Format API headers: the JWT, the JSON content type and Api-Version 1. payware reads no other request
+ * header for authentication; the X-Signature this used to add does not exist.
  * @param {string} jwtToken - JWT authentication token
- * @param {string} signature - Request signature (optional)
  * @returns {Object} Formatted headers
  */
-export function formatAPIHeaders(jwtToken, signature = null) {
-  const headers = {
+export function formatAPIHeaders(jwtToken) {
+  return {
     'Authorization': `Bearer ${jwtToken}`,
     'Content-Type': 'application/json',
     'Api-Version': '1',
     'Accept': 'application/json'
   };
-  
-  if (signature) {
-    headers['X-Signature'] = signature;
-  }
-  
-  return headers;
+}
+
+/** A body as the string to send: an object serialized once (createMinimizedJSON), a string as given. */
+export function bodyString(body) {
+  if (body === undefined || body === null) return null;
+  if (typeof body === 'string') return body || null;
+  return Object.keys(body).length ? createMinimizedJSON(body) : null;
 }
 
 /**
@@ -147,17 +148,19 @@ export function formatAPIHeaders(jwtToken, signature = null) {
  */
 export function formatCurlCommand(method, endpoint, headers, body = null) {
   let curl = `curl -X ${method.toUpperCase()} "${endpoint}"`;
-  
+
   // Add headers
   Object.entries(headers).forEach(([key, value]) => {
     curl += ` \\\n  -H "${key}: ${value}"`;
   });
-  
-  // Add body if present
-  if (body) {
-    curl += ` \\\n  -d '${JSON.stringify(body, null, 2)}'`;
+
+  // The body exactly as the JWT's contentSha256 must cover it: one line, sent byte for byte. It was
+  // pretty-printed, so the bytes sent were never the ones a token had been made for.
+  const sent = method.toUpperCase() === 'GET' ? null : bodyString(body);
+  if (sent) {
+    curl += ` \\\n  --data-binary '${sent.replace(/'/g, `'\\''`)}'`;
   }
-  
+
   return curl;
 }
 
@@ -184,17 +187,13 @@ export const formatRequestTool = {
         type: "string",
         description: "JWT token for header formatting"
       },
-      signature: {
-        type: "string",
-        description: "Request signature (optional)"
-      },
       endpoint: {
         type: "string",
         description: "API endpoint URL (for curl formatting)"
       },
       method: {
         type: "string",
-        enum: ["GET", "POST", "PUT", "DELETE"],
+        enum: ["GET", "POST", "PUT", "PATCH", "DELETE"],
         description: "HTTP method (for curl formatting)"
       }
     },
@@ -203,7 +202,7 @@ export const formatRequestTool = {
   },
   
   async handler(args) {
-    const { type, data = {}, jwtToken, signature, endpoint, method = 'POST' } = args;
+    const { type, data = {}, jwtToken, endpoint, method = 'POST' } = args;
     
     switch (type) {
       case 'transaction': {
@@ -248,10 +247,11 @@ Use the minimized JSON format for API calls to ensure SHA-256 consistency:
 const response = await fetch('https://sandbox.payware.eu/api/transactions', {
   method: 'POST',
   headers: {
-    'Authorization': 'Bearer YOUR_JWT_TOKEN',
-    'Content-Type': 'application/json'
+    'Authorization': 'Bearer YOUR_JWT_TOKEN',  // made with contentSha256 over this body
+    'Content-Type': 'application/json',
+    'Api-Version': '1'
   },
-  body: '${minimizedJSON}'  // Use pre-minimized string for SHA-256 consistency
+  body: '${minimizedJSON}'  // the exact string the JWT's contentSha256 covers
 });
 \`\`\`
 
@@ -268,7 +268,7 @@ const response = await fetch('https://sandbox.payware.eu/api/transactions', {
           throw new Error("JWT token is required for header formatting");
         }
         
-        const headers = formatAPIHeaders(jwtToken, signature);
+        const headers = formatAPIHeaders(jwtToken);
         
         return {
           content: [{
@@ -284,7 +284,7 @@ ${JSON.stringify(headers, null, 2)}
 - **Authorization**: Bearer token for authentication
 - **Content-Type**: JSON content type
 - **Accept**: Expects JSON response
-${signature ? '- **X-Signature**: Request signature for additional security' : ''}
+- **Api-Version**: 1, required on every /api call (ERR_UNSUPPORTED_API_VERSION without it)
 
 **Usage in JavaScript:**
 \`\`\`javascript
@@ -297,7 +297,8 @@ fetch(url, { headers, ...options });
 \`\`\`python
 headers = ${JSON.stringify(headers, null, 2).replace(/"/g, "'")}
 
-requests.post(url, headers=headers, json=data)
+# Send the exact string the JWT's contentSha256 was made for; json=data would serialize it again
+requests.post(url, headers=headers, data=body_string)
 \`\`\`
 
 **Usage in cURL:**
@@ -318,7 +319,7 @@ ${Object.entries(headers).map(([key, value]) => `curl -H "${key}: ${value}"`).jo
           throw new Error("JWT token is required for curl formatting");
         }
         
-        const headers = formatAPIHeaders(jwtToken, signature);
+        const headers = formatAPIHeaders(jwtToken);
         const curl = formatCurlCommand(method, endpoint, headers, data);
         
         return {
@@ -335,7 +336,7 @@ ${curl}
 - Method: ${method.toUpperCase()}
 - Endpoint: ${endpoint}
 - Headers: ${Object.keys(headers).length} headers included
-${data && Object.keys(data).length > 0 ? `- Body: JSON payload included` : '- Body: No payload'}
+${bodyString(data) && method.toUpperCase() !== 'GET' ? '- Body: one line, exactly as sent; the JWT must carry contentSha256 over this string' : '- Body: No payload'}
 
 **Usage:**
 1. Copy the command above

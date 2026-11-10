@@ -1,8 +1,8 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { normalizePrivateKey, getKeyInfo } from '../utils/key-utils.js';
-import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
-import { createDeterministicJSON } from '../utils/json-serializer.js';
+import { getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
+import { createDeterministicJSON, createMinimizedJSON } from '../utils/json-serializer.js';
 import { LOCAL } from '../../shared/tool-annotations.js';
 
 /**
@@ -393,6 +393,11 @@ export const testJWTTokenTool = {
         type: "boolean",
         description: "Whether to show private key details (for debugging)",
         default: false
+      },
+      useSandbox: {
+        type: "boolean",
+        description: "Use the sandbox key (default) or the production key",
+        default: true
       }
     },
     additionalProperties: false
@@ -409,9 +414,9 @@ export const testJWTTokenTool = {
       throw new Error("Partner ID is required. Set PAYWARE_PARTNER_ID environment variable or provide as parameter.");
     }
 
-    const privateKey = getPrivateKeySafe();
+    const privateKey = getPrivateKeySafe(args.useSandbox ?? true);
     if (!privateKey) {
-      throw new Error("Private key is required. Set PAYWARE_SANDBOX_PRIVATE_KEY_PATH environment variable.");
+      throw new Error(`Private key is required. Set ${privateKeyVariable(args.useSandbox ?? true)}.`);
     }
 
     try {
@@ -621,8 +626,13 @@ export const createJWTTokenTool = {
         description: "RSA private key - accepts PEM format with/without headers or raw base64 content. Uses environment-specific private key as default."
       },
       requestBody: {
-        type: "object",
-        description: "Request body (for POST/PUT/PATCH requests that need contentSha256)"
+        type: ["object", "string"],
+        description: "Request body for a POST, PUT or PATCH, which then needs contentSha256. An object is serialized once (keys sorted, no spaces) and the result shows that exact string: send it byte for byte. A string is hashed as given."
+      },
+      useSandbox: {
+        type: "boolean",
+        description: "Sign with the sandbox key (default) or the production key; a token signed with one environment's key is refused by the other",
+        default: true
       }
     },
     additionalProperties: false
@@ -631,9 +641,15 @@ export const createJWTTokenTool = {
   async handler(args) {
     const {
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(),
+      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       requestBody
     } = args;
+    // The exact body the hash covers, shown in the result. The token hashed a sorted serialization of
+    // an object but never showed it, while the advice below sent json.dumps(payload) unsorted: a
+    // different string, so ERR_INVALID_CONTENT_HASH.
+    const body = requestBody === undefined || requestBody === null || requestBody === ''
+      ? null
+      : typeof requestBody === 'string' ? requestBody : createMinimizedJSON(requestBody);
 
     if (!partnerId) {
       throw new Error("Partner ID is required. Provide via 'partnerId' parameter or set PAYWARE_PARTNER_ID environment variable.");
@@ -647,7 +663,7 @@ export const createJWTTokenTool = {
     const keyInfo = getKeyInfo(privateKey);
     
     try {
-      const tokenData = createJWTToken(partnerId, privateKey, requestBody);
+      const tokenData = createJWTToken(partnerId, privateKey, body);
       
       // Add key format information to the response
       const keyFormatInfo = keyInfo.hasHeaders 
@@ -667,7 +683,12 @@ export const createJWTTokenTool = {
 \`\`\`
 ${tokenData.token}
 \`\`\`
-
+${body ? `
+**Send exactly this body** (the string contentSha256 covers; any other serialization, even of the same object, is refused with ERR_INVALID_CONTENT_HASH):
+\`\`\`json
+${body}
+\`\`\`
+` : ''}
 **Token Details:**
 - Partner ID (iss): ${tokenData.partnerId}
 - Audience (aud): ${tokenData.audience}
@@ -769,7 +790,8 @@ const response = await axios.post(url, jsonBody, {headers: {'Authorization': \`B
 \`\`\`
 
 **⚠️ Security Notes:**
-- Token is valid for sandbox environment only
+- Signed with the ${(args.useSandbox ?? true) ? 'sandbox' : 'production'} key: the other environment refuses it
+- Valid for 5 minutes from iat (ERR_STALE_TOKEN after that)
 - Do not share or log this token
 - Generate new token for each request with different body
 - Ensure your public key is registered with payware

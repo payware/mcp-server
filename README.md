@@ -12,11 +12,11 @@ Releases are published to npm as `@payware/mcp-server` and to the official [MCP 
 - **ISVs (Independent Software Vendors)** - Build multi-merchant platforms with OAuth2 token management
 - **Payment Institutions** - Process A2A transfers, handle Payment Choice Architecture with multiple payment methods
 
-## What's New in v1.2.0
+## What's New in 2.2.0
 
-- **SHA-256 Authentication** - Upgraded from MD5 to SHA-256 for JWT content hashing (`contentSha256` header)
-- **Updated Error Codes** - New error codes: `ERR_INVALID_CONTENT_HASH`, `ERR_MISSING_CONTENT_HASH`
-- **Backward Compatibility** - Deprecated MD5 functions retained for legacy support
+- **Execution lock** - A payment institution finalizes with `EXECUTING` immediately before money moves, then `CONFIRMED` once the Merchant Leg has completed, or `FAILED`; `transferType` and `feeLegOutcome` are new
+- **Deferred Merchant Leg** - Merchants, and ISVs for them, can allow a credit transfer that settles later with `deferredAllowed`
+- **Code examples** - `payware_generate_code_example` writes complete, signed programs for real routes only, including the institution finalize flow
 
 ## Features
 
@@ -54,10 +54,8 @@ For merchants, and for ISVs acting for them. Changes need the merchant's PRM pla
 - **Download Logs**: Get compressed archive of logs for offline analysis
 
 ### 🛠️ Utility Tools
-- **Advanced Code Generation**: Generate complete integration code across 8 languages (Python, Node.js, PHP, Java, C#, Go, Ruby, cURL) with 16+ framework support
-- **Framework Integration**: Framework-specific examples for Django, FastAPI, Express, NestJS, Laravel, Spring Boot, ASP.NET, and more
-- **Real-world Scenarios**: Generate complete integration scenarios (e-commerce, ISV multi-merchant, P2P payments)
-- **Comprehensive Documentation**: Auto-generate complete API documentation with code examples
+- **Code Examples**: A complete program for one API call, or the JWT helper, in Python, Node.js, PHP, Java, C# or curl, signed as payware requires and calling the real route
+- **Integration Overview**: Base URLs, request signing and every operation the code examples cover, per partner type
 - **Request Formatting**: Format and validate API requests
 
 ## Quick Start
@@ -189,11 +187,11 @@ The payware MCP server transforms flat parameter inputs into the proper nested J
   
   // QR OPTIONS - Only included when type=QR
   "qrOptions": {
-    "qrFormat": "PNG",              // PNG, SVG, JPG, GIF, BMP (default: SVG)
+    "qrFormat": "PNG",              // PNG, JPG, SVG (default: SVG)
     "qrBorder": 4,                  // Border modules: 1-10 (default: 4)
     "qrErrorCorrection": "QUARTILE", // LOW, MEDIUM, QUARTILE, HIGH (default: QUARTILE)
     "qrScale": 16,                  // Pixel size: 1-100 (default: 16, irrelevant for SVG)
-    "qrVersion": 10                 // QR version: 1-40 (default: 10, auto if not specified)
+    "qrVersion": 10                 // QR version: 1-40 (default: 3)
   },
   
   // BARCODE OPTIONS - Only included when type=BARCODE
@@ -216,7 +214,7 @@ When using MCP tools, parameters are automatically mapped to the correct API str
 | `partnerId`, `privateKey` | Authentication | Used for JWT signing, not sent in request |
 | `account`, `friendlyName`, `shop`, `callbackUrl`, `passbackParams` | Root Level | Transaction metadata |
 | `amount`, `currency`, `reasonL1`, `reasonL2` | `trData` object | Core transaction data |
-| `type`, `timeToLive` | `trOptions` object | Transaction behavior |
+| `type`, `timeToLive`, `deferredAllowed` | `trOptions` object | Transaction behavior (`deferredAllowed`: the merchant's opt-in to a deferred Merchant Leg, sent only when true) |
 | `qrFormat`, `qrBorder`, etc. | `qrOptions` object | QR code settings (when type=QR) |
 | `barFormat`, `barModuleWidth`, etc. | `barOptions` object | Barcode settings (when type=BARCODE) |
 
@@ -225,20 +223,21 @@ When using MCP tools, parameters are automatically mapped to the correct API str
 ### Code Generation & Documentation
 
 #### `payware_generate_code_example`
-**Advanced multi-language code generation with framework support**
+**A complete program for one payware API call, in Python, Node.js, PHP, Java, C# or curl**
 
-Supports 60+ operations across all partner types:
-- **Transactions**: create_transaction, get_transaction_status, cancel_transaction, process_transaction, get_transaction_history, simulate_callback
-- **Products**: create_product, get_product, update_product, delete_product, list_products, get_product_image, create_schedule, update_schedule, delete_schedule, list_schedules
-- **OAuth2** (ISV only): obtain_token, get_token_info, create_token_simple, refresh_token, revoke_token, list_active_tokens
-- **Data**: generate_report, get_report_status, export_report, download_export, cancel_report, list_reports, get_analytics_summary, create_custom_report
-- **P2P** (Payment Institution): initiate_p2p_transfer, accept_p2p_transfer, reject_p2p_transfer, get_p2p_transfer_status, list_p2p_transfers, cancel_p2p_transfer, create_p2p_link, get_p2p_analytics
-- **Soundbites** (Payment Institution): register_audio, get_audio, update_audio, delete_audio, list_audios, create_soundbite_transaction, stream_audio, download_audio, get_soundbite_analytics, create_audio_playlist, get_audio_preview
+Each program signs its request with an RS256 JWT (`contentSha256` for a body; on behalf of a merchant for an ISV, except the OAuth2 endpoints) and calls a route the server has. The operations, by partner type:
+
+- **Transactions** (all): create_transaction, get_transaction_status, process_transaction, cancel_transaction, get_transaction_history
+- **Institution finalize** (payment_institution): finalize_transaction, the whole flow - process, then `EXECUTING` immediately before money moves, then `CONFIRMED` once the Merchant Leg has completed or `FAILED`, on `PATCH /api/transactions/{transactionId}`
+- **Products and audio** (merchant, isv): create_product, get_product, list_products, update_product, delete_product, register_audio, get_audios, get_audio, update_audio, delete_audio
+- **OAuth2** (isv): obtain_token, get_token_info, rotate_token
+- **Reports** (all, production only): list_reports, generate_report, get_report_status, export_report
+- **authentication**: the JWT helper on its own
 
 #### `payware_generate_documentation`
-**Comprehensive documentation generator**
+**An integration overview for one partner type**
 
-Generates complete API documentation with working code examples for any partner type and programming language combination.
+Base URLs, how requests are signed, and every operation above that the partner type has, with its route.
 
 ### Authentication
 
@@ -283,8 +282,8 @@ Setup sandbox authentication configuration.
 payware transactions can have the following statuses:
 
 **ACTIVE Status:**
-- ⏳ **ACTIVE**: Active transaction pending processing or finalizing
-- This is the only status returned by `payware_transactions_get_transaction_status`
+- ⏳ **ACTIVE**: Active transaction pending processing or finalizing. Once the payer's institution has started the payment it stays ACTIVE past `timeToLive` until the money has moved (seconds for an instant transfer, days with `deferredAllowed`), so never infer EXPIRED from the clock
+- This is the only status returned by `payware_operations_get_transaction_status` (a payment institution also sees `EXECUTING` on a transaction it has locked)
 - Use GET `/transactions/{id}` endpoint
 
 **Final Statuses:**
@@ -300,22 +299,23 @@ These final statuses are only available through `payware_operations_get_transact
 Create a new transaction with full API structure support.
 
 **Key Parameters:**
-- `currency` (required): ISO 3-character code (EUR, USD, GBP, etc.)
+- `currency` (required): ISO 4217 code payware knows (an unknown code is refused)
 - `reasonL1` (required): Transaction description (max 100 chars)
 - `partnerId` (required): Partner ID from payware dashboard
 - `privateKey` (required): RSA private key for JWT signing
 - `amount` (optional): Currency value (default: "0.00" for flexible amounts)
 - `type` (optional): PLAIN, QR, or BARCODE (default: PLAIN)
 - `timeToLive` (optional): Payment timeout in seconds, 60-600 (default: 120)
+- `deferredAllowed` (optional): `true` lets the payer's institution pay by a credit transfer that settles later; refused with producer or terminal fields (`ERR_DEFERRED_TRANSFER_NOT_ALLOWED`). A deferred payment stays ACTIVE until it settles, which can take days
 
 **QR Options** (when type=QR):
-- `qrFormat`: PNG, SVG, JPG, GIF, BMP (default: SVG)
+- `qrFormat`: PNG, JPG, SVG (default: SVG)
 - `qrErrorCorrection`: LOW, MEDIUM, QUARTILE, HIGH (default: QUARTILE)
-- `qrScale`, `qrBorder`, `qrVersion`: Size and appearance settings
+- `qrScale` (1-100, default 16), `qrBorder` (1-10, default 4), `qrVersion` (1-40, default 3): size and appearance
 
 **Barcode Options** (when type=BARCODE):
 - `barFormat`: PNG, SVG, JPG (default: SVG)
-- `barModuleWidth`, `barBarHeight`, `barFontSize`: Size settings
+- `barModuleWidth` (1-10, default 2), `barBarHeight` (15-1000, default 100), `barFontSize` (0-24, default 12), `barHumanReadableLocation` (NONE, BOTTOM, TOP, default NONE)
 
 #### `payware_operations_get_transaction_status`
 Get status of ACTIVE transactions only. For completed/finalized transactions use history tool.
@@ -339,62 +339,23 @@ Simulate callback scenarios for testing.
 ### Utilities
 
 #### `payware_generate_code_example`
-Generate production-ready code examples for any payware operation.
+Generate a complete program for one payware API call. The operations are listed under Code Generation & Documentation above.
 
 **Parameters:**
-- `operation` (required): Operation to generate - see complete list below
+- `operation` (required): the operation, for example `create_transaction` or `finalize_transaction`
 - `language` (optional): python, nodejs, php, java, csharp, curl (default: python)
 - `partner_type` (optional): merchant, isv, payment_institution (default: merchant)
-- `include_comments` (optional): Include detailed code comments (default: true)
-- `include_error_handling` (optional): Include comprehensive error handling (default: true)
+- `include_comments` (optional): the program with comments, inside a page naming the route (default: true); false gives the program alone
+- `include_error_handling` (optional): report a failed status or a network error (default: true)
 
-**Available Operations by Category:**
-
-**Authentication:**
-- `authentication` - JWT authentication setup
-
-**Transaction Operations (all partner types):**
-- `create_transaction` - Create a new payment transaction
-- `get_transaction_status` - Get transaction status and details
-- `process_transaction` - Process a pending transaction
-- `cancel_transaction` - Cancel a pending transaction
-
-**Product Operations (merchant, isv):**
-- `create_product` - Create a new product
-- `get_product` - Get product details
-- `list_products` - List all products
-
-**POI Operations (isv):**
-- `set_price` - Set price on a Point of Interaction device
-- `cancel_price` - Cancel active price on POI
-- `get_poi` - Get POI details
-- `get_poi_status` - Get POI transaction status
-- `get_poi_qrcode` - Generate QR code for POI
-- `list_pois` - List all POIs for a merchant
-
-**OAuth2 Operations (isv only):**
-- `obtain_token` - Obtain OAuth2 access token
-- `get_token_info` - Get OAuth2 token information
-
-**Data Operations (all partner types):**
-- `generate_report` - Generate analytics report
-- `get_report_status` - Get report generation status
-
-**P2P Operations (payment_institution only):**
-- `initiate_p2p_transfer` - Initiate peer-to-peer transfer
-- `accept_p2p_transfer` - Accept P2P transfer
-
-**Soundbites (payment_institution only):**
-- `register_audio` - Register audio content for soundbite transactions
+The programs read `PAYWARE_PARTNER_ID` and `PAYWARE_PRIVATE_KEY_PATH` (a PKCS#8 PEM), `PAYWARE_BASE_URL` when set, and for an ISV's call on behalf of a merchant `PAYWARE_MERCHANT_PARTNER_ID` and `PAYWARE_OAUTH2_TOKEN`.
 
 #### `payware_generate_documentation`
-Generate comprehensive API documentation with code examples.
+An integration overview for one partner type.
 
 **Parameters:**
-- `language` (optional): Target programming language (default: python)
-- `partnerType` (optional): merchant, isv, payment_institution (default: merchant)
-- `includeScenarios` (optional): Include real-world integration scenarios (default: true)
-- `outputFormat` (optional): markdown, html, json (default: markdown)
+- `language` (optional): the language the next steps refer to (default: python)
+- `partner_type` (optional): merchant, isv, payment_institution (default: merchant)
 
 #### `payware_utils_format_request`
 Format and validate API requests with deterministic JSON serialization for SHA-256 consistency.
@@ -424,14 +385,17 @@ Get MCP server information and configuration.
 - `@modelcontextprotocol/sdk`: MCP server framework
 - `axios`: HTTP client for API calls
 - `jsonwebtoken`: JWT token creation
-- `node-forge`: RSA key generation
+- `dotenv`: reads `.env`
+- `express`, `cors`: the HTTP proxy mode only
+
+RSA keys are generated with Node's own `crypto`, and multipart uploads use Node's own `FormData`.
 
 ## Environment
 
-- **Sandbox Only**: All API calls are restricted to sandbox environment
-- **Base URL**: `https://sandbox.payware.eu/api/v1`
-- **Supported Currencies**: EUR, USD, GBP
-- **Supported Transaction Types**: PLAIN, QR, BARCODE
+- **Sandbox by default, production on request**: tools that call payware take `useSandbox` (default `true`); `false` calls production and signs with the production key (`PAYWARE_PRODUCTION_PRIVATE_KEY_PATH`). Reports run on production only.
+- **Base URLs**: `https://sandbox.payware.eu/api` and `https://api.payware.eu/api`; the OAuth2 endpoints sit at the host root (`/oauth2/...`); soundbite recognition has its own hosts, `https://soundbite-sandbox.payware.eu/api` and `https://soundbite.payware.eu/api`
+- **Currencies**: any ISO 4217 code payware knows; amounts follow the currency's minor unit
+- **Transaction media types**: PLAIN, QR, BARCODE
 
 ## Security
 
@@ -450,8 +414,8 @@ Get MCP server information and configuration.
 - Rotate keys regularly according to security policies
 
 ### API Security
-- This server is designed for sandbox testing only
-- Never use sandbox keys in production environment
+- Calls go to sandbox unless a tool is given `useSandbox: false`
+- Keep sandbox and production keys apart: each environment refuses the other's signature
 - Implement proper error handling in production
 - Use HTTPS for all API communications
 - Validate all input parameters
@@ -518,17 +482,7 @@ Get MCP server information and configuration.
 
 ### Testing Status
 
-**✅ Confirmed Working Operations:**
-- JWT token creation with RS256 algorithm
-- Transaction creation (POST /api/transactions)
-- Transaction cancellation (PATCH /api/transactions/{id})
-- Deterministic JSON serialization for SHA-256 consistency
-- Public/private key pair validation
-
-**🧪 Test Results:**
-- All MCP tools tested successfully with real payware sandbox API
-- Both create and cancel transaction flows working end-to-end
-- Signature validation resolved with proper key registration
+`npm test` runs every tool of every role against a local fake payware server (no credentials, no network): verb and path against the server's routes, the JWT and its `contentSha256`, sandbox against production keys, the server's validation rules for the fields the tools send, and the MCP result shape, including `isError` on a refusal. The fake server is a model of payware, not payware: the suite does not call the real sandbox, so a server change it does not model can still break a tool.
 
 ### Support
 

@@ -7,6 +7,8 @@
 import { obtainTokenTool } from './oauth2/obtain-token.js';
 import { getTokenInfoTool } from './oauth2/get-token-info.js';
 import { tokenHelperTool } from './oauth2/token-helper.js';
+import { listTokensTool } from './oauth2/list-tokens.js';
+import { rotateTokenTool } from './oauth2/rotate-token.js';
 
 // Transaction tools
 import { createTransactionTool } from './transactions/create-transaction.js';
@@ -39,6 +41,7 @@ import { isvReferenceTools } from './reference/index.js';
 
 // Import shared tools
 import { sharedTools } from '../shared/index.js';
+import { withErrorResult } from '../shared/tool-result.js';
 
 /**
  * All ISV-specific tools
@@ -50,6 +53,8 @@ export const isvTools = [
   // OAuth2 management (ISV-specific)
   obtainTokenTool,
   getTokenInfoTool,
+  listTokensTool,
+  rotateTokenTool,
   tokenHelperTool,
 
   // Transaction management
@@ -133,9 +138,10 @@ export function getISVTools() {
       newName = tool.name; // Keep reference grouping
     }
 
-    return {
+    // withErrorResult: a failure reaches the client as an isError result (shared/tool-result.js).
+    return withErrorResult({
       ...tool,
       name: newName
-    };
+    });
   });
 }

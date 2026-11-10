@@ -14,13 +14,7 @@ export async function getPOIStatus({ poiId, sessionToken, merchantPartnerId, oau
     throw new Error('POI ID is required');
   }
 
-  if (!merchantPartnerId) {
-    throw new Error('Merchant Partner ID is required for ISV operations');
-  }
 
-  if (!oauth2Token) {
-    throw new Error('OAuth2 token is required for ISV operations');
-  }
 
   const isvPartnerId = getPartnerIdSafe();
   const privateKey = getPrivateKeySafe(useSandbox);
@@ -49,7 +43,7 @@ export async function getPOIStatus({ poiId, sessionToken, merchantPartnerId, oau
     return {
       success: true,
       status: response.data,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -120,13 +114,7 @@ finishes. Poll every 2-3 seconds and stop at a final status; the read is rate li
       throw new Error("POI ID is required");
     }
 
-    if (!merchantPartnerId) {
-      throw new Error("Merchant Partner ID is required");
-    }
 
-    if (!oauth2Token) {
-      throw new Error("OAuth2 token is required");
-    }
 
     const result = await getPOIStatus({ poiId, sessionToken, merchantPartnerId, oauth2Token, useSandbox });
 
@@ -164,7 +152,7 @@ finishes. Poll every 2-3 seconds and stop at a final status; the read is rate li
           text: `${statusEmoji} **POI Status: ${status.status}**
 
 **POI ID:** ${status.poiId}
-**ISV -> Merchant:** ${getPartnerIdSafe()} -> ${merchantPartnerId}
+${merchantPartnerId ? `**ISV -> Merchant:** ${getPartnerIdSafe()} -> ${merchantPartnerId}` : ''}
 ${pendingInfo}${lastSale}${pinnedSale}
 
 **Meaning:** ${meaning}

@@ -14,13 +14,7 @@ export async function getPOI({ poiId, merchantPartnerId, oauth2Token, useSandbox
     throw new Error('POI ID is required');
   }
 
-  if (!merchantPartnerId) {
-    throw new Error('Merchant Partner ID is required for ISV operations');
-  }
 
-  if (!oauth2Token) {
-    throw new Error('OAuth2 token is required for ISV operations');
-  }
 
   // Get ISV credentials
   const isvPartnerId = getPartnerIdSafe();
@@ -49,7 +43,7 @@ export async function getPOI({ poiId, merchantPartnerId, oauth2Token, useSandbox
     return {
       success: true,
       poi: response.data,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -102,13 +96,7 @@ export const getPOITool = {
       throw new Error("POI ID is required");
     }
 
-    if (!merchantPartnerId) {
-      throw new Error("Merchant Partner ID is required for ISV operations");
-    }
 
-    if (!oauth2Token) {
-      throw new Error("OAuth2 token is required for ISV operations");
-    }
 
     const result = await getPOI({ poiId, merchantPartnerId, oauth2Token, useSandbox });
 
@@ -123,7 +111,7 @@ export const getPOITool = {
       return {
         content: [{
           type: "text",
-          text: `📍 **POI Details Retrieved (ISV -> Merchant: ${merchantPartnerId})**
+          text: `📍 **POI Details Retrieved ${merchantPartnerId ? `(ISV -> Merchant: ${merchantPartnerId})` : ''}**
 
 **POI:** ${poi.name} (${poi.poiId})
 **Status:** ${statusEmoji} ${poi.status}
@@ -162,7 +150,7 @@ ${JSON.stringify(poi, null, 2)}
           text: `❌ **Failed to Get POI Details**
 
 **POI ID:** ${poiId}
-**ISV -> Merchant:** ${getPartnerIdSafe()} -> ${merchantPartnerId}
+${merchantPartnerId ? `**ISV -> Merchant:** ${getPartnerIdSafe()} -> ${merchantPartnerId}` : ''}
 
 **Error Details:**
 - Message: ${result.error.message}

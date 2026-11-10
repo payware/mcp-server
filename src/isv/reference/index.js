@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
-import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
 import { READS } from '../../shared/tool-annotations.js';
 
 /**
@@ -62,6 +62,28 @@ const DATASETS = {
 };
 
 /**
+ * One reference row: the value a create_invitation field takes, then what it means. legal-forms and
+ * business-activities are chosen by id (legalFormId, businessActivityId); jurisdictions, languages
+ * and currencies by code (jurisdictionCode, languageCode, currency).
+ */
+function renderReferenceRow(dataset, item) {
+  switch (dataset) {
+    case 'legal-forms':
+      return `- \`${item.id}\` ${item.acronym ?? ''}${item.extensiveTitle ? ` - ${item.extensiveTitle}` : ''}`.trimEnd();
+    case 'business-activities':
+      return `- \`${item.id}\` ${item.section ? `${item.section}: ` : ''}${item.activityDescription ?? ''}`.trimEnd();
+    case 'jurisdictions':
+      return `- \`${item.code}\` ${item.officialName ?? ''}${item.phoneCode ? ` (+${String(item.phoneCode).replace(/^\+/, '')})` : ''}`.trimEnd();
+    case 'languages':
+      return `- \`${item.code}\` ${item.nativeName ?? ''}`.trimEnd();
+    case 'currencies':
+      return `- \`${item.code}\``;
+    default:
+      return `- ${JSON.stringify(item)}`;
+  }
+}
+
+/**
  * Fetch one reference dataset.
  *
  * @param {Object} params
@@ -116,7 +138,7 @@ export async function getReferenceData({
       dataset,
       items: response.data,
       count: Array.isArray(response.data) ? response.data.length : 0,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -199,7 +221,7 @@ translated labels; the labels change with \`languageCode\` and the ids do not.`,
       throw new Error("Partner ID is required. Provide 'partnerId' or set PAYWARE_PARTNER_ID.");
     }
     if (!privateKey) {
-      throw new Error("Private key is required. Provide 'privateKey' or set PAYWARE_PRIVATE_KEY.");
+      throw new Error(`Private key is required. Provide 'privateKey' or set ${privateKeyVariable(args.useSandbox ?? true)}.`);
     }
 
     const result = await getReferenceData({
@@ -224,13 +246,9 @@ ${result.error.guidance ? `\n${result.error.guidance}` : ''}
     }
 
     const items = Array.isArray(result.items) ? result.items : [];
-    // Reference rows have no single shape, so render whatever identity-ish and label-ish fields
-    // each one actually has rather than assuming a schema that differs per dataset.
-    const rendered = items.map(item => {
-      const id = item.id ?? item.code ?? item.isoCode ?? item.currencyCode ?? item.iso31661Alpha2;
-      const label = item.name ?? item.description ?? item.label ?? item.translation;
-      return `- ${id !== undefined ? `\`${id}\`` : ''}${label ? ` ${label}` : ''}`.trim();
-    }).join('\n');
+    // Each dataset's own DTO (server ReferenceDataController): the value to pass on, then its label.
+    // This read name/description/label, which none of them has, so every row showed an id alone.
+    const rendered = items.map(item => renderReferenceRow(dataset, item)).join('\n');
 
     return {
       content: [{

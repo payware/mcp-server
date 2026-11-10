@@ -14,7 +14,7 @@ export const getReportRequestsTool = {
     properties: {
       reportId: {
         type: "string",
-        description: "The report unit ID (path) to get execution history for (e.g., '/processedTransactions')",
+        description: "The report id whose runs to list, bare (processedTransactions) or as the path the list returns (/processedTransactions)",
         enum: Object.values(REPORT_TYPES)
       },
       partnerId: {
@@ -42,7 +42,7 @@ export const getReportRequestsTool = {
     }
 
     if (!reportId) {
-      throw new Error("reportId is required. Use one of the available report paths (e.g., '/processedTransactions')");
+      throw new Error("reportId is required: a report id from payware_data_list_reports, e.g. processedTransactions");
     }
 
     try {

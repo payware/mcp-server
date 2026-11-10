@@ -10,13 +10,7 @@ import { READS } from '../../shared/tool-annotations.js';
  * @returns {Object} List of POIs response
  */
 export async function listPOIs({ merchantPartnerId, oauth2Token, useSandbox = true }) {
-  if (!merchantPartnerId) {
-    throw new Error('Merchant Partner ID is required for ISV operations');
-  }
 
-  if (!oauth2Token) {
-    throw new Error('OAuth2 token is required for ISV operations');
-  }
 
   // Get ISV credentials
   const isvPartnerId = getPartnerIdSafe();
@@ -46,7 +40,7 @@ export async function listPOIs({ merchantPartnerId, oauth2Token, useSandbox = tr
       success: true,
       pois: response.data,
       count: Array.isArray(response.data) ? response.data.length : 0,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -93,13 +87,7 @@ POI states: IDLE (no price, no sale running), READY (price set, waiting for a sc
   async handler(args) {
     const { merchantPartnerId, oauth2Token, useSandbox = true } = args;
 
-    if (!merchantPartnerId) {
-      throw new Error("Merchant Partner ID is required for ISV operations");
-    }
 
-    if (!oauth2Token) {
-      throw new Error("OAuth2 token is required for ISV operations");
-    }
 
     const result = await listPOIs({ merchantPartnerId, oauth2Token, useSandbox });
 
@@ -119,7 +107,7 @@ POI states: IDLE (no price, no sale running), READY (price set, waiting for a sc
       return {
         content: [{
           type: "text",
-          text: `📍 **POIs Retrieved (ISV -> Merchant: ${merchantPartnerId})**
+          text: `📍 **POIs Retrieved ${merchantPartnerId ? `(ISV -> Merchant: ${merchantPartnerId})` : ''}**
 
 **Total POIs:** ${result.count}
 
@@ -140,7 +128,7 @@ ${poisList || 'No POIs found for this merchant.'}
           type: "text",
           text: `❌ **Failed to List POIs**
 
-**ISV -> Merchant:** ${getPartnerIdSafe()} -> ${merchantPartnerId}
+${merchantPartnerId ? `**ISV -> Merchant:** ${getPartnerIdSafe()} -> ${merchantPartnerId}` : ''}
 
 **Error Details:**
 - Message: ${result.error.message}

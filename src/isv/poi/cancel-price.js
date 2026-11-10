@@ -14,13 +14,7 @@ export async function cancelPOIPrice({ poiId, merchantPartnerId, oauth2Token, us
     throw new Error('POI ID is required');
   }
 
-  if (!merchantPartnerId) {
-    throw new Error('Merchant Partner ID is required for ISV operations');
-  }
 
-  if (!oauth2Token) {
-    throw new Error('OAuth2 token is required for ISV operations');
-  }
 
   const isvPartnerId = getPartnerIdSafe();
   const privateKey = getPrivateKeySafe(useSandbox);
@@ -45,7 +39,7 @@ export async function cancelPOIPrice({ poiId, merchantPartnerId, oauth2Token, us
 
     return {
       success: true,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -102,8 +96,6 @@ sale completes or expires; the POI accepts the next price meanwhile.
     const { poiId, merchantPartnerId, oauth2Token, useSandbox = true } = args;
 
     if (!poiId) throw new Error("POI ID is required");
-    if (!merchantPartnerId) throw new Error("Merchant Partner ID is required");
-    if (!oauth2Token) throw new Error("OAuth2 token is required");
 
     const result = await cancelPOIPrice({ poiId, merchantPartnerId, oauth2Token, useSandbox });
 
@@ -118,7 +110,7 @@ sale completes or expires; the POI accepts the next price meanwhile.
 
 The POI is now ready to accept a new price.
 
-**ISV -> Merchant:** ${getPartnerIdSafe()} -> ${merchantPartnerId}
+${merchantPartnerId ? `**ISV -> Merchant:** ${getPartnerIdSafe()} -> ${merchantPartnerId}` : ''}
 **Request ID:** ${result.requestId || 'N/A'}
 **Timestamp:** ${result.timestamp}`
         }]

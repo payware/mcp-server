@@ -37,7 +37,6 @@ export async function processTransaction({
   callbackUrl,
   passbackParams,
   timeToLive = 120,
-  paymentMethod,
   merchantPartnerId,
   oauth2Token,
   idempotencyKey,
@@ -81,7 +80,6 @@ export async function processTransaction({
     ...(shop && { shop }),
     ...(callbackUrl && { callbackUrl }),
     ...(passbackParams && { passbackParams }),
-    ...(paymentMethod && { paymentMethod }),
     trData: {
       amount: amount.toString(),
       currency,
@@ -210,11 +208,6 @@ payware returns on the response is the value to echo back at finalize, unchanged
         type: 'number',
         description: 'Processing window in seconds.',
         default: 120
-      },
-      paymentMethod: {
-        type: 'string',
-        enum: ['A2A', 'CARD_FUNDED', 'BNPL', 'INSTANT_CREDIT'],
-        description: 'Payment method. A2A = direct transfer. CARD_FUNDED = card-linked account. BNPL = buy now pay later. INSTANT_CREDIT = credit line.'
       },
       merchantPartnerId: {
         type: 'string',

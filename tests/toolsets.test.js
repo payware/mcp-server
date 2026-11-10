@@ -77,10 +77,11 @@ describe('filterToolsets', () => {
   });
 
   test('a toolset with no tools for the role is a warning', () => {
-    // Points of interaction are an ISV feature; a merchant asking for them gets told so.
-    const { tools, warnings } = filterToolsets(merchant, 'poi,shops');
+    // Onboarding (invitations and reference data) is an ISV feature; a merchant asking for it gets
+    // told so. (Points of interaction were the example until merchants got their own POI tools.)
+    const { tools, warnings } = filterToolsets(merchant, 'onboarding,shops');
     assert.ok(tools.every(t => toolsetOf(t.name) === 'shops'));
-    assert.match(warnings[0], /toolset poi has no tools for this partner type/);
+    assert.match(warnings[0], /toolset onboarding has no tools for this partner type/);
   });
 });
 

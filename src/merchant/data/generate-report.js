@@ -38,12 +38,12 @@ are outside the Basic plan entirely.`,
       },
       dateFrom: {
         type: "string",
-        description: "Start date for the reporting period (YYYY-MM-DD format). Required for premium reports.",
+        description: "Start date (YYYY-MM-DD). Optional: defaults to today; the WTD, MTD and YTD reports compute their own start.",
         pattern: "^\\d{4}-\\d{2}-\\d{2}$"
       },
       dateTo: {
         type: "string",
-        description: "End date for the reporting period (YYYY-MM-DD format). Required for premium reports.",
+        description: "End date (YYYY-MM-DD). Optional: defaults to today.",
         pattern: "^\\d{4}-\\d{2}-\\d{2}$"
       },
       ignorePagination: {
@@ -91,18 +91,9 @@ are outside the Basic plan entirely.`,
       throw new Error("Partner ID and private key are required. Set PAYWARE_PARTNER_ID and PAYWARE_PRODUCTION_PRIVATE_KEY_PATH environment variables or provide them as parameters.");
     }
 
-    // Check for required date range on premium reports
-    const premiumReports = [
-      REPORT_TYPES.PROCESSED_TRANSACTIONS,
-      REPORT_TYPES.SCHEDULES_LIST,
-      REPORT_TYPES.TRANSACTIONS_PER_PRODUCT,
-      REPORT_TYPES.SALES_PER_PRODUCT,
-      REPORT_TYPES.TRANSACTIONS_PER_WEBPOS
-    ];
-
-    if (premiumReports.includes(reportUnitId) && (!dateFrom || !dateTo)) {
-      throw new Error(`Report "${reportUnitId}" requires dateFrom and dateTo parameters (YYYY-MM-DD format)`);
-    }
+    // No local date requirement: the server defaults an absent date to today, and the WTD, MTD and YTD
+    // reports compute their own start (DataRetrievalService). The tool refused some reports without
+    // dates, which the server accepts.
 
     try {
       const result = await generateReport({

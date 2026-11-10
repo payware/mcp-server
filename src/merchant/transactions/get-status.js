@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
-import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
 import { READS } from '../../shared/tool-annotations.js';
+import { transactionSummary } from '../../shared/transaction-summary.js';
 
 /**
  * Get transaction status from payware API
@@ -35,7 +36,7 @@ export async function getTransactionStatus({ transactionId, partnerId, privateKe
     return {
       success: true,
       transaction: response.data,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -74,6 +75,14 @@ export const getTransactionStatusTool = {
 **Endpoint:** GET /transactions/{transactionId}
 **Use Case:** Check status of ACTIVE transactions only. This endpoint only returns transactions with ACTIVE status.
 **Note:** For transactions with final statuses (CONFIRMED, DECLINED, FAILED, EXPIRED, CANCELLED), use 'payware_operations_get_transaction_history' instead.
+
+⏳ **ACTIVE can outlast \`timeToLive\`. Never infer EXPIRED from the clock.** Once the payer's institution has
+started the payment (it locks the transaction immediately before the money moves, which you do not see),
+the transaction stays ACTIVE past \`timeToLive\` until the money has moved: seconds for an instant or
+internal transfer, days for a deferred one (a transaction created with \`deferredAllowed: true\`). Its
+\`timeToLive\` then stops at the value it had when the payment started. Keep polling, or wait for the
+callback: a transaction is EXPIRED only when payware says so, in the callback or in transaction history,
+and one that is no longer returned here has a final status there.
 
 🛍️ **Product-originated transactions carry a nested \`product\` object.** Since 2026-07-22 the
 presentation fields are grouped under \`product\` rather than sitting flat on the response - the old
@@ -149,7 +158,7 @@ with ERR_FEE_MISMATCH. Echo \`fee\` back unchanged instead.`,
     }
     
     if (!privateKey) {
-      throw new Error("Private key is required. Provide via 'privateKey' parameter or set PAYWARE_PRIVATE_KEY environment variable.");
+      throw new Error(`Private key is required. Provide via 'privateKey' parameter or set ${privateKeyVariable(args.useSandbox ?? true)}.`);
     }
     
     const result = await getTransactionStatus({ transactionId, partnerId, privateKey, useSandbox });
@@ -166,12 +175,7 @@ with ERR_FEE_MISMATCH. Echo \`fee\` back unchanged instead.`,
 **Status:** ${statusInfo.formatted}
 
 **Transaction Details:**
-- ID: ${result.transaction.id || 'N/A'}
-- Type: ${result.transaction.type || 'N/A'}
-- Amount: ${result.transaction.trData ? `${result.transaction.trData.amount} ${result.transaction.trData.currency}` : 'N/A'}
-${result.transaction.paymentMethod ? `- Payment Method: ${result.transaction.paymentMethod}\n` : ''}- Description: ${result.transaction.description || 'N/A'}
-- Created: ${result.transaction.createdAt || 'N/A'}
-- Updated: ${result.transaction.updatedAt || 'N/A'}
+${transactionSummary(result.transaction)}
 
 **Full Response:**
 \`\`\`json
@@ -182,7 +186,7 @@ ${JSON.stringify(result.transaction, null, 2)}
 **Timestamp:** ${result.timestamp}
 
 **Status Meanings:**
-- ⏳ ACTIVE: Active transaction pending processing or finalizing
+- ⏳ ACTIVE: pending - not yet paid, or paid by the payer's institution with the money still moving. It can stay ACTIVE past \`timeToLive\` (seconds for an instant transfer, days with \`deferredAllowed\`), so never treat it as expired from the clock
 
 **Note:** Only ACTIVE transactions are returned by this endpoint. For final statuses (CONFIRMED, DECLINED, FAILED, EXPIRED, CANCELLED), use the transaction history tool.`
         }]

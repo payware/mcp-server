@@ -2,10 +2,10 @@
  * Server information and version tool
  */
 
-import { readFileSync } from 'fs';
 import { getPartnerTypeSafe, getSandboxUrl, getProductionUrl } from '../config/env.js';
 import { getPartnerDisplayInfo, getPartnerConfig } from '../config/partner-types.js';
 import { LOCAL } from '../shared/tool-annotations.js';
+import { PACKAGE_NAME, PACKAGE_VERSION, PACKAGE_DESCRIPTION } from '../config/package-info.js';
 
 /**
  * Get server information tool implementation
@@ -34,14 +34,8 @@ export const getServerInfoTool = {
     const partnerInfo = getPartnerDisplayInfo(partnerType);
     const partnerConfig = getPartnerConfig(partnerType);
 
-    // Read actual package.json for version info
-    let packageInfo = { name: "payware-mcp-server", version: "1.0.0" };
-    try {
-      const packageJson = readFileSync('./package.json', 'utf8');
-      packageInfo = JSON.parse(packageJson);
-    } catch (error) {
-      // Fallback to defaults if package.json not accessible
-    }
+    // This package's own package.json, not the working directory's (which under npx is the user's project).
+    const packageInfo = { name: PACKAGE_NAME, version: PACKAGE_VERSION, description: PACKAGE_DESCRIPTION };
 
     // Detect actual environment
     const detectEnvironment = () => {

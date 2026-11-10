@@ -43,7 +43,7 @@ export async function placementsRequest({ method, path, query, body, binary = fa
       status: response.status,
       data: response.data,
       contentType: response.headers['content-type'],
-      requestId: response.headers['x-request-id']
+      requestId: response.headers['x-correlation-id']
     };
   } catch (error) {
     return apiErrorResult(error);

@@ -2,7 +2,7 @@ import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
-import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
 import { CHANGES, CREATES, READS } from '../../shared/tool-annotations.js';
 
 /**
@@ -14,7 +14,12 @@ import { CHANGES, CREATES, READS } from '../../shared/tool-annotations.js';
  *
  * **payware sends no email.** The API returns an `invitationLink` and the ISV delivers it through
  * its own channels. An assistant that creates an invitation and stops has not finished the job - the
- * link is the deliverable.
+ * link is the deliverable. It is in the create response only: payware stores the invitation token
+ * hashed (IsvInvitationService, FL-195), so no later read returns the link. A lost link is re-issued
+ * in the portal (resend, or the reissue of all pending), which mints a new one and voids the old.
+ *
+ * A completed invitation grants the ISV's OAuth2 token itself: the ISV finds it with
+ * payware_authorization_oauth2_list_tokens and needs no pairing key.
  *
  * **Authenticated as the ISV itself.** There is no merchant to act on behalf of yet, so these calls
  * carry a plain ISV JWT with no `aud`/`sub` on-behalf claims.
@@ -65,7 +70,7 @@ export async function createInvitation({ partnerId, privateKey, useSandbox = tru
     return {
       success: true,
       invitation: response.data,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -96,7 +101,7 @@ export async function listInvitations({ status, page = 0, size = 20, partnerId, 
       totalElements: response.data?.totalElements ?? 0,
       totalPages: response.data?.totalPages ?? 0,
       page: response.data?.number ?? page,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -116,7 +121,7 @@ export async function getInvitation({ invitationId, partnerId, privateKey, useSa
     return {
       success: true,
       invitation: response.data,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -136,7 +141,7 @@ export async function cancelInvitation({ invitationId, partnerId, privateKey, us
     return {
       success: true,
       invitationId,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -164,7 +169,7 @@ function resolveAuth(args) {
   const partnerId = args.partnerId || getPartnerIdSafe();
   const privateKey = args.privateKey || getPrivateKeySafe(args.useSandbox ?? true);
   if (!partnerId) throw new Error("Partner ID is required. Provide 'partnerId' or set PAYWARE_PARTNER_ID.");
-  if (!privateKey) throw new Error("Private key is required. Provide 'privateKey' or set PAYWARE_PRIVATE_KEY.");
+  if (!privateKey) throw new Error(`Private key is required. Provide 'privateKey' or set ${privateKeyVariable(args.useSandbox ?? true)}.`);
   return { partnerId, privateKey, useSandbox: args.useSandbox ?? true };
 }
 
@@ -211,8 +216,12 @@ legal forms are jurisdiction-specific, so fetch them for the merchant's own juri
 or the merchant has already authorized you. Neither is fixed by retrying - list the invitations and
 look at what is already there.
 
-**After the merchant accepts,** you hold an authorization and can obtain the OAuth2 token the
-on-behalf tools need with \`payware_authorization_oauth2_obtain_token\`.`,
+**The link is in this response only.** payware stores the invitation token hashed, so no later read
+(get or list) returns it. Lost it? Resend the invitation in the payware portal (payware emails a new
+link) or re-issue the pending ones there: either mints a new link and the old one stops working.
+
+**After the merchant accepts,** the invitation is COMPLETED and your OAuth2 token for that merchant is
+already GRANTED: get it with \`payware_authorization_oauth2_list_tokens\`. No pairing key is involved.`,
 
   inputSchema: {
     type: 'object',
@@ -290,8 +299,10 @@ ${inv.invitationLink}
 **payware does not send it.** Nothing further happens until the merchant opens this link, so send it
 through your own channel now.
 
-**Then:** once they accept, obtain the OAuth2 token with \`payware_authorization_oauth2_obtain_token\`
-to start acting on their behalf.
+**Keep it now:** this response is the only place payware returns the link.
+
+**Then:** once they accept (the invitation turns COMPLETED), your GRANTED token for them is in
+\`payware_authorization_oauth2_list_tokens\`; use it to act on their behalf.
 
 **Request ID:** ${result.requestId || 'N/A'}
 **Timestamp:** ${result.timestamp}`
@@ -308,8 +319,9 @@ export const listInvitationsTool = {
 **Endpoint:** GET /isv/invitations - paginated
 
 **Use it to answer "what happened to that invitation":** filter by \`PENDING\` to find merchants who
-have not acted yet and may need the link re-sent, or by \`COMPLETED\` to find merchants you can now
-obtain a token for.
+have not acted yet (a new link for them is re-issued in the payware portal; the API returns links only
+at creation), or by \`COMPLETED\` to find merchants whose token
+\`payware_authorization_oauth2_list_tokens\` now returns.
 
 **Statuses:** ${INVITATION_STATUSES.map(s => `\`${s}\``).join(', ')}. Only \`PENDING\` ones can be cancelled.
 
@@ -352,7 +364,7 @@ obtain a token for.
 ${rows || 'No invitations match this filter.'}
 
 **Status meanings:** ⏳ PENDING - link sent, merchant has not acted. ✅ COMPLETED - merchant accepted;
-obtain a token with \`payware_authorization_oauth2_obtain_token\`. ⌛ EXPIRED - the link lapsed; create
+your token for them is GRANTED, see \`payware_authorization_oauth2_list_tokens\`. ⌛ EXPIRED - the link lapsed; create
 a new invitation. 🚫 CANCELLED - withdrawn by you, or by payware because the merchant it was addressed
 to was deleted.
 
@@ -366,12 +378,13 @@ to was deleted.
 export const getInvitationTool = {
   name: 'payware_isv_get_invitation',
   annotations: READS,
-  description: `Get full details of one invitation, including its link and the merchant data it pre-fills.
+  description: `Get full details of one invitation: status, type, expiry and the merchant data it pre-fills.
 
 **Endpoint:** GET /isv/invitations/{invitationId}
 
-**This is how you recover an invitation link** you no longer have - the link is not derivable from
-the id, so re-reading the invitation is the only way to get it back short of creating a new one.
+**It does not return the link.** payware stores the invitation token hashed, so the link exists only in
+the create response. A lost link is re-issued in the payware portal (resend, or re-issue the pending
+ones), which mints a new link and voids the old one.
 
 **404** means no invitation with that id belongs to this ISV. Invitations are scoped to their
 creator, so another ISV's id reads as not-found rather than as forbidden.`,
@@ -404,13 +417,7 @@ creator, so another ISV's id reads as not-found rather than as forbidden.`,
 - Email: ${inv.email}
 - Company: ${inv.companyName || '(not pre-filled)'}
 - Expires: ${inv.expiresAt || 'N/A'}
-
-${inv.invitationLink ? `## 🔗 Invitation link
-
-\`\`\`
-${inv.invitationLink}
-\`\`\`
-` : ''}
+${inv.status === 'COMPLETED' ? '\nThe merchant accepted: your GRANTED token for them is in `payware_authorization_oauth2_list_tokens`.\n' : ''}${inv.status === 'PENDING' ? '\nThe link is not returned here (payware keeps only its hash). If the merchant lost it, re-issue it in the payware portal.\n' : ''}
 **Request ID:** ${result.requestId || 'N/A'}
 **Timestamp:** ${result.timestamp}`
       }]
@@ -432,7 +439,7 @@ existing relationship the merchant revokes the authorization from their portal; 
 to make and is final, so a new invitation cannot restore it.
 
 **Cancel when:** the invitation went to the wrong address, or the deal is off. Not as a way to
-"resend" - create a fresh invitation for that.`,
+"resend": a pending invitation is re-sent in the payware portal, which mints a new link.`,
 
   inputSchema: {
     type: 'object',

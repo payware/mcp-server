@@ -1,1711 +1,500 @@
 /**
- * Advanced Code Generator for payware MCP
+ * Code examples for the payware API: payware_generate_code_example and payware_generate_documentation.
  *
- * Comprehensive code generation system supporting:
- * - 8 Programming Languages: Python, Node.js, PHP, Java, C#, Go, Ruby, cURL
- * - 16+ Frameworks: Django, FastAPI, Flask, Express, NestJS, Laravel, Spring Boot, etc.
- * - 60+ Operations: Full coverage across merchant, ISV, and payment institution partner types
- *
- * Features:
- * - Framework-specific code generation with proper patterns
- * - JWT authentication with contentSha256 (SHA-256) for all languages
- * - Production-ready error handling and validation
- * - Comprehensive documentation generation
- * - Multi-partner type support with operation-specific logic
- *
- * Self-contained implementation without complex dependencies for reliable operation.
+ * Every operation below is a route the server has, with the body its controller reads (verified against
+ * server/ TransactionController, TransactionHistoryController, ApiProductController, AudioController,
+ * Oauth2Controller and ReportApiController, and the FI and merchant validation services, 2026-11-10).
+ * src/tools/code-example-languages.js turns one into a complete program in Python, Node.js, PHP, Java,
+ * C# or curl, signed as the server's JWT filter expects. An ISV's call is made on behalf of a merchant,
+ * except the /oauth2 endpoints, which the ISV signs for itself.
  */
 
-import { CommonTemplates } from '../utils/code-examples/common/helpers.js';
-import { AuthGenerators } from '../utils/code-examples/common/auth-examples.js';
-import { createDeterministicJSON } from '../core/utils/json-serializer.js';
 import { LOCAL } from '../shared/tool-annotations.js';
+import { LANGUAGES, renderRequest, renderAuthentication } from './code-example-languages.js';
+
+const ALL = ['merchant', 'isv', 'payment_institution'];
+const MERCHANT_AND_ISV = ['merchant', 'isv'];
+
+const TRANSACTION = { transactionId: 'pw7e4rCToG' };
+const PRODUCT = { productId: 'pr7e4rCToG' };
+const AUDIO = { productId: 'pr7e4rCToG', audioId: '7' };
+const TOKEN = { token: 'kTnR5wQ2vYb8sLcH' };
+const REPORT_REQUEST = { requestId: '1a81220c-2e38-4759-b067-c81abf176295' };
 
 /**
- * Advanced payware Code Generator
- *
- * Main class providing comprehensive code generation capabilities
- * across multiple languages, frameworks, and partner types.
+ * The payer institution's process body: no account (payware does not keep the payer's; FIValidationService
+ * requires one only from the payee), and the currency and reasonL1 an institution must send.
  */
-class AdvancedCodeGenerator {
-  constructor() {
-    // Top 6 most used languages for practical code generation
-    this.supportedLanguages = [
-      'python', 'nodejs', 'php', 'java', 'csharp', 'curl'
-    ];
+const INSTITUTION_PROCESS_BODY = {
+  friendlyName: 'Jane Doe',
+  trData: {
+    amount: '112.00',
+    currency: 'EUR',
+    reasonL1: 'Payment'
+  }
+};
 
+/**
+ * The institution flow of the execution lock (server docs/execution-lock.md, kb
+ * tech/financial-institution/api, Finalize Transaction). `description` goes into the generated code as
+ * a comment; `notes` is prose for the page around the code.
+ */
+const FINALIZE_STEPS = [
+  {
+    name: 'process_transaction',
+    title: 'Step 1 - process the transaction',
+    description: 'Process the transaction as the payer institution',
+    method: 'POST',
+    path: '/transactions/{transactionId}',
+    params: TRANSACTION,
+    body: INSTITUTION_PROCESS_BODY,
+    notes: 'The response carries `fee` (the Fee Leg, payware\'s fee plus VAT), `feeVat`, `feeAccount` (payware\'s fee account with your institution) and, only when the merchant allowed a deferred transfer, `deferredAllowed: true`. Present both payees and the total `amount` to the payer, take one strong customer authentication for both transfers, and reserve the amount.'
+  },
+  {
+    name: 'send_executing',
+    title: 'Step 2 - EXECUTING, immediately before money moves',
+    description: 'Lock the transaction with EXECUTING before money moves',
+    method: 'PATCH',
+    path: '/transactions/{transactionId}',
+    params: TRANSACTION,
+    body: {
+      status: 'EXECUTING',
+      amount: '112.00',
+      currency: 'EUR',
+      fee: '1.34',
+      transferType: 'INSTANT'
+    },
+    notes: 'Send it within 5 seconds of the payer\'s approval. Echo `amount`, `currency` and `fee` from the process response unchanged (never recompute or re-round `fee`: `ERR_FEE_MISMATCH`), and name the `transferType`: `INSTANT`, `INTERNAL`, or `DEFERRED` only when the process response carried `deferredAllowed: true`. payware runs every check now and locks the transaction: it no longer expires, and payware will not refuse its `CONFIRMED` or `FAILED` for reasons of its own. **If payware refuses, move no money and release the reservation.** Repeating the identical `EXECUTING` after a timeout is answered with the stored result. Then execute the Merchant Leg (`amount` minus `fee`, to the payee, the transaction ID as remittance information); for `DEFERRED`, send the Fee Leg (`fee`, to `feeAccount`) together with it.'
+  },
+  {
+    name: 'send_confirmed',
+    title: 'Step 3 - CONFIRMED, once the Merchant Leg has completed',
+    description: 'Report CONFIRMED once the Merchant Leg has completed',
+    method: 'PATCH',
+    path: '/transactions/{transactionId}',
+    params: TRANSACTION,
+    body: {
+      status: 'CONFIRMED'
+    },
+    notes: 'Send it only once the Merchant Leg has completed: `INSTANT`, on the receiving bank\'s confirmation of completion; `INTERNAL`, when the merchant\'s account is credited; `DEFERRED`, when the transfer has settled to the merchant\'s account. A payer waiting at a till should not wait more than 15 seconds for it. After `EXECUTING` the status alone is enough; an `amount`, `currency`, `fee` or `transferType` you repeat must equal the lock (`ERR_EXECUTION_MISMATCH`). For `INSTANT` and `INTERNAL`, execute the Fee Leg after payware has accepted `CONFIRMED`. `CONFIRMED` without a prior `EXECUTING` is refused with `409 ERR_NOT_EXECUTING`. A lock left open is flagged to payware support after 60 seconds (`INSTANT`, `INTERNAL`) or two TARGET2 business days (`DEFERRED`), and payware then asks you for the outcome: it never closes a lock itself.'
+  },
+  {
+    name: 'send_failed',
+    title: 'Or step 3 - FAILED, if the Merchant Leg was rejected',
+    description: 'Report FAILED when the Merchant Leg was rejected',
+    method: 'PATCH',
+    path: '/transactions/{transactionId}',
+    params: TRANSACTION,
+    body: {
+      status: 'FAILED',
+      statusMessage: 'Merchant Leg rejected'
+    },
+    notes: 'Send it instead of `CONFIRMED`. After an `INSTANT` or `INTERNAL` lock the Fee Leg was never executed: do not execute it. After a `DEFERRED` lock, add `feeLegOutcome`: `RETURNED` once you have returned the Fee Leg to the payer, `NOT_EXECUTED` if it never left (`ERR_MISSING_FEE_LEG_OUTCOME` without it).'
+  }
+];
 
-    this.partnerTypes = ['merchant', 'isv', 'payment_institution'];
-
-    this.operationDefinitions = {
-      // Transaction operations
-      create_transaction: {
-        description: 'Create a new payment transaction',
-        endpoint: '/transactions',
-        method: 'POST',
-        partnerTypes: ['merchant', 'isv', 'payment_institution'],
-        sampleBody: {
-          trData: {
-            amount: '25.50',
-            currency: 'EUR',
-            reasonL1: 'Payment for services',
-            reasonL2: 'Invoice #12345'
-          },
-          trOptions: {
-            type: 'PLAIN',
-            timeToLive: 120
-          }
+/**
+ * Every operation. `base` is 'api' unless noted: 'host' for /oauth2 (served outside /api), 'production'
+ * for data retrieval (sandbox lists no reports and runs none, ReportApiController).
+ */
+const OPERATIONS = {
+  create_transaction: {
+    description: 'Create a payment transaction',
+    method: 'POST',
+    path: '/transactions',
+    partnerTypes: ALL,
+    body: {
+      trData: { amount: '25.50', currency: 'EUR', reasonL1: 'Payment for services', reasonL2: 'Invoice 12345' },
+      trOptions: { type: 'QR', timeToLive: 120 }
+    },
+    byPartner: {
+      // FIValidationService.validateGenerateTransactionRequest: role, friendlyName, and an account only as
+      // the payee (DST).
+      payment_institution: {
+        description: 'Create a transaction as the payer institution (role SRC)',
+        body: {
+          role: 'SRC',
+          friendlyName: 'Jane Doe',
+          trData: { amount: '25.50', currency: 'EUR', reasonL1: 'Payment' },
+          trOptions: { type: 'QR', timeToLive: 300 }
         }
-      },
-
-      get_transaction_status: {
-        description: 'Get transaction status and details',
-        endpoint: '/transactions/{id}',
-        method: 'GET',
-        partnerTypes: ['merchant', 'isv', 'payment_institution'],
-        sampleBody: null
-      },
-
-      process_transaction: {
-        description: 'Process a pending transaction',
-        endpoint: '/transactions/{id}',
-        method: 'POST',
-        partnerTypes: ['merchant', 'payment_institution'],
-        sampleBody: {
-          account: 'MERCHANT_ACCOUNT',
-          friendlyName: 'Your Business Name'
-        }
-      },
-
-      cancel_transaction: {
-        description: 'Cancel a pending transaction',
-        endpoint: '/transactions/{id}',
-        method: 'PATCH',
-        partnerTypes: ['merchant', 'isv', 'payment_institution'],
-        sampleBody: {
-          status: 'CANCELLED',
-          statusMessage: 'Cancelled by user request'
-        }
-      },
-
-      // Product operations
-      create_product: {
-        description: 'Create a new product',
-        endpoint: '/products',
-        method: 'POST',
-        partnerTypes: ['merchant', 'isv'],
-        sampleBody: {
-          name: 'Premium Service',
-          shortDescription: 'High-quality premium service offering',
-          prData: {
-            type: 'ITEM',
-            regularPrice: '49.99',
-            currency: 'EUR',
-            timeToLive: 86400
-          },
-          prOptions: {
-            imageUrl: 'https://example.com/product-image.jpg',
-            category: 'services'
-          }
-        }
-      },
-
-      get_product: {
-        description: 'Get product details',
-        endpoint: '/products/{id}',
-        method: 'GET',
-        partnerTypes: ['merchant', 'isv'],
-        sampleBody: null
-      },
-
-      list_products: {
-        description: 'List all products',
-        endpoint: '/products',
-        method: 'GET',
-        partnerTypes: ['merchant', 'isv'],
-        sampleBody: null,
-        queryParams: {
-          limit: 20,
-          offset: 0,
-          status: 'active'
-        }
-      },
-
-      // OAuth2 operations (ISV only). Plural /tokens, JSON body with camelCase fields, no scope
-      // parameter - and these endpoints are served from the host root, not under /api. The singular
-      // paths this used to describe (/oauth2/token, /oauth2/token/info) do not exist.
-      obtain_token: {
-        description: 'Request an OAuth2 token for a merchant (PENDING until the merchant grants it)',
-        endpoint: '/oauth2/tokens',
-        method: 'POST',
-        partnerTypes: ['isv'],
-        sampleBody: {
-          grantType: 'client_credentials',
-          clientId: 'MERCHANT_PARTNER_ID',
-          clientSecret: 'BASE64_ENCODED_MERCHANT_SECRET'
-        }
-      },
-
-      get_token_info: {
-        description: 'Get the status of one token (PENDING / GRANTED / REVOKED)',
-        endpoint: '/oauth2/tokens/{token}',
-        method: 'GET',
-        partnerTypes: ['isv'],
-        sampleBody: null
-      },
-
-      rotate_token: {
-        description: 'Rotate a token credential, keeping the merchant authorization it was granted under',
-        endpoint: '/oauth2/tokens/{token}/rotate',
-        method: 'POST',
-        partnerTypes: ['isv'],
-        sampleBody: null
-      },
-
-      // Data operations
-      generate_report: {
-        description: 'Generate a data report',
-        endpoint: '/data/reports',
-        method: 'POST',
-        partnerTypes: ['merchant', 'isv', 'payment_institution'],
-        sampleBody: {
-          reportType: 'TRANSACTION_SUMMARY',
-          dateRange: {
-            startDate: '2024-01-01T00:00:00Z',
-            endDate: '2024-12-31T23:59:59Z'
-          },
-          filters: {
-            status: ['COMPLETED'],
-            currency: 'EUR'
-          },
-          format: 'JSON'
-        }
-      },
-
-      get_report_status: {
-        description: 'Get status of a generated report',
-        endpoint: '/data/reports/{id}',
-        method: 'GET',
-        partnerTypes: ['merchant', 'isv', 'payment_institution'],
-        sampleBody: null
-      },
-
-
-      // Soundbites (Payment Institution only)
-      register_audio: {
-        description: 'Register audio file for a product',
-        endpoint: '/products/{id}/audios/upload',
-        method: 'POST',
-        partnerTypes: ['merchant', 'isv'],
-        contentType: 'multipart/form-data',
-        sampleBody: {
-          file: '@/path/to/audio.mp3'
-        }
-      },
-
-      get_audios: {
-        description: 'Get all audio files for a product',
-        endpoint: '/products/{id}/audios',
-        method: 'GET',
-        partnerTypes: ['merchant', 'isv'],
-        sampleBody: null
-      },
-
-      get_audio: {
-        description: 'Get specific audio file details',
-        endpoint: '/products/{id}/audios/{audioId}',
-        method: 'GET',
-        partnerTypes: ['merchant', 'isv'],
-        sampleBody: null
-      },
-
-      update_audio: {
-        description: 'Update audio file information',
-        endpoint: '/products/{id}/audios/{audioId}',
-        method: 'PATCH',
-        partnerTypes: ['merchant', 'isv'],
-        sampleBody: {
-          title: 'Updated Audio Title',
-          productId: 'pr_new_product_789'
-        }
-      },
-
-      delete_audio: {
-        description: 'Delete audio file',
-        endpoint: '/products/{id}/audios/{audioId}',
-        method: 'DELETE',
-        partnerTypes: ['merchant', 'isv'],
-        sampleBody: null
-      },
-
-      // Authentication (all partners)
-      authentication: {
-        description: 'JWT authentication setup',
-        endpoint: 'N/A - Authentication Helper',
-        method: 'N/A',
-        partnerTypes: ['merchant', 'isv', 'payment_institution'],
-        sampleBody: null
       }
-    };
+    }
+  },
+  get_transaction_status: {
+    description: 'Get a pending transaction',
+    method: 'GET',
+    path: '/transactions/{transactionId}',
+    params: TRANSACTION,
+    partnerTypes: ALL
+  },
+  process_transaction: {
+    description: 'Process a transaction',
+    method: 'POST',
+    path: '/transactions/{transactionId}',
+    params: TRANSACTION,
+    partnerTypes: ALL,
+    body: { trData: { amount: '25.50', currency: 'EUR', reasonL1: 'Payment' } },
+    byPartner: {
+      payment_institution: { description: 'Process a transaction as the payer institution', body: INSTITUTION_PROCESS_BODY }
+    }
+  },
+  cancel_transaction: {
+    description: 'Cancel a transaction you created, before it is processed',
+    method: 'PATCH',
+    path: '/transactions/{transactionId}',
+    params: TRANSACTION,
+    partnerTypes: ALL,
+    body: { status: 'CANCELLED', statusMessage: 'Cancelled by the customer' }
+  },
+  // The institution's finalize (server docs/execution-lock.md): one route, PATCH /transactions/{id}, sent
+  // twice around the money movement. The example is the whole flow, so it carries its steps.
+  finalize_transaction: {
+    description: 'Finalize a transaction as the payer\'s institution: EXECUTING before money moves, then CONFIRMED or FAILED',
+    method: 'PATCH',
+    path: '/transactions/{transactionId}',
+    params: TRANSACTION,
+    partnerTypes: ['payment_institution'],
+    steps: FINALIZE_STEPS
+  },
+  get_transaction_history: {
+    description: 'Get a transaction in a final status',
+    method: 'GET',
+    path: '/transactions-history/{transactionId}',
+    params: TRANSACTION,
+    partnerTypes: ALL
+  },
+
+  create_product: {
+    description: 'Create a product',
+    method: 'POST',
+    path: '/products',
+    partnerTypes: MERCHANT_AND_ISV,
+    // ProductRequest: the flags are the strings TRUE and FALSE, and a product is created inactive unless
+    // active is TRUE. ProductData.timeToLive is a string of seconds.
+    body: {
+      name: 'Premium Service',
+      shortDescription: 'A one-hour consultation',
+      active: 'TRUE',
+      prData: { type: 'ITEM', regularPrice: '49.99', currency: 'EUR', timeToLive: '86400' },
+      prOptions: { imageUrl: 'https://example.com/product.png' }
+    }
+  },
+  get_product: {
+    description: 'Get a product',
+    method: 'GET',
+    path: '/products/{productId}',
+    params: PRODUCT,
+    partnerTypes: MERCHANT_AND_ISV
+  },
+  list_products: {
+    description: 'List the products',
+    method: 'GET',
+    path: '/products',
+    partnerTypes: MERCHANT_AND_ISV
+  },
+  update_product: {
+    description: 'Update a product',
+    method: 'PATCH',
+    path: '/products/{productId}',
+    params: PRODUCT,
+    partnerTypes: MERCHANT_AND_ISV,
+    // The whole product, not only what changes: ProductRequest and ProductData give a left-out field a
+    // @Builder.Default value ("FALSE", ITEM, UTC, 86400) that the update then prefers over the stored one,
+    // so a partial body switches the product off and resets it (a server defect). Read it first
+    // (get_product) and send every field, changed or not.
+    body: {
+      name: 'Premium Service',
+      shortDescription: 'A ninety-minute consultation',
+      active: 'TRUE',
+      shippable: 'FALSE',
+      quickPay: 'FALSE',
+      prData: { type: 'ITEM', regularPrice: '69.99', currency: 'EUR', overlapPriority: 'LOWEST', timeZone: 'Europe/Sofia', timeToLive: '86400' },
+      prOptions: { imageUrl: 'https://example.com/product.png' }
+    }
+  },
+  delete_product: {
+    description: 'Delete a product',
+    method: 'DELETE',
+    path: '/products/{productId}',
+    params: PRODUCT,
+    partnerTypes: MERCHANT_AND_ISV
+  },
+  register_audio: {
+    description: 'Upload a soundbite audio file for a product',
+    method: 'POST',
+    path: '/products/{productId}/audios/upload',
+    params: PRODUCT,
+    partnerTypes: MERCHANT_AND_ISV,
+    // AudioController: multipart/form-data with one part, file. A multipart upload carries no content hash.
+    multipart: { field: 'file', param: 'audioPath', sample: 'jingle.mp3' }
+  },
+  get_audios: {
+    description: 'List the audio files of a product',
+    method: 'GET',
+    path: '/products/{productId}/audios',
+    params: PRODUCT,
+    partnerTypes: MERCHANT_AND_ISV
+  },
+  get_audio: {
+    description: 'Get an audio file of a product',
+    method: 'GET',
+    path: '/products/{productId}/audios/{audioId}',
+    params: AUDIO,
+    partnerTypes: MERCHANT_AND_ISV
+  },
+  update_audio: {
+    description: 'Rename an audio file',
+    method: 'PATCH',
+    path: '/products/{productId}/audios/{audioId}',
+    params: AUDIO,
+    partnerTypes: MERCHANT_AND_ISV,
+    // Moving an audio to another product is POST .../{audioId}/transfer, not this.
+    body: { title: 'Jingle' }
+  },
+  delete_audio: {
+    description: 'Delete an audio file',
+    method: 'DELETE',
+    path: '/products/{productId}/audios/{audioId}',
+    params: AUDIO,
+    partnerTypes: MERCHANT_AND_ISV
+  },
+
+  obtain_token: {
+    description: 'Request an OAuth2 token for a merchant, PENDING until the merchant grants it',
+    method: 'POST',
+    path: '/oauth2/tokens',
+    base: 'host',
+    partnerTypes: ['isv'],
+    // Oauth2RequestToken: clientId is the merchant's partner id, clientSecret the Base64 pairing key it gave you.
+    body: { grantType: 'client_credentials', clientId: 'PZAYNMVE', clientSecret: 'YVlQMkxOdXQ0Y2RDQUdaYk5GQVA3VkpqMmxlQ0x1Z20=' }
+  },
+  get_token_info: {
+    description: 'Get the status of an OAuth2 token',
+    method: 'GET',
+    path: '/oauth2/tokens/{token}',
+    params: TOKEN,
+    base: 'host',
+    partnerTypes: ['isv']
+  },
+  rotate_token: {
+    description: 'Rotate an OAuth2 token, keeping the merchant authorization it was granted under',
+    method: 'POST',
+    path: '/oauth2/tokens/{token}/rotate',
+    params: TOKEN,
+    base: 'host',
+    partnerTypes: ['isv']
+  },
+
+  list_reports: {
+    description: 'List the reports you may run',
+    method: 'GET',
+    path: '/data-retrieval/reports',
+    base: 'production',
+    partnerTypes: ALL
+  },
+  generate_report: {
+    description: 'Run a report',
+    method: 'POST',
+    path: '/data-retrieval',
+    base: 'production',
+    partnerTypes: ALL,
+    // DataRetrievalRequest: reportUnitId is the bare id (^[A-Za-z0-9_-]{1,64}$), the last segment of a
+    // path list_reports returns; dates as yyyy-MM-dd.
+    body: { reportUnitId: 'processedTransactions', dateFrom: '2026-10-01', dateTo: '2026-10-31', timeZone: 'Europe/Sofia' }
+  },
+  get_report_status: {
+    description: 'Get the status of a report request',
+    method: 'GET',
+    path: '/data-retrieval/request/{requestId}/status',
+    params: REPORT_REQUEST,
+    base: 'production',
+    partnerTypes: ALL
+  },
+  export_report: {
+    description: 'Export a finished report',
+    method: 'POST',
+    path: '/data-retrieval/request/{requestId}/export/{outputFormat}',
+    // ReportOutputFormat: pdf, xls, xlsx, rtf, csv, html, xml, docx, odt, ods.
+    params: { ...REPORT_REQUEST, outputFormat: 'pdf' },
+    base: 'production',
+    partnerTypes: ALL
+  },
+
+  authentication: {
+    description: 'JWT authentication',
+    partnerTypes: ALL
+  }
+};
+
+const CATEGORY = {
+  authentication: 'authentication',
+  obtain_token: 'oauth2', get_token_info: 'oauth2', rotate_token: 'oauth2',
+  list_reports: 'reports', generate_report: 'reports', get_report_status: 'reports', export_report: 'reports',
+  register_audio: 'audio', get_audios: 'audio', get_audio: 'audio', update_audio: 'audio', delete_audio: 'audio'
+};
+const categoryOf = operation => CATEGORY[operation] ?? (operation.includes('product') ? 'products' : 'transactions');
+
+/** The route as an integrator reads it: /oauth2 at the host root, everything else under /api. */
+const routeOf = def => `${def.method} ${def.base === 'host' ? '' : '/api'}${def.path}`;
+
+const FENCE = { nodejs: 'javascript', curl: 'bash' };
+const fenceOf = language => FENCE[language] ?? language;
+
+class CodeExampleGenerator {
+  constructor() {
+    this.supportedLanguages = LANGUAGES;
+    this.partnerTypes = ALL;
+    this.operationDefinitions = OPERATIONS;
   }
 
-  /**
-   * Generate comprehensive code example
-   */
-  generateExample(operation, language = 'python', partnerType = 'merchant', options = {}) {
-    const {
-      includeComments = true,
-      includeErrorHandling = true
-    } = options;
-
-    // Validate inputs
-    const validation = this.validateInputs(operation, language, partnerType);
-    if (!validation.valid) {
-      throw new Error(validation.error);
-    }
-
-    try {
-      // Generate standard example for the operation
-      return this.generateStandardExample(operation, language, partnerType, {
-        includeComments,
-        includeErrorHandling
-      });
-
-    } catch (error) {
-      throw new Error(`Code generation failed: ${error.message}`);
-    }
+  /** An operation's definition for one partner type, with what differs for it applied over it. */
+  definitionFor(operation, partnerType) {
+    const { byPartner, ...def } = this.operationDefinitions[operation];
+    const merged = { name: operation, base: 'api', params: {}, body: null, ...def, ...(byPartner?.[partnerType] ?? {}) };
+    // An ISV acts for a merchant everywhere except /oauth2, where it signs for itself.
+    merged.onBehalf = partnerType === 'isv' && merged.base !== 'host';
+    return merged;
   }
 
-  /**
-   * Generate standard code example
-   */
-  generateStandardExample(operation, language, partnerType, options) {
-    const opDef = this.operationDefinitions[operation];
-
-    // Handle authentication specially
-    if (operation === 'authentication') {
-      return this.generateAuthenticationExample(language, partnerType, options);
-    }
-
-    // Generate operation-specific code for supported languages
-    switch (language) {
-      case 'python':
-        return this.generatePythonExample(operation, opDef, partnerType, options);
-      case 'nodejs':
-        return this.generateNodeJSExample(operation, opDef, partnerType, options);
-      case 'php':
-        return this.generatePHPExample(operation, opDef, partnerType, options);
-      case 'java':
-        return this.generateJavaExample(operation, opDef, partnerType, options);
-      case 'csharp':
-        return this.generateCSharpExample(operation, opDef, partnerType, options);
-      case 'curl':
-        return this.generateCurlExample(operation, opDef, partnerType, options);
-      default:
-        throw new Error(`Unsupported language: ${language}`);
-    }
-  }
-
-  /**
-   * Generate authentication example using AuthGenerators
-   */
-  generateAuthenticationExample(language, partnerType, options) {
-    const AuthGen = AuthGenerators[language];
-    if (!AuthGen) {
-      throw new Error(`No authentication generator for language: ${language}`);
-    }
-    const generator = new AuthGen();
-    const envTemplate = generator.getEnvironmentTemplate(partnerType, options);
-    const depsTemplate = generator.getDependenciesTemplate(options);
-    const authTemplate = generator.getAuthTemplate(partnerType, options);
-
-    return this.wrapCompleteExample(
-      `${envTemplate}\n\n${depsTemplate}\n\n${authTemplate}`,
-      'Authentication Setup',
-      language,
-      partnerType,
-      options
-    );
-  }
-
-  /**
-   * Generate Python code example
-   */
-  generatePythonExample(operation, opDef, partnerType, options) {
-    const { includeComments, includeErrorHandling } = options;
-    const needsId = opDef.endpoint.includes('{id}');
-
-    const code = `${includeComments ? `# ${opDef.description} - Python Implementation` : ''}
-import requests
-import json
-import os
-from datetime import datetime
-
-def ${operation.replace('-', '_')}_example(${needsId ? "resource_id='example_123', " : ''}use_sandbox=True):
-    ${includeComments ? `"""${opDef.description}"""` : ''}
-
-    ${includeComments ? '# API Configuration' : ''}
-    base_url = os.getenv('PAYWARE_BASE_URL', 'https://sandbox.payware.eu/api')
-    endpoint = "${opDef.endpoint}"${needsId ? '.replace("{id}", resource_id)' : ''}
-    url = f"{base_url}{endpoint}"
-
-    ${opDef.queryParams ? `${includeComments ? '# Query parameters' : ''}
-    params = ${JSON.stringify(opDef.queryParams, null, 4)}
-    if params:
-        url += '?' + '&'.join([f"{k}={v}" for k, v in params.items()])` : ''}
-
-    ${opDef.sampleBody ? `${includeComments ? '# Request payload' : ''}
-    payload = ${JSON.stringify(opDef.sampleBody, null, 4)}
-
-    ${includeComments ? '# CRITICAL: Use deterministic JSON serialization for both SHA-256 hash and HTTP body' : ''}
-    ${includeComments ? '# This prevents ERR_INVALID_CONTENT_HASH authentication errors' : ''}
-    ${includeComments ? '# Import: from core.utils.json_serializer import create_deterministic_json' : ''}
-    json_body = json.dumps(payload, sort_keys=True, separators=(',', ':'))` : `${includeComments ? '# No request body required' : ''}`}
-
-    ${includeComments ? '# Authentication' : ''}
-    token = create_jwt_token(${opDef.sampleBody ? 'json_body' : 'None'})
-
-    ${includeComments ? '# Headers' : ''}
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json',
-        'Api-Version': '1'
-    }
-
-    ${includeErrorHandling ? 'try:' : ''}
-        ${includeComments ? '# Execute API request' : ''}
-        ${includeComments && opDef.sampleBody ? '# CRITICAL: Send the EXACT same json_body used for JWT contentSha256' : ''}
-        response = requests.${opDef.method.toLowerCase()}(
-            url,
-            headers=headers${opDef.sampleBody ? ',\n            data=json_body' : ''}
-        )
-
-        ${includeErrorHandling ? `if response.status_code == 200:
-            result = response.json()
-            print(f"✅ {opDef.description} successful")
-            print(json.dumps(result, indent=2))
-            return result
-        else:
-            print(f"❌ Request failed: {response.status_code}")
-            print(response.text)
-            return None
-
-    except requests.RequestException as e:
-        print(f"❌ Network error: {e}")
-        return None
-    except Exception as e:
-        print(f"❌ Unexpected error: {e}")
-        return None` : `response.raise_for_status()
-        result = response.json()
-        ${includeComments ? `print(f"✅ ${opDef.description} completed")` : ''}
-        return result`}
-
-def create_jwt_token(json_body_string=None):
-    ${includeComments ? '"""Create JWT token for payware API authentication' : ''}
-    ${includeComments ? '    ' : ''}
-    ${includeComments ? '    CRITICAL: json_body_string must be the exact same string' : ''}
-    ${includeComments ? '    that will be sent in the HTTP request body to ensure' : ''}
-    ${includeComments ? '    SHA-256 hash consistency and prevent ERR_INVALID_CONTENT_HASH errors.' : ''}
-    ${includeComments ? '    """' : ''}
-    ${includeComments ? '    import json' : ''}
-    ${includeComments ? '    import jwt  # PyJWT library' : ''}
-    ${includeComments ? '    import hashlib' : ''}
-    ${includeComments ? '    import base64' : ''}
-    ${includeComments ? '    from datetime import datetime' : ''}
-    ${includeComments ? '    ' : ''}
-    ${includeComments ? '    # Partner configuration' : ''}
-    ${includeComments ? '    partner_id = os.getenv("PAYWARE_PARTNER_ID", "your_partner_id")' : ''}
-    ${includeComments ? '    private_key = os.getenv("PAYWARE_PRIVATE_KEY", "your_private_key_pem")' : ''}
-    ${includeComments ? '    ' : ''}
-    ${includeComments ? '    # JWT header' : ''}
-    ${includeComments ? '    headers = {"alg": "RS256", "typ": "JWT"}' : ''}
-    ${includeComments ? '    ' : ''}
-    ${includeComments ? '    # Add contentSha256 to header if request body exists' : ''}
-    ${includeComments ? '    if json_body_string:' : ''}
-    ${includeComments ? '        # CRITICAL: Calculate SHA-256 from exact same string sent in HTTP request' : ''}
-    ${includeComments ? '        sha256_hash = hashlib.sha256(json_body_string.encode("utf-8")).digest()' : ''}
-    ${includeComments ? '        headers["contentSha256"] = base64.b64encode(sha256_hash).decode("ascii")' : ''}
-    ${includeComments ? '    ' : ''}
-    ${includeComments ? '    # JWT payload' : ''}
-    ${includeComments ? '    payload = {' : ''}
-    ${includeComments ? '        "iss": partner_id,' : ''}
-    ${includeComments ? '        "aud": "https://payware.eu",' : ''}
-    ${includeComments ? '        "iat": int(datetime.now().timestamp())' : ''}
-    ${includeComments ? '    }' : ''}
-    ${includeComments ? '    ' : ''}
-    ${includeComments ? '    # Generate JWT token' : ''}
-    ${includeComments ? '    return jwt.encode(payload, private_key, algorithm="RS256", headers=headers)' : ''}
-    ${includeComments ? '' : 'pass  # See authentication examples for complete implementation'}
-
-${includeComments ? '# Example usage' : ''}
-if __name__ == "__main__":
-    result = ${operation.replace('-', '_')}_example()
-    if result:
-        ${includeComments ? 'print("Operation completed successfully")' : ''}
-        ${this.getResultProcessingExample(operation, 'python', includeComments)}`;
-
-    return this.wrapCodeExample(code, opDef.description, 'python', partnerType, options);
-  }
-
-  /**
-   * Generate Node.js code example
-   */
-  generateNodeJSExample(operation, opDef, partnerType, options) {
-    const { includeComments, includeErrorHandling } = options;
-    const needsId = opDef.endpoint.includes('{id}');
-
-    const code = `${includeComments ? `// ${opDef.description} - Node.js Implementation` : ''}
-const axios = require('axios');
-require('dotenv').config();
-
-async function ${operation.replace('-', '_')}Example(${needsId ? "resourceId = 'example_123', " : ''}useSandbox = true) {
-    ${includeComments ? `/**
-     * ${opDef.description}
-     */` : ''}
-
-    ${includeComments ? '// API Configuration' : ''}
-    const baseUrl = process.env.PAYWARE_BASE_URL || 'https://sandbox.payware.eu/api';
-    const endpoint = "${opDef.endpoint}"${needsId ? '.replace("{id}", resourceId)' : ''};
-    let url = \`\${baseUrl}\${endpoint}\`;
-
-    ${opDef.queryParams ? `${includeComments ? '// Query parameters' : ''}
-    const params = ${JSON.stringify(opDef.queryParams, null, 4)};
-    const searchParams = new URLSearchParams(params);
-    url += \`?\${searchParams.toString()}\`;` : ''}
-
-    ${opDef.sampleBody ? `${includeComments ? '// Request payload' : ''}
-    const payload = ${JSON.stringify(opDef.sampleBody, null, 4)};
-
-    ${includeComments ? '// CRITICAL: Use deterministic JSON serialization for both SHA-256 and HTTP body' : ''}
-    ${includeComments ? '// This prevents ERR_INVALID_CONTENT_HASH authentication errors' : ''}
-    ${includeComments ? '// Import: const { createDeterministicJSON } = require(\'./core/utils/json-serializer\');' : ''}
-    const jsonBody = JSON.stringify(payload, Object.keys(payload).sort());` : `${includeComments ? '// No request body required' : ''}`}
-
-    ${includeComments ? '// Authentication' : ''}
-    const token = createJWTToken(${opDef.sampleBody ? 'jsonBody' : 'null'});
-
-    ${includeComments ? '// Headers' : ''}
-    const headers = {
-        'Authorization': \`Bearer \${token}\`,
-        'Content-Type': 'application/json',
-        'Api-Version': '1'
-    };
-
-    ${includeErrorHandling ? 'try {' : ''}
-        ${includeComments ? '// Execute API request' : ''}
-        ${includeComments && opDef.sampleBody ? '// CRITICAL: Send same jsonBody used for JWT contentSha256' : ''}
-        const response = await axios.${opDef.method.toLowerCase()}(
-            url,
-            ${opDef.sampleBody ? 'jsonBody,' : 'undefined,'}
-            { headers }
-        );
-
-        console.log(\`✅ \${opDef.description} successful\`);
-        console.log(JSON.stringify(response.data, null, 2));
-        return response.data;
-
-    ${includeErrorHandling ? `} catch (error) {
-        if (error.response) {
-            console.error(\`❌ Request failed: \${error.response.status}\`);
-            console.error(error.response.data);
-        } else if (error.request) {
-            console.error('❌ Network error:', error.message);
-        } else {
-            console.error('❌ Unexpected error:', error.message);
-        }
-        return null;
-    }` : ''}
-}
-
-function createJWTToken(jsonBodyString = null) {
-    ${includeComments ? '/**' : ''}
-    ${includeComments ? ' * Create JWT token for payware API authentication' : ''}
-    ${includeComments ? ' * ' : ''}
-    ${includeComments ? ' * CRITICAL: jsonBodyString must be the exact same string' : ''}
-    ${includeComments ? ' * that will be sent in the HTTP request body to ensure' : ''}
-    ${includeComments ? ' * SHA-256 hash consistency and prevent ERR_INVALID_CONTENT_HASH errors.' : ''}
-    ${includeComments ? ' */' : ''}
-    ${includeComments ? '    const jwt = require("jsonwebtoken");' : ''}
-    ${includeComments ? '    const crypto = require("crypto");' : ''}
-    ${includeComments ? '    ' : ''}
-    ${includeComments ? '    // Partner configuration' : ''}
-    ${includeComments ? '    const partnerId = process.env.PAYWARE_PARTNER_ID || "your_partner_id";' : ''}
-    ${includeComments ? '    const privateKey = process.env.PAYWARE_PRIVATE_KEY || "your_private_key_pem";' : ''}
-    ${includeComments ? '    ' : ''}
-    ${includeComments ? '    // JWT header' : ''}
-    ${includeComments ? '    const header = { alg: "RS256", typ: "JWT" };' : ''}
-    ${includeComments ? '    ' : ''}
-    ${includeComments ? '    // Add contentSha256 to header if request body exists' : ''}
-    ${includeComments ? '    if (jsonBodyString) {' : ''}
-    ${includeComments ? '        // CRITICAL: Calculate SHA-256 from exact same string sent in HTTP request' : ''}
-    ${includeComments ? '        const sha256Hash = crypto.createHash("sha256").update(jsonBodyString, "utf8").digest("base64");' : ''}
-    ${includeComments ? '        header.contentSha256 = sha256Hash;' : ''}
-    ${includeComments ? '    }' : ''}
-    ${includeComments ? '    ' : ''}
-    ${includeComments ? '    // JWT payload' : ''}
-    ${includeComments ? '    const payload = {' : ''}
-    ${includeComments ? '        iss: partnerId,' : ''}
-    ${includeComments ? '        aud: "https://payware.eu",' : ''}
-    ${includeComments ? '        iat: Math.floor(Date.now() / 1000)' : ''}
-    ${includeComments ? '    };' : ''}
-    ${includeComments ? '    ' : ''}
-    ${includeComments ? '    // Generate JWT token' : ''}
-    ${includeComments ? '    return jwt.sign(payload, privateKey, { algorithm: "RS256", header });' : ''}
-    ${includeComments ? '' : '    return "your-jwt-token"; // See authentication examples for complete implementation'}
-}
-
-${includeComments ? '// Example usage' : ''}
-${operation.replace('-', '_')}Example()
-    .then(result => {
-        if (result) {
-            ${includeComments ? `console.log('Operation completed successfully');` : ''}
-            ${this.getResultProcessingExample(operation, 'nodejs', includeComments)}
-        }
-    })
-    .catch(console.error);`;
-
-    return this.wrapCodeExample(code, opDef.description, 'nodejs', partnerType, options);
-  }
-
-  /**
-   * Generate framework-specific examples
-   */
-  generateFrameworkExample(operation, language, framework, partnerType, options) {
-    // Framework-specific implementations
-    if (framework === 'django' && language === 'python') {
-      return this.generateDjangoExample(operation, partnerType, options);
-    }
-    if (framework === 'express' && language === 'nodejs') {
-      return this.generateExpressExample(operation, partnerType, options);
-    }
-    if (framework === 'laravel' && language === 'php') {
-      return this.generateLaravelExample(operation, partnerType, options);
-    }
-
-    // Fallback to standard example with framework notes
-    const standardExample = this.generateStandardExample(operation, language, partnerType, options);
-    return standardExample.replace(
-      '## Code Example',
-      `## Code Example (${framework} Framework)\n\n*Note: This is a standard implementation. Framework-specific features can be added as needed.*`
-    );
-  }
-
-
-  /**
-   * Validation and utility methods
-   */
-  validateInputs(operation, language, partnerType) {
+  validate(operation, language, partnerType) {
     if (!this.supportedLanguages.includes(language)) {
-      return {
-        valid: false,
-        error: `Unsupported language: ${language}. Supported: ${this.supportedLanguages.join(', ')}`
-      };
+      throw new Error(`Unsupported language: ${language}. Supported: ${this.supportedLanguages.join(', ')}`);
     }
-
     if (!this.partnerTypes.includes(partnerType)) {
-      return {
-        valid: false,
-        error: `Unsupported partner type: ${partnerType}. Supported: ${this.partnerTypes.join(', ')}`
-      };
+      throw new Error(`Unsupported partner type: ${partnerType}. Supported: ${this.partnerTypes.join(', ')}`);
     }
-
-    const opDef = this.operationDefinitions[operation];
-    if (!opDef) {
-      return {
-        valid: false,
-        error: `Unknown operation: ${operation}`
-      };
+    const def = this.operationDefinitions[operation];
+    if (!def) {
+      throw new Error(`Unknown operation: ${operation}`);
     }
-
-    if (!opDef.partnerTypes.includes(partnerType)) {
-      return {
-        valid: false,
-        error: `Operation '${operation}' not available for partner type '${partnerType}'. Available for: ${opDef.partnerTypes.join(', ')}`
-      };
+    if (!def.partnerTypes.includes(partnerType)) {
+      throw new Error(`Operation '${operation}' is not available for partner type '${partnerType}'. Available for: ${def.partnerTypes.join(', ')}`);
     }
-
-    return { valid: true };
   }
 
+  generateExample(operation, language = 'python', partnerType = 'merchant', options = {}) {
+    const opts = { includeComments: options.includeComments !== false, includeErrorHandling: options.includeErrorHandling !== false };
+    this.validate(operation, language, partnerType);
+
+    if (operation === 'authentication') {
+      const code = renderAuthentication(language, partnerType, opts);
+      return opts.includeComments
+        ? `# JWT authentication - ${language} (${partnerType})\n\n${this.authenticationNotes(partnerType)}\n\n\`\`\`${fenceOf(language)}\n${code}\n\`\`\`\n`
+        : code;
+    }
+
+    const def = this.definitionFor(operation, partnerType);
+    if (def.steps) {
+      return this.generateFlow(def, language, partnerType, opts);
+    }
+
+    const code = renderRequest(language, def, partnerType, opts);
+    if (!opts.includeComments) return code;
+    return `# ${def.description} - ${language} (${partnerType})
+
+\`${routeOf(def)}\`
+
+${this.notesFor(def, partnerType)}
+
+\`\`\`${fenceOf(language)}
+${code}
+\`\`\`
+`;
+  }
+
+  /** What a reader needs to know about one request beyond its code. */
+  notesFor(def, partnerType) {
+    const notes = [];
+    if (def.onBehalf) {
+      notes.push('Made on behalf of a merchant: the JWT\'s `aud` is the merchant\'s partner id and its `sub` the merchant\'s OAuth2 token (`PAYWARE_MERCHANT_PARTNER_ID`, `PAYWARE_OAUTH2_TOKEN`). The merchant\'s plan governs the call.');
+    } else if (partnerType === 'isv') {
+      notes.push('Signed by the ISV for itself: `aud` is `https://payware.eu`, and /oauth2 is served at the host root, not under /api.');
+    }
+    if (def.base === 'production') {
+      notes.push('Data retrieval runs on production only: sandbox lists no reports and runs none.');
+    }
+    if (def.name === 'update_product') {
+      notes.push('Send the whole product, read first with get_product: the server resets a field the request leaves out (active, shippable and quickPay to FALSE, type, time zone and time to live to defaults), a server defect.');
+    }
+    if (def.name === 'generate_report') {
+      notes.push('`reportUnitId` is the bare report id: the last segment of a `path` from list_reports.');
+    }
+    if (def.multipart) {
+      notes.push('A multipart upload carries no `contentSha256`.');
+    } else if (def.body) {
+      notes.push('The JWT header carries `contentSha256`, the Base64 SHA-256 of the exact body sent, so the body is serialized once and the same string is hashed and sent.');
+    }
+    return notes.join(' ');
+  }
+
+  authenticationNotes(partnerType) {
+    return [
+      'Every request is signed with an RS256 JWT, new for each request: `iat` must be within the last five minutes. The header is `{"alg":"RS256","typ":"JWT"}`, plus `contentSha256` (the standard Base64 of the SHA-256 of the exact body bytes sent) on a request with a body; a multipart upload carries none. The claims are `iss` (your partner id), `aud` and `iat`. Send it as `Authorization: Bearer <jwt>`, with `Api-Version: 1`.',
+      partnerType === 'isv'
+        ? 'As an ISV, a call for a merchant has `aud` set to the merchant\'s partner id and `sub` to the merchant\'s OAuth2 token; the /oauth2 endpoints are signed with `aud` `https://payware.eu`.'
+        : '`aud` is always `https://payware.eu`.'
+    ].join('\n\n');
+  }
+
+  /** A flow of several requests: each step as its own program, in order, with its notes between them. */
+  generateFlow(def, language, partnerType, opts) {
+    const blocks = def.steps.map(step => ({
+      step,
+      code: renderRequest(language, { base: 'api', params: {}, body: null, onBehalf: false, ...step }, partnerType, opts)
+    }));
+
+    if (!opts.includeComments) {
+      // Each step is a program of its own; say where one ends and the next begins.
+      return blocks.map(({ step, code }) => this.markFlowStep(code, `${step.title} - a separate program`, language)).join('\n\n');
+    }
+
+    return `# ${def.description} - ${language} (${partnerType})
+
+The payer's institution reports each step of the payment on the same route, \`PATCH /api/transactions/{transactionId}\`, after processing it with \`POST /api/transactions/{transactionId}\`. payware gives its answer once, at \`EXECUTING\`, before any money moves, and never refuses a status after that. Only the payer's institution sees \`EXECUTING\`; the merchant sees the transaction as ACTIVE until \`CONFIRMED\` or \`FAILED\`, and \`EXECUTING\` sends no callback.
+
+${blocks.map(({ step, code }) => `## ${step.title}
+
+\`${routeOf({ base: 'api', ...step })}\`
+
+${step.notes}
+
+\`\`\`${fenceOf(language)}
+${code}
+\`\`\``).join('\n\n')}
+`;
+  }
+
+  /** Put a one-line comment at the top of a flow step's code, after any line the language needs first. */
+  markFlowStep(code, label, language) {
+    const comment = ['python', 'curl'].includes(language) ? `# ${label}` : `// ${label}`;
+    const firstLine = /^(<\?php|#!\/bin\/bash)\n/.exec(code);
+    return firstLine
+      ? `${firstLine[1]}\n${comment}\n${code.slice(firstLine[0].length)}`
+      : `${comment}\n${code}`;
+  }
+
+  /** The operations a partner type has, by category, each with its route. */
   getAvailableOperations(partnerType) {
     const available = {};
-
-    Object.entries(this.operationDefinitions).forEach(([operation, def]) => {
-      if (def.partnerTypes.includes(partnerType)) {
-        const category = this.getOperationCategory(operation);
-        if (!available[category]) {
-          available[category] = [];
-        }
-        available[category].push(operation);
-      }
-    });
-
+    for (const operation of Object.keys(this.operationDefinitions)) {
+      const def = this.operationDefinitions[operation];
+      if (!def.partnerTypes.includes(partnerType)) continue;
+      (available[categoryOf(operation)] ??= []).push(operation);
+    }
     return available;
   }
 
-  getOperationCategory(operation) {
-    if (operation === 'authentication') return 'auth';
-    if (operation.includes('transaction')) return 'transactions';
-    if (operation.includes('product')) return 'products';
-    if (operation.includes('token')) return 'oauth2';
-    if (operation.includes('report')) return 'data';
-    if (operation.includes('audio') || operation.includes('soundbite')) return 'soundbites';
-    return 'misc';
-  }
-
-  getImplementationStats() {
-    return {
-      languages: this.supportedLanguages.length,
-      partnerTypes: this.partnerTypes.length,
-      totalOperations: Object.keys(this.operationDefinitions).length,
-      implementedOperations: Object.keys(this.operationDefinitions).length,
-      coverage: 100,
-      operationsByCategory: Object.values(this.getAvailableOperations('merchant')).flat().length
-    };
-  }
-
-  // Utility methods for wrapping and formatting code
-  wrapCodeExample(code, description, language, partnerType, options) {
-    const { framework, includeComments } = options;
-
-    // If comments are disabled, return just the raw code
-    if (!includeComments) {
-      return code;
-    }
-
-    return `# ${description} - ${language.toUpperCase()}${framework ? ` (${framework})` : ''} (${partnerType})
-
-${description}
-
-## Code Example
-
-\`\`\`${language === 'nodejs' ? 'javascript' : language}
-${code}
-\`\`\`
-
-## Implementation Details
-
-- **Language**: ${language}
-- **Partner Type**: ${partnerType}
-- **Error Handling**: ${options.includeErrorHandling ? 'Included' : 'Basic'}
-- **Comments**: ${options.includeComments ? 'Detailed' : 'Minimal'}
-`;
-  }
-
-  wrapCompleteExample(code, title, language, partnerType, options) {
-    const { includeComments } = options;
-
-    // If comments are disabled, return just the raw code
-    if (!includeComments) {
-      return code;
-    }
-
-    return `# ${title} - ${language.toUpperCase()} (${partnerType})
-
-Complete implementation with environment setup and authentication.
-
-## Complete Code
-
-\`\`\`${language === 'nodejs' ? 'javascript' : language}
-${code}
-\`\`\`
-`;
-  }
-
-  getResultProcessingExample(operation, language, includeComments = true) {
-    if (!includeComments) return '';
-
-    const examples = {
-      create_transaction: language === 'python'
-        ? "# Store transaction ID: transaction_id = result.get('transactionId')"
-        : "// Store transaction ID: const transactionId = result.transactionId;",
-      obtain_token: language === 'python'
-        ? "# Store access token: access_token = result.get('access_token')"
-        : "// Store access token: const accessToken = result.access_token;",
-      generate_report: language === 'python'
-        ? "# Monitor report: report_id = result.get('reportId')"
-        : "// Monitor report: const reportId = result.reportId;"
-    };
-    return examples[operation] || '';
-  }
-
-  // Additional language generators (stubs for now - can be expanded)
-  generatePHPExample(operation, opDef, partnerType, options) {
-    const { includeComments, includeErrorHandling } = options;
-    const needsId = opDef.endpoint.includes('{id}');
-
-    const code = `<?php
-${includeComments ? `/**
- * ${opDef.description} - PHP Implementation
- * Partner Type: ${partnerType}
- * Endpoint: ${opDef.endpoint}
- * Method: ${opDef.method}
- */` : ''}
-
-require_once 'vendor/autoload.php';
-
-${includeComments ? '// Required dependencies: firebase/php-jwt' : ''}
-use Firebase\\JWT\\JWT;
-use Firebase\\JWT\\Key;
-
-class PaywareClient
-{
-    private $baseUrl;
-    private $partnerId;
-    private $privateKey;
-
-    public function __construct($partnerId = null, $privateKey = null, $useSandbox = true)
-    {
-        $this->baseUrl = $useSandbox
-            ? 'https://sandbox.payware.eu/api'
-            : 'https://api.payware.eu/api';
-        $this->partnerId = $partnerId ?: getenv('PAYWARE_PARTNER_ID');
-        $this->privateKey = $privateKey ?: $this->loadPrivateKey();
-    }
-
-    ${includeComments ? '/**' : '/*'}
-     ${includeComments ? ' * ' : ''}${opDef.description}
-     ${needsId ? ` * @param string $resourceId Resource identifier` : ''}
-     * @return array|null API response or null on error
-     ${includeComments ? ' */' : '*/'}
-    public function ${operation.replace('-', '_')}(${needsId ? '$resourceId' : ''}${opDef.queryParams ? (needsId ? ', ' : '') + '$queryParams = []' : ''})
-    {
-        ${includeComments ? '// API Configuration' : ''}
-        $endpoint = '${opDef.endpoint}';
-        ${needsId ? `$endpoint = str_replace('{id}', $resourceId, $endpoint);` : ''}
-        $url = $this->baseUrl . $endpoint;
-
-        ${opDef.queryParams ? `${includeComments ? '// Default query parameters' : ''}
-        $defaultParams = ${this.generatePHPArray(opDef.queryParams, '        ')};
-        $queryParams = array_merge($defaultParams, $queryParams ?? []);
-
-        if (!empty($queryParams)) {
-            $url .= '?' . http_build_query($queryParams);
-        }` : ''}
-
-        ${opDef.sampleBody ? `${includeComments ? '// Request payload' : ''}
-        $payload = ${this.generatePHPArray(opDef.sampleBody, '        ')};
-
-        ${includeComments ? '// CRITICAL: Use deterministic JSON serialization for both SHA-256 and HTTP body' : ''}
-        ${includeComments ? '// This prevents ERR_INVALID_CONTENT_HASH authentication errors' : ''}
-        ${includeComments ? '// Note: Implement createDeterministicJSON() function with ksort()' : ''}
-        ksort($payload);
-        $requestBody = json_encode($payload, JSON_UNESCAPED_SLASHES);` : `${includeComments ? '// No request body required' : ''}`}
-
-        ${includeComments ? '// Create JWT token for authentication' : ''}
-        $token = $this->createJWTToken(${opDef.sampleBody ? '$requestBody' : 'null'});
-
-        ${includeComments ? '// Prepare headers' : ''}
-        $headers = [
-            'Authorization: Bearer ' . $token,
-            'Content-Type: application/json',
-            'Api-Version: 1'
-        ];
-
-        ${includeErrorHandling ? 'try {' : ''}
-            ${includeComments ? '// Initialize cURL' : ''}
-            $ch = curl_init();
-
-            ${includeComments ? '// Set cURL options' : ''}
-            curl_setopt_array($ch, [
-                CURLOPT_URL => $url,
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 30,
-                CURLOPT_CUSTOMREQUEST => '${opDef.method}',
-                CURLOPT_HTTPHEADER => $headers,
-                CURLOPT_SSL_VERIFYPEER => true,
-                CURLOPT_SSL_VERIFYHOST => 2
-            ]);
-
-            ${opDef.sampleBody ? `${includeComments ? '// CRITICAL: Send same requestBody used for JWT contentSha256' : ''}
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $requestBody);` : ''}
-
-            ${includeComments ? '// Execute request' : ''}
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $error = curl_error($ch);
-            curl_close($ch);
-
-            ${includeErrorHandling ? `if ($error) {
-                throw new Exception("cURL Error: " . $error);
-            }
-
-            if ($httpCode >= 200 && $httpCode < 300) {
-                $result = json_decode($response, true);
-                echo "✅ ${opDef.description} successful\\n";
-                echo "Response: " . json_encode($result, JSON_PRETTY_PRINT) . "\\n";
-                ${this.getResultProcessingExample(operation, 'php', includeComments)}
-                return $result;
-            } else {
-                echo "❌ Request failed with HTTP {$httpCode}\\n";
-                echo "Response: " . $response . "\\n";
-                return null;
-            }
-
-        } catch (Exception $e) {
-            echo "❌ Error: " . $e->getMessage() . "\\n";
-            return null;
-        }` : `if ($error) {
-                echo "❌ cURL Error: " . $error . "\\n";
-                return null;
-            }
-
-            $result = json_decode($response, true);
-            ${includeComments ? `echo "✅ ${opDef.description} completed\\n";` : ''}
-            ${this.getResultProcessingExample(operation, 'php', includeComments)}
-            return $result;`}
-    }
-
-    /**
-     * Create JWT token for payware API authentication
-     * @param string|null $requestBody Request body for content SHA-256
-     * @return string JWT token
-     */
-    private function createJWTToken($requestBody = null)
-    {
-        ${includeComments ? '/**' : '/*'}
-         ${includeComments ? ' * CRITICAL: requestBody must be the exact same string' : ''}
-         ${includeComments ? ' * that will be sent in the HTTP request body to ensure' : ''}
-         ${includeComments ? ' * SHA-256 hash consistency and prevent ERR_INVALID_CONTENT_HASH errors.' : ''}
-         ${includeComments ? ' */' : '*/'}
-
-        ${includeComments ? '// JWT header' : ''}
-        $header = ['alg' => 'RS256', 'typ' => 'JWT'];
-
-        ${includeComments ? '// Add contentSha256 to header if request body exists' : ''}
-        if ($requestBody !== null) {
-            ${includeComments ? '// CRITICAL: Calculate SHA-256 from exact same string sent in HTTP request' : ''}
-            $header['contentSha256'] = base64_encode(hash('sha256', $requestBody, true));
-        }
-
-        ${includeComments ? '// JWT payload' : ''}
-        $payload = [
-            'iss' => $this->partnerId,
-            'aud' => 'https://payware.eu', ${includeComments ? '// CRITICAL: Must be https://payware.eu' : ''}
-            'iat' => time()
-        ];
-
-        ${includeComments ? '// Create and return JWT token' : ''}
-        return JWT::encode($payload, $this->privateKey, 'RS256', null, $header);
-    }
-
-    /**
-     * Load private key from file or environment
-     * @return string Private key content
-     */
-    private function loadPrivateKey()
-    {
-        ${includeComments ? '// Try to load from environment variable first' : ''}
-        $privateKey = getenv('PAYWARE_PRIVATE_KEY');
-
-        if ($privateKey) {
-            return $privateKey;
-        }
-
-        ${includeComments ? '// Try to load from file' : ''}
-        $keyFile = getenv('PAYWARE_PRIVATE_KEY_FILE') ?: 'keys/private-key.pem';
-
-        if (file_exists($keyFile)) {
-            return file_get_contents($keyFile);
-        }
-
-        throw new Exception('Private key not found. Set PAYWARE_PRIVATE_KEY or PAYWARE_PRIVATE_KEY_FILE environment variable.');
-    }
-}
-
-${includeComments ? '// Example usage' : ''}
-if (basename(__FILE__) === basename($_SERVER['PHP_SELF'])) {
-    ${includeErrorHandling ? 'try {' : ''}
-        ${includeComments ? '// Initialize client' : ''}
-        $client = new PaywareClient();
-
-        ${includeComments ? '// Execute operation' : ''}
-        $result = $client->${operation.replace('-', '_')}(${needsId ? "'example_123'" : ''}${opDef.queryParams ? (needsId ? ', []' : '[\'type\' => \'QR_CODE\']') : ''});
-
-        if ($result) {
-            echo "Operation completed successfully\\n";
-        } else {
-            echo "Operation failed\\n";
-            exit(1);
-        }
-
-    ${includeErrorHandling ? `} catch (Exception $e) {
-        echo "❌ Fatal error: " . $e->getMessage() . "\\n";
-        exit(1);
-    }` : ''}
-}
-
-?>`;
-
-    return this.wrapCodeExample(code, opDef.description, 'php', partnerType, options);
-  }
-
-  generateJavaExample(operation, opDef, partnerType, options) {
-    const { includeComments, includeErrorHandling } = options;
-    const needsId = opDef.endpoint.includes('{id}');
-    const className = this.toPascalCase(operation);
-
-    const code = `${includeComments ? `// ${opDef.description} - Java Implementation` : ''}
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.net.URI;
-import java.util.Map;
-import java.util.HashMap;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.time.Duration;
-
-public class ${className}Example {
-
-    private static final String BASE_URL = System.getenv("PAYWARE_BASE_URL") != null
-        ? System.getenv("PAYWARE_BASE_URL")
-        : "https://sandbox.payware.eu/api";
-
-    private static final ObjectMapper objectMapper = new ObjectMapper();
-
-    public static void main(String[] args) {
-        ${includeComments ? `/**
-         * ${opDef.description}
-         */` : ''}
-
-        ${includeErrorHandling ? 'try {' : ''}
-            ${needsId ? 'String resourceId = "example_123";' : ''}
-
-            ${includeComments ? '// API Configuration' : ''}
-            String endpoint = "${opDef.endpoint}"${needsId ? '.replace("{id}", resourceId)' : ''};
-            String url = BASE_URL + endpoint;
-
-            ${opDef.queryParams ? `${includeComments ? '// Query parameters' : ''}
-            Map<String, String> queryParams = new HashMap<>();
-            ${Object.entries(opDef.queryParams || {}).map(([key, value]) =>
-              `queryParams.put("${key}", "${value}");`
-            ).join('\n            ')}
-
-            StringBuilder queryString = new StringBuilder();
-            queryParams.forEach((key, value) -> {
-                if (queryString.length() > 0) queryString.append("&");
-                queryString.append(key).append("=").append(value);
-            });
-            if (queryString.length() > 0) {
-                url += "?" + queryString.toString();
-            }` : ''}
-
-            ${opDef.sampleBody ? `${includeComments ? '// Request payload' : ''}
-            Map<String, Object> payload = new HashMap<>();
-            ${this.generateJavaPayloadMapping(opDef.sampleBody, '            ', includeComments)}
-            String requestBody = objectMapper.writeValueAsString(payload);` : `${includeComments ? '// No request body required' : ''}`}
-
-            ${includeComments ? '// Authentication' : ''}
-            String token = createJWTToken(${opDef.sampleBody ? 'requestBody' : 'null'});
-
-            ${includeComments ? '// Build HTTP request' : ''}
-            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .header("Authorization", "Bearer " + token)
-                .header("Content-Type", "application/json")
-                .header("Api-Version", "1")
-                .timeout(Duration.ofSeconds(30));
-
-            ${opDef.method === 'POST' ? `requestBuilder.POST(HttpRequest.BodyPublishers.ofString(${opDef.sampleBody ? 'requestBody' : '""'}));` : ''}
-            ${opDef.method === 'GET' ? 'requestBuilder.GET();' : ''}
-            ${opDef.method === 'PUT' ? `requestBuilder.PUT(HttpRequest.BodyPublishers.ofString(${opDef.sampleBody ? 'requestBody' : '""'}));` : ''}
-            ${opDef.method === 'DELETE' ? 'requestBuilder.DELETE();' : ''}
-            ${opDef.method === 'PATCH' ? `requestBuilder.method("PATCH", HttpRequest.BodyPublishers.ofString(${opDef.sampleBody ? 'requestBody' : '""'}));` : ''}
-
-            HttpRequest request = requestBuilder.build();
-
-            ${includeComments ? '// Execute request' : ''}
-            HttpClient client = HttpClient.newHttpClient();
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-
-            ${includeComments ? '// Process response' : ''}
-            System.out.println("✅ " + "${opDef.description}" + " successful");
-            System.out.println("Status: " + response.statusCode());
-            System.out.println("Response: " + response.body());
-
-            ${this.getResultProcessingExample(operation, 'java', includeComments)}
-
-        ${includeErrorHandling ? `} catch (Exception e) {
-            System.err.println("❌ Request failed: " + e.getMessage());
-            e.printStackTrace();
-        }` : ''}
-    }
-
-    private static String createJWTToken(String requestBody) {
-        /**
-         * Create JWT token for payware API authentication
-         * Implementation depends on your JWT library setup
-         * See authentication examples for complete implementation
-         */
-        return "your-jwt-token";
-    }
-
-    ${this.generateJavaUtilityMethods()}
-}`;
-
-    return this.wrapCodeExample(code, opDef.description, 'java', partnerType, options);
-  }
-
-  generateCSharpExample(operation, opDef, partnerType, options) {
-    const { includeComments, includeErrorHandling } = options;
-    const needsId = opDef.endpoint.includes('{id}');
-    const className = this.toPascalCase(operation);
-
-    const code = `${includeComments ? `// ${opDef.description} - C# Implementation` : ''}
-using System;
-using System.Net.Http;
-using System.Text;
-using System.Text.Json;
-using System.Threading.Tasks;
-using System.Collections.Generic;
-
-namespace PaywareIntegration
-{
-    public class ${className}Example
-    {
-        private static readonly HttpClient httpClient = new HttpClient();
-        private static readonly string BaseUrl = Environment.GetEnvironmentVariable("PAYWARE_BASE_URL") ?? "https://sandbox.payware.eu/api";
-
-        public static async Task Main(string[] args)
-        {
-            ${includeComments ? `/**
-             * ${opDef.description}
-             */` : ''}
-
-            ${includeErrorHandling ? 'try {' : ''}
-                ${needsId ? 'string resourceId = "example_123";' : ''}
-
-                ${includeComments ? '// API Configuration' : ''}
-                string endpoint = "${opDef.endpoint}"${needsId ? '.Replace("{id}", resourceId)' : ''};
-                string url = $"{BaseUrl}{endpoint}";
-
-                ${opDef.queryParams ? `${includeComments ? '// Query parameters' : ''}
-                var queryParams = new Dictionary<string, string>
-                {
-                    ${Object.entries(opDef.queryParams || {}).map(([key, value]) =>
-                      `["${key}"] = "${value}"`
-                    ).join(',\n                    ')}
-                };
-
-                if (queryParams.Count > 0)
-                {
-                    var queryString = string.Join("&", queryParams.Select(kv => $"{kv.Key}={kv.Value}"));
-                    url += $"?{queryString}";
-                }` : ''}
-
-                ${opDef.sampleBody ? `${includeComments ? '// Request payload' : ''}
-                var payload = new
-                {
-                    ${this.generateCSharpPayload(opDef.sampleBody)}
-                };
-                string requestBody = JsonSerializer.Serialize(payload);` : `${includeComments ? '// No request body required' : ''}`}
-
-                ${includeComments ? '// Authentication' : ''}
-                string token = CreateJWTToken(${opDef.sampleBody ? 'requestBody' : 'null'});
-
-                ${includeComments ? '// Configure HTTP request' : ''}
-                var request = new HttpRequestMessage(HttpMethod.${this.toCSharpHttpMethod(opDef.method)}, url);
-                request.Headers.Add("Authorization", $"Bearer {token}");
-                request.Headers.Add("Api-Version", "1");
-
-                ${opDef.sampleBody ? 'request.Content = new StringContent(requestBody, Encoding.UTF8, "application/json");' : ''}
-
-                ${includeComments ? '// Execute request' : ''}
-                HttpResponseMessage response = await httpClient.SendAsync(request);
-                string responseContent = await response.Content.ReadAsStringAsync();
-
-                ${includeComments ? '// Process response' : ''}
-                Console.WriteLine($"✅ ${opDef.description} successful");
-                Console.WriteLine($"Status: {response.StatusCode}");
-                Console.WriteLine($"Response: {responseContent}");
-
-                ${this.getResultProcessingExample(operation, 'csharp', includeComments)}
-
-            ${includeErrorHandling ? `} catch (Exception ex) {
-                Console.WriteLine($"❌ Request failed: {ex.Message}");
-            }` : ''}
-        }
-
-        private static string CreateJWTToken(string requestBody)
-        {
-            /**
-             * Create JWT token for payware API authentication
-             * Implementation depends on your JWT library setup
-             * See authentication examples for complete implementation
-             */
-            return "your-jwt-token";
-        }
-    }
-}`;
-
-    return this.wrapCodeExample(code, opDef.description, 'csharp', partnerType, options);
-  }
-
-  generateGoExample(operation, opDef, partnerType, options) {
-    const { includeComments, includeErrorHandling } = options;
-    const needsId = opDef.endpoint.includes('{id}');
-    const functionName = this.toCamelCase(operation);
-
-    const code = `${includeComments ? `// ${opDef.description} - Go Implementation` : ''}
-package main
-
-import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"os"
-	"strings"
-	"time"
-)
-
-${opDef.sampleBody ? `${includeComments ? `// ${this.toPascalCase(operation)}Request represents the request payload` : ''}
-type ${this.toPascalCase(operation)}Request struct {
-	${this.generateGoStructFields(opDef.sampleBody)}
-}
-
-${includeComments ? `// ${this.toPascalCase(operation)}Response represents the API response` : ''}
-type ${this.toPascalCase(operation)}Response struct {
-	Status string \`json:"status"\`
-	Data   interface{} \`json:"data"\`
-	Error  string \`json:"error,omitempty"\`
-}` : ''}
-
-func main() {
-	${includeComments ? `/**
-	 * ${opDef.description}
-	 */` : ''}
-
-	${includeErrorHandling ? 'if err := ' : ''}${functionName}Example()${includeErrorHandling ? '; err != nil {' : ''}
-	${includeErrorHandling ? `	fmt.Printf("❌ Error: %v\\n", err)
-		os.Exit(1)
-	}` : ''}
-}
-
-func ${functionName}Example() error {
-	${includeComments ? '// Configuration' : ''}
-	baseURL := os.Getenv("PAYWARE_BASE_URL")
-	if baseURL == "" {
-		baseURL = "https://sandbox.payware.eu/api"
-	}
-
-	${needsId ? 'resourceID := "example_123"' : ''}
-
-	${includeComments ? '// API Configuration' : ''}
-	endpoint := "${opDef.endpoint}"
-	${needsId ? 'endpoint = strings.Replace(endpoint, "{id}", resourceID, 1)' : ''}
-	fullURL := baseURL + endpoint
-
-	${opDef.queryParams ? `${includeComments ? '// Query parameters' : ''}
-	params := url.Values{}
-	${Object.entries(opDef.queryParams || {}).map(([key, value]) =>
-		`params.Add("${key}", "${value}")`
-	).join('\n\t')}
-
-	if len(params) > 0 {
-		fullURL += "?" + params.Encode()
-	}` : ''}
-
-	${opDef.sampleBody ? `${includeComments ? '// Request payload' : ''}
-	payload := ${this.toPascalCase(operation)}Request{
-		${this.generateGoPayloadValues(opDef.sampleBody)}
-	}
-
-	requestBody, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
-	}` : `${includeComments ? '// No request body required' : ''}`}
-
-	${includeComments ? '// Authentication' : ''}
-	token := createJWTToken(${opDef.sampleBody ? 'string(requestBody)' : '""'})
-
-	${includeComments ? '// Create HTTP request' : ''}
-	${opDef.sampleBody ? 'req, err := http.NewRequest("' + opDef.method + '", fullURL, bytes.NewBuffer(requestBody))' : 'req, err := http.NewRequest("' + opDef.method + '", fullURL, nil)'}
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set headers
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Api-Version", "1")
-
-	${includeComments ? '// Execute request' : ''}
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response
-	responseBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
-	}
-
-	${includeComments ? '// Process response' : ''}
-	fmt.Printf("✅ %s successful\\n", "${opDef.description}")
-	fmt.Printf("Status: %s\\n", resp.Status)
-	fmt.Printf("Response: %s\\n", string(responseBody))
-
-	${this.getResultProcessingExample(operation, 'go', includeComments)}
-
-	return nil
-}
-
-func createJWTToken(requestBody string) string {
-	/**
-	 * Create JWT token for payware API authentication
-	 * Implementation depends on your JWT library setup
-	 * See authentication examples for complete implementation
-	 */
-	return "your-jwt-token"
-}`;
-
-    return this.wrapCodeExample(code, opDef.description, 'go', partnerType, options);
-  }
-
-  generateRubyExample(operation, opDef, partnerType, options) {
-    const { includeComments, includeErrorHandling } = options;
-    const needsId = opDef.endpoint.includes('{id}');
-    const methodName = this.toSnakeCase(operation);
-
-    const code = `${includeComments ? `# ${opDef.description} - Ruby Implementation` : ''}
-require 'net/http'
-require 'uri'
-require 'json'
-require 'openssl'
-require 'base64'
-
-class PaywareClient
-  def initialize
-    @base_url = ENV['PAYWARE_BASE_URL'] || 'https://sandbox.payware.eu/api'
-  end
-
-  def ${methodName}_example(${needsId ? "resource_id = 'example_123'" : ''})
-    ${includeComments ? `# ${opDef.description}` : ''}
-
-    ${includeErrorHandling ? 'begin' : ''}
-      ${includeComments ? '# API Configuration' : ''}
-      endpoint = '${opDef.endpoint}'
-      ${needsId ? "endpoint = endpoint.gsub('{id}', resource_id)" : ''}
-      uri = URI("#{@base_url}#{endpoint}")
-
-      ${opDef.queryParams ? `${includeComments ? '# Query parameters' : ''}
-      query_params = {
-        ${Object.entries(opDef.queryParams || {}).map(([key, value]) =>
-          `'${key}' => '${value}'`
-        ).join(',\n        ')}
-      }
-
-      uri.query = URI.encode_www_form(query_params) unless query_params.empty?` : ''}
-
-      ${opDef.sampleBody ? `${includeComments ? '# Request payload' : ''}
-      payload = {
-        ${this.generateRubyPayload(opDef.sampleBody)}
-      }
-      request_body = payload.to_json` : '# No request body required'}
-
-      # Authentication
-      token = create_jwt_token(${opDef.sampleBody ? 'request_body' : 'nil'})
-
-      # Create HTTP request
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = true if uri.scheme == 'https'
-      http.open_timeout = 30
-      http.read_timeout = 30
-
-      request = Net::HTTP::${this.toRubyHttpMethod(opDef.method)}.new(uri)
-      request['Authorization'] = "Bearer #{token}"
-      request['Content-Type'] = 'application/json'
-      request['Api-Version'] = '1'
-
-      ${opDef.sampleBody ? 'request.body = request_body' : ''}
-
-      # Execute request
-      response = http.request(request)
-
-      # Process response
-      puts "✅ ${opDef.description} successful"
-      puts "Status: #{response.code} #{response.message}"
-      puts "Response: #{response.body}"
-
-      ${this.getResultProcessingExample(operation, 'ruby', includeComments)}
-
-      # Parse JSON response if needed
-      if response.content_type&.include?('application/json')
-        result = JSON.parse(response.body)
-        return result
-      end
-
-      response.body
-
-    ${includeErrorHandling ? `rescue StandardError => e
-      puts "❌ Request failed: #{e.message}"
-      raise e
-    end` : ''}
-  end
-
-  private
-
-  def create_jwt_token(request_body = nil)
-    # Create JWT token for payware API authentication
-    # Implementation depends on your JWT library setup
-    ${includeComments ? '# See authentication examples for complete implementation' : ''}
-    'your-jwt-token'
-  end
-end
-
-${includeComments ? '# Example usage' : ''}
-if __FILE__ == $0
-  client = PaywareClient.new
-  ${includeErrorHandling ? 'begin' : ''}
-    result = client.${methodName}_example${needsId ? "('example_123')" : '()'}
-    puts "Operation completed successfully"
-  ${includeErrorHandling ? `rescue StandardError => e
-    puts "Error: #{e.message}"
-    exit 1
-  end` : ''}
-end`;
-
-    return this.wrapCodeExample(code, opDef.description, 'ruby', partnerType, options);
-  }
-
-  generateCurlExample(operation, opDef, partnerType, options) {
-    const { includeComments, includeErrorHandling } = options;
-    const needsId = opDef.endpoint.includes('{id}');
-
-    const code = `#!/bin/bash
-${includeComments ? `# ${opDef.description} - cURL Implementation` : ''}
-
-${includeComments ? '# Configuration' : ''}
-BASE_URL="\${PAYWARE_BASE_URL:-https://sandbox.payware.eu/api}"
-${needsId ? 'RESOURCE_ID="example_123"' : ''}
-
-${includeComments ? '# API Configuration' : ''}
-ENDPOINT="${opDef.endpoint}"${needsId ? `
-ENDPOINT="\${ENDPOINT//\\{id\\}/\$RESOURCE_ID}"` : ''}
-URL="$BASE_URL$ENDPOINT"
-
-${opDef.queryParams ? `${includeComments ? '# Query parameters' : ''}
-QUERY_PARAMS="${Object.entries(opDef.queryParams || {}).map(([key, value]) => `${key}=${value}`).join('&')}"
-URL="$URL?$QUERY_PARAMS"` : ''}
-
-${opDef.sampleBody ? `${includeComments ? '# Request payload' : ''}
-read -r -d '' REQUEST_BODY << 'EOF'
-${JSON.stringify(opDef.sampleBody, null, 2)}
-EOF` : '# No request body required'}
-
-# Authentication (placeholder - implement JWT token creation)
-JWT_TOKEN="your-jwt-token"
-
-# Content-SHA256 for payware API (if request body exists)
-${opDef.sampleBody ? `CONTENT_SHA256=$(echo -n "$REQUEST_BODY" | openssl dgst -sha256 -binary | base64)` : ''}
-
-echo "🚀 Executing ${opDef.description}..."
-echo "URL: $URL"
-
-${includeErrorHandling ? '# Execute with error handling' : '# Execute request'}
-${opDef.sampleBody ? `
-curl -X ${opDef.method} "$URL" \\
-  -H "Authorization: Bearer $JWT_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -H "Api-Version: 1" \\
-  ${opDef.sampleBody ? '-H "Content-SHA256: $CONTENT_SHA256" \\' : ''}
-  ${includeErrorHandling ? '-f -s -S \\' : '-v \\'}
-  ${opDef.sampleBody ? '-d "$REQUEST_BODY"' : ''}` : `
-curl -X ${opDef.method} "$URL" \\
-  -H "Authorization: Bearer $JWT_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -H "Api-Version: 1" \\
-  ${includeErrorHandling ? '-f -s -S' : '-v'}`}
-
-${includeErrorHandling ? `
-# Check exit status
-if [ $? -eq 0 ]; then
-    echo "✅ ${opDef.description} successful"
-else
-    echo "❌ Request failed"
-    exit 1
-fi` : ''}
-
-echo "✅ Request completed"`;
-
-    return this.wrapCodeExample(code, opDef.description, 'bash', partnerType, options);
-  }
-
-  // Helper methods for Java code generation
-  toPascalCase(str) {
-    return str.split(/[-_]/).map(word =>
-      word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-    ).join('');
-  }
-
-  generateJavaPayloadMapping(payload, indent = '            ', includeComments = true) {
-    if (!payload) return '';
-
-    const generateMapping = (obj, path = '') => {
-      let result = [];
-      for (const [key, value] of Object.entries(obj)) {
-        const currentPath = path ? `${path}.${key}` : key;
-        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-          result.push(`${indent}Map<String, Object> ${key} = new HashMap<>();`);
-          result.push(...generateMapping(value, key).map(line => line.replace(/^            /, indent)));
-          result.push(`${indent}payload.put("${key}", ${key});`);
-        } else if (Array.isArray(value)) {
-          if (includeComments) {
-            result.push(`${indent}// Note: Array handling needed for ${key}`);
-          }
-          result.push(`${indent}payload.put("${key}", Arrays.asList(${JSON.stringify(value)}));`);
-        } else {
-          const javaValue = typeof value === 'string' ? `"${value}"` : value;
-          if (path) {
-            result.push(`${indent}${path}.put("${key}", ${javaValue});`);
-          } else {
-            result.push(`${indent}payload.put("${key}", ${javaValue});`);
-          }
-        }
-      }
-      return result;
-    };
-
-    return generateMapping(payload).join('\n');
-  }
-
-  generateJavaUtilityMethods() {
-    return `
-    // Utility methods for handling responses and common operations
-    // Add additional helper methods as needed for your specific implementation`;
-  }
-
-  getResultProcessingExample(operation, language) {
-    const examples = {
-      create_transaction: {
-        java: 'System.out.println("Transaction ID: " + response.body());',
-        nodejs: 'console.log("Transaction ID:", result.transactionId);',
-        python: 'print(f"Transaction ID: {result[\'transactionId\']}")',
-        csharp: 'Console.WriteLine($"Transaction ID: {responseContent}");',
-        go: 'fmt.Printf("Transaction ID: %s\\n", responseBody)',
-        ruby: 'puts "Transaction ID: #{response.body}"',
-        php: 'echo "Transaction ID: " . $result[\'transactionId\'] . "\\n";'
-      }
-    };
-
-    return examples[operation]?.[language] || '// Process result as needed';
-  }
-
-  // C# helper methods
-  toCSharpHttpMethod(method) {
-    const methodMap = {
-      'GET': 'Get',
-      'POST': 'Post',
-      'PUT': 'Put',
-      'DELETE': 'Delete',
-      'PATCH': 'Patch'
-    };
-    return methodMap[method] || 'Post';
-  }
-
-  generateCSharpPayload(payload, indent = '                    ') {
-    if (!payload) return '';
-
-    const generateMapping = (obj, depth = 0) => {
-      let result = [];
-      for (const [key, value] of Object.entries(obj)) {
-        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-          result.push(`${key} = new {`);
-          result.push(...generateMapping(value, depth + 1).map(line => `    ${line}`));
-          result.push('}');
-        } else if (Array.isArray(value)) {
-          result.push(`${key} = new[] { ${value.map(v => typeof v === 'string' ? `"${v}"` : v).join(', ')} }`);
-        } else {
-          const csharpValue = typeof value === 'string' ? `"${value}"` : value;
-          result.push(`${key} = ${csharpValue}`);
-        }
-      }
-      return result;
-    };
-
-    return generateMapping(payload).join(',\n' + indent);
-  }
-
-  // Go helper methods
-  toCamelCase(str) {
-    return str.split(/[-_]/).map((word, index) =>
-      index === 0 ? word.toLowerCase() : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-    ).join('');
-  }
-
-  generateGoStructFields(payload, indent = '\t') {
-    if (!payload) return '';
-
-    const generateFields = (obj, depth = 0) => {
-      let result = [];
-      for (const [key, value] of Object.entries(obj)) {
-        const fieldName = this.toPascalCase(key);
-        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-          result.push(`${fieldName} struct {`);
-          result.push(...generateFields(value, depth + 1).map(line => `\t${line}`));
-          result.push(`} \`json:"${key}"\``);
-        } else if (Array.isArray(value)) {
-          const elemType = value.length > 0 ? (typeof value[0] === 'string' ? 'string' : 'interface{}') : 'interface{}';
-          result.push(`${fieldName} []${elemType} \`json:"${key}"\``);
-        } else {
-          const goType = typeof value === 'string' ? 'string' : 'interface{}';
-          result.push(`${fieldName} ${goType} \`json:"${key}"\``);
-        }
-      }
-      return result;
-    };
-
-    return generateFields(payload).join('\n' + indent);
-  }
-
-  generateGoPayloadValues(payload, indent = '\t\t') {
-    if (!payload) return '';
-
-    const generateValues = (obj, depth = 0) => {
-      let result = [];
-      for (const [key, value] of Object.entries(obj)) {
-        const fieldName = this.toPascalCase(key);
-        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-          result.push(`${fieldName}: ${this.toPascalCase(key)}Request{`);
-          result.push(...generateValues(value, depth + 1).map(line => `\t${line}`));
-          result.push('},');
-        } else if (Array.isArray(value)) {
-          const arrayValues = value.map(v => typeof v === 'string' ? `"${v}"` : v).join(', ');
-          result.push(`${fieldName}: []interface{}{${arrayValues}},`);
-        } else {
-          const goValue = typeof value === 'string' ? `"${value}"` : value;
-          result.push(`${fieldName}: ${goValue},`);
-        }
-      }
-      return result;
-    };
-
-    return generateValues(payload).join('\n' + indent);
-  }
-
-  // Ruby helper methods
-  toSnakeCase(str) {
-    return str.split(/[-_]/).map(word => word.toLowerCase()).join('_');
-  }
-
-  toRubyHttpMethod(method) {
-    const methodMap = {
-      'GET': 'Get',
-      'POST': 'Post',
-      'PUT': 'Put',
-      'DELETE': 'Delete',
-      'PATCH': 'Patch'
-    };
-    return methodMap[method] || 'Post';
-  }
-
-  generateRubyPayload(payload, indent = '        ') {
-    if (!payload) return '';
-
-    const generateValues = (obj, depth = 0) => {
-      let result = [];
-      for (const [key, value] of Object.entries(obj)) {
-        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-          result.push(`'${key}' => {`);
-          result.push(...generateValues(value, depth + 1).map(line => `  ${line}`));
-          result.push('}');
-        } else if (Array.isArray(value)) {
-          const arrayValues = value.map(v => typeof v === 'string' ? `'${v}'` : v).join(', ');
-          result.push(`'${key}' => [${arrayValues}]`);
-        } else {
-          const rubyValue = typeof value === 'string' ? `'${value}'` : value;
-          result.push(`'${key}' => ${rubyValue}`);
-        }
-      }
-      return result;
-    };
-
-    return generateValues(payload).join(',\n' + indent);
-  }
-
-  // PHP helper methods
-  generatePHPArray(payload, baseIndent = '        ') {
-    if (!payload) return '[]';
-
-    const formatValue = (value, depth = 0) => {
-      const indent = baseIndent + '    '.repeat(depth);
-
-      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-        const entries = Object.entries(value).map(([k, v]) => {
-          return `${indent}    '${k}' => ${formatValue(v, depth + 1)}`;
-        });
-        return `[\n${entries.join(',\n')}\n${indent}]`;
-      } else if (Array.isArray(value)) {
-        const arrayValues = value.map(v => typeof v === 'string' ? `'${v}'` : v).join(', ');
-        return `[${arrayValues}]`;
-      } else {
-        return typeof value === 'string' ? `'${value}'` : value;
-      }
-    };
-
-    const entries = Object.entries(payload).map(([key, value]) => {
-      return `${baseIndent}    '${key}' => ${formatValue(value)}`;
-    });
-
-    return `[\n${entries.join(',\n')}\n${baseIndent}]`;
-  }
-
-  // Framework-specific generators (basic implementations)
-  generateDjangoExample(operation, partnerType, options) {
-    return `# Django Framework Implementation for ${operation}
-# views.py
-from django.http import JsonResponse
-from rest_framework.views import APIView
-
-class PaywareAPIView(APIView):
-    def post(self, request):
-        # Implementation for ${operation}
-        return JsonResponse({'status': 'success'})`;
-  }
-
-  generateExpressExample(operation, partnerType, options) {
-    return `// Express.js Framework Implementation for ${operation}
-const express = require('express');
-const router = express.Router();
-
-router.post('/${operation}', async (req, res) => {
-    // Implementation for ${operation}
-    res.json({ status: 'success' });
-});
-
-module.exports = router;`;
-  }
-
-  generateLaravelExample(operation, partnerType, options) {
-    return `<?php
-// Laravel Framework Implementation for ${operation}
-namespace App\\Http\\Controllers;
-
-use Illuminate\\Http\\Request;
-
-class PaywareController extends Controller
-{
-    public function ${operation}(Request $request)
-    {
-        // Implementation for ${operation}
-        return response()->json(['status' => 'success']);
-    }
-}
-?>`;
+  describeOperation(operation, partnerType) {
+    if (operation === 'authentication') return 'authentication: the JWT helper';
+    const def = this.definitionFor(operation, partnerType);
+    return `${operation}: ${def.description} (\`${routeOf(def)}\`${def.steps ? ', then the two PATCH steps' : ''})`;
   }
 }
 
-// Export the advanced generator
-export const advancedCodeGenerator = new AdvancedCodeGenerator();
+export const advancedCodeGenerator = new CodeExampleGenerator();
+
+const OPERATION_NAMES = Object.keys(OPERATIONS);
 
 /**
  * Main code generation tool
@@ -1713,55 +502,33 @@ export const advancedCodeGenerator = new AdvancedCodeGenerator();
 export const generateCodeExampleTool = {
   name: 'payware_generate_code_example',
   annotations: LOCAL,
-  description: 'Generate production-ready payware API integration code examples with authentication, error handling, and environment configuration for any operation across 16 supported operations and 6 programming languages.',
+  description: `Generate a complete program for one payware API call, or the JWT helper, in ${LANGUAGES.join(', ')}. Each program signs its request as payware requires (RS256 JWT with contentSha256 for a body, on behalf of a merchant for an ISV) and calls the real route. finalize_transaction (payment institutions) is the whole institution flow: process, EXECUTING immediately before money moves, then CONFIRMED once the Merchant Leg has completed, or FAILED.`,
 
   inputSchema: {
     type: 'object',
     properties: {
       operation: {
         type: 'string',
-        description: 'payware API operation to generate code for. Categories: AUTHENTICATION (authentication), TRANSACTIONS (create_transaction, get_transaction_status, process_transaction, cancel_transaction, get_transaction_history), PRODUCTS - merchant/ISV only (create_product, get_product, list_products, update_product, delete_product), OAUTH2 - ISV only (obtain_token, get_token_info), REPORTS (generate_report, get_report_status, export_report), AUDIO/SOUNDBITES - merchant/ISV only (register_audio, get_audios, get_audio, update_audio, delete_audio)',
-        enum: [
-          'authentication',
-          'create_transaction',
-          'get_transaction_status',
-          'process_transaction',
-          'cancel_transaction',
-          'get_transaction_history',
-          'create_product',
-          'get_product',
-          'list_products',
-          'update_product',
-          'delete_product',
-          'obtain_token',
-          'get_token_info',
-          'generate_report',
-          'get_report_status',
-          'export_report',
-          'register_audio',
-          'get_audios',
-          'get_audio',
-          'update_audio',
-          'delete_audio'
-        ]
+        description: `The operation. Transactions: create_transaction, get_transaction_status, process_transaction, cancel_transaction, get_transaction_history, and for payment_institution finalize_transaction (process, EXECUTING, then CONFIRMED or FAILED, all on /api/transactions/{transactionId}). Products and audio (merchant, isv): create_product, get_product, list_products, update_product, delete_product, register_audio, get_audios, get_audio, update_audio, delete_audio. OAuth2 (isv): obtain_token, get_token_info, rotate_token. Reports (production only): list_reports, generate_report, get_report_status, export_report. authentication: the JWT helper on its own.`,
+        enum: OPERATION_NAMES
       },
       language: {
         type: 'string',
-        description: 'Programming language for generated code examples. Options: python (requests, JWT), nodejs (axios, async/await), php (cURL, PSR standards), java (HTTP client, Jackson), csharp (HttpClient, System.Text.Json), curl (command-line). All include authentication, environment configuration, and error handling.',
-        enum: ['python', 'nodejs', 'php', 'java', 'csharp', 'curl']
+        description: 'python (requests, PyJWT), nodejs (axios, jsonwebtoken), php (cURL, firebase/php-jwt), java (Java 11 HttpClient, no dependencies), csharp (.NET 6 HttpClient, no dependencies) or curl (curl and openssl). Default python.',
+        enum: LANGUAGES
       },
       partner_type: {
         type: 'string',
-        description: 'payware partner type determines available operations. merchant: transactions, products, reports. isv: all merchant operations plus OAuth2 token management for multiple merchants. payment_institution: transactions, advanced settlement features.',
-        enum: ['merchant', 'isv', 'payment_institution']
+        description: 'merchant, isv (calls on behalf of a merchant, and the OAuth2 token endpoints) or payment_institution. Decides which operations exist and how the JWT is signed. Default merchant.',
+        enum: ALL
       },
       include_comments: {
         type: 'boolean',
-        description: 'Include detailed code comments and documentation in generated code. true (default): full documentation with inline comments, function docs, parameter explanations, usage examples. false: clean minimal code without comments for experienced developers.'
+        description: 'true (default): the program with comments, inside a page that names the route and what to know about it. false: the program alone.'
       },
       include_error_handling: {
         type: 'boolean',
-        description: 'Include comprehensive error handling and validation in generated code. true (default): robust error handling with try/catch blocks, HTTP status validation, network error handling, detailed error messages. false: minimal error handling for streamlined code.'
+        description: 'true (default): report a failed status or a network error. false: the shortest program.'
       }
     },
     required: ['operation'],
@@ -1769,78 +536,21 @@ export const generateCodeExampleTool = {
   },
 
   async handler(args) {
+    const partnerType = args.partner_type || 'merchant';
     try {
-      // Convert snake_case to camelCase for options
-      const options = {
-        includeComments: args.include_comments !== false, // Default true
-        includeErrorHandling: args.include_error_handling !== false, // Default true
-        framework: args.framework
-      };
-
-      const result = advancedCodeGenerator.generateExample(
-        args.operation,
-        args.language || 'python',
-        args.partner_type || 'merchant',
-        options
-      );
-
-      // If comments are disabled, return just the code in proper MCP format
-      if (options.includeComments === false) {
-        return {
-          content: [{
-            type: 'text',
-            text: result
-          }]
-        };
-      }
-
-      // Add additional documentation only when comments are enabled
-      const stats = advancedCodeGenerator.getImplementationStats();
-      const availableOps = advancedCodeGenerator.getAvailableOperations(args.partner_type || 'merchant');
-
-      const response = `${result}
-
-## Implementation Statistics
-
-- **Languages Supported**: ${stats.languages}
-- **Total Operations**: ${stats.totalOperations}
-- **Coverage**: ${stats.coverage}%
-
-## Available Operations for ${args.partner_type || 'merchant'}
-
-${Object.entries(availableOps)
-  .map(([category, ops]) => `### ${category}\n${ops.map(op => `- ${op}`).join('\n')}`)
-  .join('\n\n')}
-
-## Supported Languages
-
-${advancedCodeGenerator.supportedLanguages.join(', ')}
-
-
-## Next Steps
-
-1. Copy the generated code to your project
-2. Install required dependencies
-3. Configure environment variables
-4. Set up payware private keys
-5. Test in sandbox mode
-
-Use different parameters to explore all available options!
-`;
-
-      return {
-        content: [{
-          type: 'text',
-          text: response
-        }]
-      };
-
+      const result = advancedCodeGenerator.generateExample(args.operation, args.language || 'python', partnerType, {
+        includeComments: args.include_comments !== false,
+        includeErrorHandling: args.include_error_handling !== false
+      });
+      return { content: [{ type: 'text', text: result }] };
     } catch (error) {
+      const available = Object.values(advancedCodeGenerator.getAvailableOperations(partnerType)).flat();
       return {
         content: [{
           type: 'text',
-          text: `❌ Error generating code example: ${error.message}\n\nPlease check your parameters and try again.`
-        }]
+          text: `❌ Error generating code example: ${error.message}\n\nOperations for ${partnerType}: ${available.join(', ')}`
+        }],
+        isError: true
       };
     }
   }
@@ -1852,131 +562,69 @@ Use different parameters to explore all available options!
 export const generateDocumentationTool = {
   name: 'payware_generate_documentation',
   annotations: LOCAL,
-  description: 'Generate comprehensive documentation for payware API integration with quick start instructions, authentication flows, operation examples, error handling patterns, and language-specific integration guides.',
+  description: 'An integration overview for one partner type: base URLs, how requests are signed, and every operation payware_generate_code_example can write, with its route.',
 
   inputSchema: {
     type: 'object',
     properties: {
       language: {
         type: 'string',
-        description: 'Programming language to focus documentation on. Options: python (requests, virtual env), nodejs (npm, async/await), php (Composer, PSR), java (Maven/Gradle, Spring Boot), csharp (NuGet, ASP.NET Core), curl (command-line). Includes language-specific setup and patterns.',
-        enum: ['python', 'nodejs', 'php', 'java', 'csharp', 'curl']
+        description: `The language the overview's next steps refer to: ${LANGUAGES.join(', ')}. Default python.`,
+        enum: LANGUAGES
       },
       partner_type: {
         type: 'string',
-        description: 'Partner type determines documentation scope. merchant: transaction processing, product management, basic reporting. isv: all merchant features plus OAuth2 for multi-merchant management. payment_institution: transactions, advanced settlement.',
-        enum: ['merchant', 'isv', 'payment_institution']
+        description: 'merchant, isv or payment_institution. Decides the operations listed and how requests are signed. Default merchant.',
+        enum: ALL
       }
     },
     additionalProperties: false
   },
 
   async handler(args) {
-    try {
-      const { language = 'python', partner_type = 'merchant' } = args;
-      const stats = advancedCodeGenerator.getImplementationStats();
-      const availableOps = advancedCodeGenerator.getAvailableOperations(partner_type);
+    const { language = 'python', partner_type: partnerType = 'merchant' } = args;
+    const available = advancedCodeGenerator.getAvailableOperations(partnerType);
+    const isv = partnerType === 'isv';
+    const institution = partnerType === 'payment_institution';
 
-      const documentation = `# payware ${language.toUpperCase()} Integration Documentation
+    const text = `# payware integration overview - ${partnerType}
 
-Complete integration guide for ${partner_type} partners.
+## Base URLs
 
-## Quick Start
+| Environment | API | OAuth2 (ISV) |
+|:-|:-|:-|
+| Sandbox | \`https://sandbox.payware.eu/api\` | \`https://sandbox.payware.eu/oauth2\` |
+| Production | \`https://api.payware.eu/api\` | \`https://api.payware.eu/oauth2\` |
 
-1. **Authentication Setup**: Use \`payware_generate_code_example\` with \`operation="authentication"\`
-2. **Environment Config**: Set up .env file with credentials
-3. **API Integration**: Use operation-specific examples
-4. **Testing**: Start with sandbox mode
+Reports (data retrieval) run on production only: sandbox lists no reports and runs none.
 
-## Implementation Overview
+## Signing a request
 
-- **Languages**: ${stats.languages} supported (${advancedCodeGenerator.supportedLanguages.join(', ')})
-- **Frameworks**: ${stats.frameworks} supported
-- **Operations**: ${stats.totalOperations} available operations
-- **Coverage**: ${stats.coverage}% complete implementation
+${advancedCodeGenerator.authenticationNotes(partnerType)}
 
-## Available Operations
+The programs read \`PAYWARE_PARTNER_ID\` and \`PAYWARE_PRIVATE_KEY_PATH\` (your RSA private key as PKCS#8 PEM), and \`PAYWARE_BASE_URL\` when set${isv ? ', and for a call on behalf of a merchant `PAYWARE_MERCHANT_PARTNER_ID` and `PAYWARE_OAUTH2_TOKEN`' : ''}.
+${isv ? `
+## Acting for a merchant
 
-${Object.entries(availableOps)
-  .map(([category, ops]) => `### ${category.charAt(0).toUpperCase() + category.slice(1)}\n${ops.map(op => `- \`${op}\``).join('\n')}`)
+Request a token with \`obtain_token\` (the merchant's partner id and the Base64 pairing key it gave you). It is PENDING until the merchant grants it; \`get_token_info\` shows its status, and \`rotate_token\` renews it before or after it expires without asking the merchant again. The merchant's plan governs every call you make for it.
+` : ''}${institution ? `
+## Finalizing as the payer's institution
+
+Process the transaction, take the payer's approval and reserve the amount, then send \`EXECUTING\` immediately before money moves (within 5 seconds of the approval): payware checks everything once and locks the transaction, and a refusal means nothing moves. Execute the Merchant Leg, then send \`CONFIRMED\` once it has completed (a payer at a till should not wait more than 15 seconds), or \`FAILED\`. The Fee Leg follows \`CONFIRMED\` for \`INSTANT\` and \`INTERNAL\` and goes with the Merchant Leg for \`DEFERRED\`. A lock left open is flagged to payware support after 60 seconds (\`INSTANT\`, \`INTERNAL\`) or two TARGET2 business days (\`DEFERRED\`); payware asks you for the outcome and never closes it itself. \`finalize_transaction\` writes the whole flow.
+` : ''}
+## Operations
+
+${Object.entries(available)
+  .map(([category, ops]) => `### ${category}\n${ops.map(op => `- ${advancedCodeGenerator.describeOperation(op, partnerType)}`).join('\n')}`)
   .join('\n\n')}
 
-## Code Generation Examples
+## Next steps
 
-\`\`\`javascript
-// Basic transaction
-payware_generate_code_example({
-  operation: "create_transaction",
-  language: "${language}",
-  partner_type: "${partner_type}"
-})
-
-// Framework-specific
-payware_generate_code_example({
-  operation: "create_transaction",
-  language: "${language}",
-  framework: "django", // or express, laravel, etc.
-  partner_type: "${partner_type}"
-})
-
-// Transaction creation
-payware_generate_code_example({
-  operation: "create_transaction",
-  language: "${language}",
-  partner_type: "${partner_type}"
-})
-\`\`\`
-
-## Framework Support for ${language}
-
-${advancedCodeGenerator.supportedFrameworks
-  .filter(f => {
-    if (language === 'python') return ['django', 'fastapi', 'flask'].includes(f);
-    if (language === 'nodejs') return ['express', 'nestjs', 'koa'].includes(f);
-    if (language === 'php') return ['laravel', 'symfony'].includes(f);
-    if (language === 'java') return ['spring', 'springboot'].includes(f);
-    if (language === 'csharp') return ['aspnet', 'blazor'].includes(f);
-    if (language === 'go') return ['gin', 'fiber'].includes(f);
-    if (language === 'ruby') return ['rails', 'sinatra'].includes(f);
-    return false;
-  })
-  .map(f => `- **${f}**: Framework-specific implementations available`)
-  .join('\n') || '- Standard implementations available'}
-
-
-## Best Practices
-
-1. **Security**: Always use sandbox mode for testing
-2. **Authentication**: Implement proper JWT token handling
-3. **Error Handling**: Include comprehensive error handling
-4. **Testing**: Use the \`include_tests: true\` option for unit tests
-5. **Monitoring**: Implement proper logging and monitoring
-
-## Support
-
-For specific implementations, use the code generation tool with your exact requirements:
-
-\`\`\`
-payware_generate_code_example(operation, language, partner_type, options)
-\`\`\`
-
-All ${stats.totalOperations} operations are fully implemented across all ${stats.languages} supported languages.
+1. \`payware_generate_code_example\` with \`operation: "authentication"\`, \`language: "${language}"\`, \`partner_type: "${partnerType}"\` for the JWT helper.
+2. The same tool with any operation above for a complete program.
+3. Try it on sandbox, then set \`PAYWARE_BASE_URL\` to production.
 `;
 
-      return {
-        content: [{
-          type: 'text',
-          text: documentation
-        }]
-      };
-
-    } catch (error) {
-      return {
-        content: [{
-          type: 'text',
-          text: `❌ Error generating documentation: ${error.message}`
-        }]
-      };
-    }
+    return { content: [{ type: 'text', text }] };
   }
 };

@@ -19,13 +19,14 @@ import {
   LOCALES
 } from '../../shared/data/data-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { buildDownloadExportTool } from '../../shared/data/download-export.js';
 import { CHANGES, CREATES, READS } from '../../shared/tool-annotations.js';
 
 // Create ISV data tool factory
 const createISVDataTool = (toolName, apiFunction, description, additionalParams = {}, annotations) => ({
   name: `payware_data_${toolName}`,
   annotations,
-  description: `${description} (ISV acting on behalf of merchant)`,
+  description: `${description} (ISV acting on behalf of merchant). Production only. On behalf of a merchant, a report resolves to your ISV, not to the merchant: it returns what your ISV mediated (server DataRetrievalService.getAuthPartnerId, trans_processed.isvPartnerId), not the merchant's own data. The merchant's plan governs the call.`,
   inputSchema: {
     type: "object",
     additionalProperties: false,
@@ -57,7 +58,7 @@ const createISVDataTool = (toolName, apiFunction, description, additionalParams 
       merchantPartnerId,
       oauth2Token,
       isvPartnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe()
+      privateKey = getPrivateKeySafe(false) // reports run on production only
     } = args;
 
     if (!isvPartnerId || !privateKey) {
@@ -106,14 +107,14 @@ ${JSON.stringify(result.data, null, 2)}
 export const generateReportTool = {
   name: "payware_data_generate_report",
   annotations: CREATES,
-  description: "Generate an asynchronous data report for ISV data analysis and reporting on behalf of merchants. Production only - not supported in sandbox.",
+  description: "Run a report asynchronously, as an ISV, for a merchant. Production only: sandbox lists no reports and runs none. On behalf of a merchant, a report resolves to your ISV, not to the merchant: it returns what your ISV mediated (server DataRetrievalService.getAuthPartnerId, trans_processed.isvPartnerId), not the merchant's own data. The merchant's plan governs the call. reportUnitId is a bare id from payware_data_list_reports (the last segment of its path).",
   inputSchema: {
     type: "object",
     additionalProperties: false,
     properties: {
       reportUnitId: {
         type: "string",
-        description: "The ID of the report to generate",
+        description: "The report id, bare (processedTransactionsMTD): the last segment of a path from payware_data_list_reports. Which reports you may run is the list that tool returns.",
         enum: Object.values(REPORT_TYPES),
         default: REPORT_TYPES.PROCESSED_TRANSACTIONS
       },
@@ -127,12 +128,12 @@ export const generateReportTool = {
       },
       dateFrom: {
         type: "string",
-        description: "Start date for the reporting period (YYYY-MM-DD format). Required for premium reports.",
+        description: "Start date (YYYY-MM-DD). Optional: defaults to today; the WTD, MTD and YTD reports compute their own start.",
         pattern: "^\\d{4}-\\d{2}-\\d{2}$"
       },
       dateTo: {
         type: "string",
-        description: "End date for the reporting period (YYYY-MM-DD format). Required for premium reports.",
+        description: "End date (YYYY-MM-DD). Optional: defaults to today.",
         pattern: "^\\d{4}-\\d{2}-\\d{2}$"
       },
       ignorePagination: {
@@ -175,7 +176,7 @@ export const generateReportTool = {
       locale = LOCALES.ENGLISH_US,
       timeZone = 'GMT',
       isvPartnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe()
+      privateKey = getPrivateKeySafe(false) // reports run on production only
     } = args;
 
     if (!isvPartnerId || !privateKey) {
@@ -238,7 +239,7 @@ export const listReportsTool = createISVDataTool('list_reports', listReports, 'L
 export const getReportRequestsTool = createISVDataTool('get_report_requests', getReportRequests, 'Get Report Request History', {
   reportId: {
     type: "string",
-    description: "The report unit ID (path) to get execution history for (e.g., '/processedTransactions')",
+    description: "The report id whose runs to list, bare (processedTransactions) or as the path the list returns (/processedTransactions)",
     enum: Object.values(REPORT_TYPES)
   }
 }, READS);
@@ -277,12 +278,23 @@ export const getExportStatusTool = createISVDataTool('get_export_status', getExp
   }
 }, READS);
 
-export const downloadExportTool = createISVDataTool('download_export', downloadExport, 'Download Export', {
-  exportId: {
-    type: "string",
-    description: "The export ID from the export request (UUID format)"
+export const downloadExportTool = buildDownloadExportTool({
+  partnerType: 'isv',
+  authProperties: {
+    merchantPartnerId: { type: "string", description: "The merchant's partner ID (required for ISV operations)" },
+    oauth2Token: { type: "string", description: "OAuth2 access token obtained from the merchant" },
+    isvPartnerId: { type: "string", description: "ISV Partner ID from payware dashboard. Uses PAYWARE_PARTNER_ID env var as default.", default: getPartnerIdSafe() },
+    privateKey: { type: "string", description: "ISV RSA private key for authentication. Uses the production private key as default (reports run on production only)." }
+  },
+  authRequired: ['merchantPartnerId', 'oauth2Token'],
+  resolveAuth: args => {
+    const isvPartnerId = args.isvPartnerId || getPartnerIdSafe();
+    const privateKey = args.privateKey || getPrivateKeySafe(false);
+    if (!isvPartnerId || !privateKey) throw new Error("ISV Partner ID and private key are required.");
+    if (!args.merchantPartnerId || !args.oauth2Token) throw new Error("Merchant Partner ID and OAuth2 token are required for ISV operations.");
+    return { isvPartnerId, privateKey, merchantPartnerId: args.merchantPartnerId, oauth2Token: args.oauth2Token };
   }
-}, READS);
+});
 
 export const cancelReportTool = createISVDataTool('cancel_report', cancelReport, 'Cancel Report', {
   requestId: {

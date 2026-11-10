@@ -1,24 +1,35 @@
 import axios from 'axios';
-import FormData from 'form-data';
-import { createJWTToken } from '../../core/auth/jwt-token.js';
-import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { readFileSync } from 'fs';
+import { basename } from 'path';
+import { createJWTToken } from '../../core/auth/jwt-token.js';
+import { getSoundbiteUrl, getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
-import { CREATES } from '../../shared/tool-annotations.js';
+import { READS } from '../../shared/tool-annotations.js';
 
 /**
- * Get transaction information using Soundbite file via payware API
- * @param {Object} params - Soundbite transaction parameters
- * @returns {Object} Transaction response
+ * Soundbite recognition: an audio fingerprint from the payware soundbite SDK, answered with the product
+ * it matches.
+ *
+ * Recognition has its own host (kb financial-institution/api, "Host and connection";
+ * server TransactionController.SOUNDBITE_DESCRIPTION): https://soundbite.payware.eu/api/transactions,
+ * sandbox https://soundbite-sandbox.payware.eu. The API hosts refuse it with 421 ERR_SOUNDBITE_HOST, which
+ * is what this tool got on every call while it posted to them. A multipart body carries no content hash.
+ *
+ * Answers: 200 with the product (and `recognition`) on a match, 200 with an empty body when nothing was
+ * recognised (keep listening), 503 ERR_RECOGNITION_BUSY with Retry-After at capacity.
+ *
+ * @param {Object} params
+ * @returns {Object} { success, matched, transaction, requestId } or apiErrorResult
  */
 export async function getSoundbiteTransaction({
   filePath,
+  soundbiteSession,
   partnerId,
   privateKey,
   useSandbox = true
 }) {
   if (!filePath) {
-    throw new Error('filePath is required for soundbite transaction');
+    throw new Error('filePath is required for soundbite recognition');
   }
 
   if (!partnerId || !privateKey) {
@@ -32,36 +43,31 @@ export async function getSoundbiteTransaction({
     throw new Error(`Failed to read soundbite file: ${error.message}`);
   }
 
-  // Create form data
-  const formData = new FormData();
-  formData.append('file', fileBuffer, {
-    filename: filePath.split('/').pop() || 'soundbite.lo',
-    contentType: 'application/octet-stream'
-  });
+  // Node 18's own FormData and Blob; axios sets the multipart Content-Type with its boundary.
+  const form = new FormData();
+  form.append('file', new Blob([fileBuffer], { type: 'application/octet-stream' }), basename(filePath));
 
-  // For multipart/form-data requests, we don't calculate contentSha256 the same way
-  // The JWT token is created without content SHA-256 for multipart uploads
   const tokenData = createJWTToken(partnerId, privateKey, null);
-
-  // Required headers as per payware API documentation
   const headers = {
     'Authorization': `Bearer ${tokenData.token}`,
-    'Api-Version': '1',  // Required: current API version
-    ...formData.getHeaders()
+    'Api-Version': '1',
+    ...(soundbiteSession && { 'Soundbite-Session': soundbiteSession })
   };
 
   try {
-    const baseUrl = useSandbox ? getSandboxUrl() : getProductionUrl();
-    const response = await axios.post(`${baseUrl}/transactions`, formData, {
+    const response = await axios.post(`${getSoundbiteUrl(useSandbox)}/transactions`, form, {
       headers,
       maxContentLength: Infinity,
       maxBodyLength: Infinity
     });
+    const data = response.data;
+    const matched = data !== null && data !== undefined && data !== '' && typeof data === 'object';
 
     return {
       success: true,
-      transaction: response.data,
-      requestId: response.headers['x-request-id'],
+      matched,
+      transaction: matched ? data : null,
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -70,35 +76,38 @@ export async function getSoundbiteTransaction({
 }
 
 /**
- * Soundbite transaction tool implementation
+ * Soundbite recognition tool implementation
  */
 export const soundbiteTransactionTool = {
   name: "payware_operations_soundbite_transaction",
-  annotations: CREATES,
-  description: `Get transaction information using a Soundbite SDK output file. This allows payment institutions to process transactions using audio-based identifiers.
+  // A lookup: it names a product and creates no payment (the payment is made by processing the id it
+  // returns). It is a POST only because it carries a file.
+  annotations: READS,
+  description: `Recognise a soundbite: upload an audio fingerprint from the payware soundbite SDK and get back the product it matches, as a payment institution.
 
-**Soundbite Integration:**
-- Upload Soundbite SDK output file (.lo extension)
-- File contains audio-encoded transaction identifier
-- Alternative to QR/barcode scanning for accessibility
-- Returns same transaction information as regular transaction lookup
+**Host:** recognition is answered only at https://soundbite.payware.eu (sandbox https://soundbite-sandbox.payware.eu), \`POST /api/transactions\` with multipart/form-data, part \`file\`. The API hosts refuse it with 421 ERR_SOUNDBITE_HOST. Every other call, including processing what recognition returns, goes to the API host.
 
-**File Requirements:**
-- File must be output from Soundbite SDK
-- Supported file format: .lo (Soundbite format)
-- File must contain valid transaction identifier
-- Maximum file size limits apply
+**Answers:**
+- A match: the product (transactionId, amount, currency, product details), so the app can show the payment review screen. With \`recognition.confidence\` PROBABLE, ask the shopper "Is this the ad?" and report the answer, with \`recognition.id\`, to \`POST /api/transactions/recognitions/{id}\` on the soundbite host (no tool for it here). CERTAIN, or no \`recognition\`, is a certain answer.
+- No match: an empty body. Nothing was recognised (or the product is inactive): keep listening.
+- 503 ERR_RECOGNITION_BUSY: recognition is at capacity. Keep the recording and send it again after the Retry-After seconds.
 
-**API Request:**
-- Uses multipart/form-data content type
-- File uploaded as form field named 'file'
-- JWT authentication without contentSha256 (multipart upload)`,
+**Then:** process the returned transactionId with \`payware_operations_process_transaction\` on the API host, and finalize the pw transaction that processing returns.
+
+**Soundbite-Session:** optionally one random UUID per tap, the same on every query of that tap, so its answers keep one id.
+
+The JWT carries no contentSha256 (a multipart upload has none).`,
   inputSchema: {
     type: "object",
     properties: {
       filePath: {
         type: "string",
-        description: "Absolute path to the Soundbite SDK output file (typically with .lo extension)"
+        description: "Absolute path to the fingerprint file the payware soundbite SDK wrote"
+      },
+      soundbiteSession: {
+        type: "string",
+        description: "Optional Soundbite-Session header: one random UUID per tap, the same on every query of that tap. Ignored by the server when malformed.",
+        pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
       },
       partnerId: {
         type: "string",
@@ -111,7 +120,7 @@ export const soundbiteTransactionTool = {
       },
       useSandbox: {
         type: "boolean",
-        description: "Use sandbox environment for testing",
+        description: "Use the sandbox soundbite host (default) or production's",
         default: true
       }
     },
@@ -119,146 +128,89 @@ export const soundbiteTransactionTool = {
   },
 
   async handler(args) {
+    const useSandbox = args.useSandbox ?? true;
     const {
       filePath,
+      soundbiteSession,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
-      useSandbox = true
+      privateKey = getPrivateKeySafe(useSandbox)
     } = args;
 
     if (!filePath) {
-      throw new Error("filePath is required for soundbite transaction");
+      throw new Error("filePath is required for soundbite recognition");
     }
-
     if (!partnerId) {
       throw new Error("Partner ID is required. Provide via 'partnerId' parameter or set PAYWARE_PARTNER_ID environment variable.");
     }
-
     if (!privateKey) {
-      throw new Error("Private key is required. Provide via 'privateKey' parameter or set PAYWARE_PRIVATE_KEY environment variable.");
+      throw new Error(`Private key is required. Provide via 'privateKey' parameter or set ${privateKeyVariable(useSandbox)}.`);
     }
 
-    const result = await getSoundbiteTransaction({
-      filePath,
-      partnerId,
-      privateKey,
-      useSandbox
-    });
+    const result = await getSoundbiteTransaction({ filePath, soundbiteSession, partnerId, privateKey, useSandbox });
+    const endpoint = `POST ${getSoundbiteUrl(useSandbox)}/transactions (multipart/form-data)`;
 
-    const baseUrl = useSandbox ? getSandboxUrl() : getProductionUrl();
+    if (result.success && !result.matched) {
+      return {
+        content: [{
+          type: "text",
+          text: `🔇 **Nothing recognised**
+
+The soundbite host answered with an empty body: the fingerprint matched no active product. Keep listening and send the next fingerprint.
+
+- Endpoint: ${endpoint}
+- Correlation ID: ${result.requestId || 'N/A'}`
+        }]
+      };
+    }
 
     if (result.success) {
       const tx = result.transaction;
-      const createdDate = tx.created ? new Date(tx.created).toISOString() : 'N/A';
-      const typeDisplay = tx.transactionType || 'DEFAULT';
-      const initiatorDisplay = tx.initiatedBy || 'UNKNOWN';
-
+      const probable = tx.recognition?.confidence === 'PROBABLE';
       return {
         content: [{
           type: "text",
-          text: `🔊 **Soundbite Transaction Retrieved Successfully**
+          text: `🔊 **Soundbite recognised**
 
-**Transaction Information:**
-- ID: ${tx.transactionId || 'N/A'}
-- Type: ${typeDisplay}
-- Initiated By: ${initiatorDisplay}
-- Status: ⏳ ACTIVE
-- Created: ${createdDate}
-- Remaining TTL: ${tx.timeToLive || 'N/A'} seconds
+- Transaction ID: ${tx.transactionId || 'N/A'}
+- Amount: ${tx.amount ?? 'N/A'} ${tx.currency || ''}
+- Reason: ${tx.reasonL1 || 'N/A'}${tx.reasonL2 ? ` (${tx.reasonL2})` : ''}
+- Payee: ${tx.payeeFriendlyName || 'N/A'}
+${tx.recognition ? `- Recognition: ${tx.recognition.confidence}${tx.recognition.id ? ` (id ${tx.recognition.id})` : ''}` : '- Recognition: certain'}
 
-**Transaction Details:**
-- Amount: ${tx.amount || 'N/A'} ${tx.currency || 'N/A'}
-- Reason L1: ${tx.reasonL1 || 'N/A'}
-${tx.reasonL2 ? `- Reason L2: ${tx.reasonL2}` : ''}
-
-**Payee Information:**
-- Account: ${tx.payeeAccount || 'N/A'}
-- Friendly Name: ${tx.payeeFriendlyName || 'N/A'}
-- Registered Name: ${tx.payeeRegisteredName || 'N/A'}
-${tx.payeeRegisteredId ? `- Registered ID: ${tx.payeeRegisteredId}\n` : ''}${tx.payeeVatId ? `- VAT ID: ${tx.payeeVatId}\n` : ''}- BIC: ${tx.payeeBIC || 'N/A'}
-
-**Payer Information:**
-- Friendly Name: ${tx.payerFriendlyName || 'N/A'}
-- BIC: ${tx.payerBIC || 'N/A'}
-
-**Soundbite Details:**
-- File Path: ${filePath}
-- File Name: ${filePath.split('/').pop()}
-- Processing Method: Audio-based transaction identifier
-
-**Full API Response:**
+${probable ? `**PROBABLE:** ask the shopper "Is this the ad?" before paying, and report the answer to \`POST /api/transactions/recognitions/${tx.recognition.id}\` on the soundbite host.\n\n` : ''}**Response:**
 \`\`\`json
-${JSON.stringify(result.transaction, null, 2)}
+${JSON.stringify(tx, null, 2)}
 \`\`\`
 
-**API Call Details:**
-- Endpoint: POST ${baseUrl}/transactions (multipart/form-data)
-- Request ID: ${result.requestId || 'N/A'}
-- Timestamp: ${result.timestamp}
+**Next steps:**
+1. Process \`${tx.transactionId || 'the transactionId'}\` with \`payware_operations_process_transaction\` (on the API host)
+2. Finalize the pw transaction that processing returns with \`payware_operations_finalize_transaction\`: EXECUTING immediately before money moves, then CONFIRMED once the Merchant Leg has completed, or FAILED (DECLINED if the payer declines before the lock)
 
-**Next Steps:**
-1. Transaction successfully identified from soundbite file
-2. Use transaction ID: \`${tx.transactionId || 'N/A'}\` for further operations
-3. Process this transaction as the payer
-4. Use \`payware_operations_process_transaction\` to process payment
-5. Use \`payware_operations_finalize_transaction\` to confirm/decline
-
-**♿ Accessibility Note:**
-- Soundbite provides audio-based alternative to QR/barcode scanning
-- Enables accessible payment processing for visually impaired users
-- Same functionality as visual transaction identifiers`
-        }]
-      };
-    } else {
-      return {
-        content: [{
-          type: "text",
-          text: `❌ **Soundbite Transaction Processing Failed**
-
-**File Path:** ${filePath}
-
-**Error Details:**
-- Message: ${result.error.message}
-- Status: ${result.error.status || 'N/A'}
-- Code: ${result.error.code || 'N/A'}
-
-**Full Error Response:**
-\`\`\`json
-${JSON.stringify(result.error.details || result.error, null, 2)}
-\`\`\`
-
-**Timestamp:** ${result.timestamp}
-
-**Common Soundbite Issues:**
-1. **File Not Found**: Verify the file path is correct and accessible
-2. **Invalid File Format**: Ensure file is a valid Soundbite SDK output (.lo format)
-3. **Corrupted Audio Data**: File may be corrupted or invalid
-4. **Transaction Not Found**: Audio may not contain valid transaction identifier
-5. **File Size Limits**: File may exceed maximum upload size
-6. **Authentication Issues**: Verify JWT token and partner credentials
-
-**Troubleshooting:**
-1. **File Path**: Ensure file path is absolute and file exists
-2. **File Format**: Verify file is output from Soundbite SDK (usually .lo extension)
-3. **File Integrity**: Check file is not corrupted or modified
-4. **Audio Quality**: Ensure soundbite was captured with sufficient quality
-5. **Transaction Validity**: Verify the original transaction hasn't expired
-6. **Permissions**: Check file read permissions
-
-**File Requirements:**
-- ✅ Valid Soundbite SDK output file
-- ✅ Readable file permissions
-- ✅ File size within limits
-- ✅ Contains valid transaction identifier
-- ✅ Transaction still active/valid
-
-**Alternative Actions:**
-- Try capturing soundbite again if audio quality was poor
-- Use QR/barcode scanning as alternative
-- Verify original transaction is still active
-- Check Soundbite SDK integration and file generation`
+- Endpoint: ${endpoint}
+- Correlation ID: ${result.requestId || 'N/A'}`
         }]
       };
     }
+
+    const busy = result.error.errorCode === 'ERR_RECOGNITION_BUSY';
+    return {
+      content: [{
+        type: "text",
+        text: `❌ **Soundbite recognition failed**
+
+- Status: ${result.error.status || 'N/A'}
+- Code: ${result.error.errorCode || 'N/A'}
+- Message: ${result.error.message}
+${result.error.retryAfterSeconds !== undefined ? `- Retry-After: ${result.error.retryAfterSeconds} seconds\n` : ''}- Endpoint: ${endpoint}
+
+${busy ? '**Recognition is at capacity.** Keep the recording and send it again after the Retry-After seconds; the window was not evaluated.'
+  : result.error.errorCode === 'ERR_SOUNDBITE_HOST' ? '**Sent to an API host.** Recognition is answered only at the soundbite host; check PAYWARE_SOUNDBITE_SANDBOX_URL / PAYWARE_SOUNDBITE_PRODUCTION_URL.'
+    : 'Check the file is a fingerprint the payware soundbite SDK wrote, and that your institution is active.'}
+
+\`\`\`json
+${JSON.stringify(result.error.details || result.error, null, 2)}
+\`\`\``
+      }]
+    };
   }
 };

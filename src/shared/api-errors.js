@@ -102,9 +102,28 @@ export function retryAfterSeconds(error) {
  * @returns {Error} an Error carrying `status`, `errorCode`, `retryable` and `retryAfterSeconds`
  *                  alongside a message that explains the status
  */
+/**
+ * The error body as an object. A request made with responseType 'arraybuffer' (QR codes, images,
+ * export downloads) gets its error body as bytes, so errorCode, message and correlationId were
+ * undefined on every failure of those tools; decode it as the JSON payware sends.
+ */
+export function errorBody(error) {
+  const data = error?.response?.data;
+  const bytes = data instanceof ArrayBuffer ? Buffer.from(data)
+    : ArrayBuffer.isView(data) ? Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+      : null;
+  if (!bytes) return data;
+  const text = bytes.toString('utf8');
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text ? { message: text } : undefined;
+  }
+}
+
 export function describeApiError(error, operation) {
   const status = error?.response?.status;
-  const data = error?.response?.data;
+  const data = errorBody(error);
   const errorCode = data?.errorCode || data?.code;
   const serverMessage = data?.message || error?.message;
   const correlationId = data?.correlationId;
@@ -164,7 +183,7 @@ export function describeApiError(error, operation) {
  */
 export function apiErrorResult(error) {
   const status = error?.response?.status;
-  const data = error?.response?.data;
+  const data = errorBody(error);
   const errorCode = data?.errorCode || data?.code;
   const retryAfter = retryAfterSeconds(error);
   const known = UNIVERSAL_STATUS_GUIDANCE[status];

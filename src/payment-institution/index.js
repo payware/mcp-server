@@ -25,10 +25,14 @@ import { simulatePICallbackTool } from './transactions/simulate-pi-callback.js';
 // Data tools
 import { paymentInstitutionDataTools } from './data/index.js';
 
+// Logs tools (Premium): LogAccessController serves banks as well as merchants
+import { paymentInstitutionLogsTools } from '../shared/logs/tools.js';
+
 // Deep links tools
 
 // Import shared tools
 import { sharedTools } from '../shared/index.js';
+import { withErrorResult } from '../shared/tool-result.js';
 
 /**
  * Payment Institution specific tools
@@ -48,7 +52,10 @@ export const paymentInstitutionTools = [
   simulatePICallbackTool,
 
   // Data management
-  ...paymentInstitutionDataTools
+  ...paymentInstitutionDataTools,
+
+  // Logs tools
+  ...paymentInstitutionLogsTools
 ];
 
 /**
@@ -76,9 +83,10 @@ export function getPaymentInstitutionTools() {
       newName = tool.name; // Keep data grouping
     }
 
-    return {
+    // withErrorResult: a failure reaches the client as an isError result (shared/tool-result.js).
+    return withErrorResult({
       ...tool,
       name: newName
-    };
+    });
   });
 }

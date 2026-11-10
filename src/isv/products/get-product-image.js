@@ -9,7 +9,9 @@ import { READS } from '../../shared/tool-annotations.js';
 export const getProductImageTool = {
   name: "payware_products_get_product_image",
   annotations: READS,
-  description: `Generate a QR code or barcode image for a merchant's product (ISV operation).`,
+  description: `Generate a QR code or barcode image for a merchant's product (ISV operation).
+
+⚠️ **Does not work for an ISV today.** The server answers 404 to every ISV caller of POST /api/products/{productId}/image (ProductBaseController.generateImage refuses a caller whose merchant is an ISV, which an on-behalf token is). It is a server defect, reported for a fix. Until then the merchant can generate the image itself, or a placement of the product gives a QR code through payware_products_get_placement_image.`,
 
   inputSchema: {
     type: "object",
@@ -145,7 +147,7 @@ export const getProductImageTool = {
 
     // Get ISV credentials
     const isvPartnerId = getPartnerIdSafe();
-    const privateKey = getPrivateKeySafe();
+    const privateKey = getPrivateKeySafe(useSandbox);
 
     if (!isvPartnerId || !privateKey) {
       throw new Error("ISV credentials are required");

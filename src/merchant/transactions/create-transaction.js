@@ -1,8 +1,10 @@
 import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
-import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
+import { QR_OPTION_PROPERTIES, BARCODE_OPTION_PROPERTIES, buildQrOptions, buildBarOptions } from '../../shared/media-options.js';
 import { CREATES } from '../../shared/tool-annotations.js';
+import { checkDeferredAllowed, deferredAllowedOption, DEFERRED_ALLOWED_DESCRIPTION } from '../../shared/deferred-transfer.js';
 
 /**
  * Create a transaction via payware API
@@ -20,6 +22,8 @@ export async function createTransaction({
   friendlyName,
   shop,
   timeToLive = 120,
+  // Opt-in to a deferred Merchant Leg (trOptions.deferredAllowed, server docs/execution-lock.md).
+  deferredAllowed,
   partnerId,
   privateKey,
   passbackParams,
@@ -76,6 +80,11 @@ export async function createTransaction({
     );
   }
 
+  // A terminal sale stays instant or internal: the server answers 400 ERR_DEFERRED_TRANSFER_NOT_ALLOWED
+  // to an opt-in that carries producer or terminal fields. Said here, naming the fields, rather than
+  // after a round trip.
+  checkDeferredAllowed(deferredAllowed, { producerPartnerId, terminalId, terminalManufacturer });
+
   for (const [field, value] of [['terminalId', terminalId], ['terminalManufacturer', terminalManufacturer]]) {
     if (value === undefined || value === null) continue;
     if (String(value).length > 64) {
@@ -87,25 +96,9 @@ export async function createTransaction({
     }
   }
 
-  // Build QR options if applicable
-  const qrOptions = {};
-  if (type === 'QR') {
-    if (qrFormat) qrOptions.qrFormat = qrFormat;
-    if (qrBorder !== undefined) qrOptions.qrBorder = qrBorder;
-    if (qrErrorCorrection) qrOptions.qrErrorCorrection = qrErrorCorrection;
-    if (qrScale) qrOptions.qrScale = qrScale;
-    if (qrVersion) qrOptions.qrVersion = qrVersion;
-  }
+  const qrOptions = buildQrOptions(type, { qrFormat, qrBorder, qrErrorCorrection, qrScale, qrVersion });
   
-  // Build barcode options if applicable
-  const barOptions = {};
-  if (type === 'BARCODE') {
-    if (barFormat) barOptions.barFormat = barFormat;
-    if (barModuleWidth) barOptions.barModuleWidth = barModuleWidth;
-    if (barBarHeight) barOptions.barBarHeight = barBarHeight;
-    if (barFontSize) barOptions.barFontSize = barFontSize;
-    if (barHumanReadableLocation) barOptions.barHumanReadableLocation = barHumanReadableLocation;
-  }
+  const barOptions = buildBarOptions(type, { barFormat, barModuleWidth, barBarHeight, barFontSize, barHumanReadableLocation });
   
   // Build request body according to documentation structure
   const requestBody = {
@@ -127,10 +120,11 @@ export async function createTransaction({
     },
     trOptions: {
       type,
-      timeToLive
+      timeToLive,
+      ...deferredAllowedOption(deferredAllowed)
     },
-    ...(type === 'QR' && Object.keys(qrOptions).length > 0 && { qrOptions }),
-    ...(type === 'BARCODE' && Object.keys(barOptions).length > 0 && { barOptions })
+    ...(qrOptions && { qrOptions }),
+    ...(barOptions && { barOptions })
   };
   
   // Convert to deterministic minimized JSON as required by payware API for SHA-256 calculation
@@ -161,7 +155,7 @@ export async function createTransaction({
     return {
       success: true,
       transaction: response.data,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       replayed: response.headers?.['idempotent-replayed'] === 'true',
       timestamp: new Date().toISOString()
     };
@@ -211,7 +205,7 @@ export const createTransactionTool = {
 - amount, currency, reasonL1, reasonL2
 
 ⚙️ **TRANSACTION OPTIONS** (trOptions object):
-- type, timeToLive
+- type, timeToLive, deferredAllowed (deferred Merchant Leg opt-in - see below)
 
 📱 **QR OPTIONS** (qrOptions object - only when type=QR):
 - qrFormat, qrBorder, qrErrorCorrection, qrScale, qrVersion
@@ -243,6 +237,20 @@ export const createTransactionTool = {
   "qrOptions": { ... }
 }
 \`\`\`
+
+⏳ **DEFERRED MERCHANT LEG** (optional, \`trOptions.deferredAllowed\`)
+
+By default the payer's institution pays this transaction with an instant or an internal transfer.
+\`deferredAllowed: true\` also lets it use an ordinary credit transfer that settles later. Rules:
+
+- Honoured only on your own call without POS terminal producer fields. With \`producerPartnerId\`,
+  \`terminalId\` or \`terminalManufacturer\` the transaction is refused with 400
+  \`ERR_DEFERRED_TRANSFER_NOT_ALLOWED\`: a till payment stays instant or internal.
+- **A deferred payment stays ACTIVE, i.e. pending, until the transfer settles, which can take days**,
+  and so can stay ACTIVE past its \`timeToLive\`. Keep polling or wait for the callback; never treat
+  it as expired yourself. CONFIRMED arrives once the money has reached your account.
+- Echoed as \`deferredAllowed: true\` in the create response and on status reads when set; absent
+  otherwise. Leave it out for instant or internal only.
 
 🏭 **POS TERMINAL PRODUCER ATTRIBUTION** (optional, root level)
 
@@ -322,9 +330,13 @@ ISV's software is running on that producer's hardware.`,
       },
       timeToLive: {
         type: "number",
-        description: "⚙️ TRANSACTION OPTIONS: Time allowed for payment initiation in seconds",
+        description: "⚙️ TRANSACTION OPTIONS: Time allowed for payment initiation in seconds. Once the payer's institution has started the payment, the transaction stays ACTIVE past it until the money has moved (seconds for an instant transfer, days with deferredAllowed); never infer EXPIRED from the clock.",
         minimum: 60,
         maximum: 600
+      },
+      deferredAllowed: {
+        type: "boolean",
+        description: `⚙️ TRANSACTION OPTIONS: ${DEFERRED_ALLOWED_DESCRIPTION}`
       },
       callbackUrl: {
         type: "string",
@@ -358,64 +370,9 @@ ISV's software is running on that producer's hardware.`,
         description: "📋 ROOT LEVEL: Additional parameters passed back in callbacks (max 200 chars)",
         maxLength: 200
       },
-      // QR Code Options
-      qrFormat: {
-        type: "string",
-        enum: ["PNG", "JPEG", "GIF", "BMP", "SVG"],
-        description: "📱 QR OPTIONS: Image format for QR code (only when type=QR, default: SVG)"
-      },
-      qrBorder: {
-        type: "number",
-        minimum: 1,
-        maximum: 10,
-        description: "📱 QR OPTIONS: Border size in modules around QR code (only when type=QR, default: 4)"
-      },
-      qrErrorCorrection: {
-        type: "string",
-        enum: ["LOW", "MEDIUM", "QUARTILE", "HIGH"],
-        description: "📱 QR OPTIONS: Error correction level - LOW (7%), MEDIUM (15%), QUARTILE (25%), HIGH (30%) (only when type=QR, default: QUARTILE)"
-      },
-      qrScale: {
-        type: "number",
-        minimum: 1,
-        maximum: 100,
-        description: "📱 QR OPTIONS: Size of each module in pixels, irrelevant for SVG (only when type=QR, default: 16)"
-      },
-      qrVersion: {
-        type: "number",
-        minimum: 1,
-        maximum: 40,
-        description: "📱 QR OPTIONS: QR code version, higher versions can store more data (only when type=QR, default: 10)"
-      },
-      // Barcode Options
-      barFormat: {
-        type: "string",
-        enum: ["PNG", "SVG", "JPG"],
-        description: "🔗 BARCODE OPTIONS: Image format for barcode (only when type=BARCODE, default: SVG)"
-      },
-      barModuleWidth: {
-        type: "number",
-        minimum: 1,
-        maximum: 5,
-        description: "Barcode module width in pixels (applies when type=BARCODE)"
-      },
-      barBarHeight: {
-        type: "number",
-        minimum: 10,
-        maximum: 200,
-        description: "Barcode height in pixels (applies when type=BARCODE)"
-      },
-      barFontSize: {
-        type: "number",
-        minimum: 8,
-        maximum: 24,
-        description: "Barcode text font size (applies when type=BARCODE)"
-      },
-      barHumanReadableLocation: {
-        type: "string",
-        enum: ["TOP", "BOTTOM", "NONE"],
-        description: "Location of human readable text (applies when type=BARCODE)"
-      },
+      // QR and barcode options: one definition for every create tool (shared/media-options.js)
+      ...QR_OPTION_PROPERTIES,
+      ...BARCODE_OPTION_PROPERTIES,
       useSandbox: {
         type: "boolean",
         description: "Use sandbox environment for testing"
@@ -437,6 +394,7 @@ ISV's software is running on that producer's hardware.`,
       friendlyName,
       shop,
       timeToLive = 120,
+      deferredAllowed,
       partnerId = getPartnerIdSafe(),
       privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       passbackParams,
@@ -469,7 +427,7 @@ ISV's software is running on that producer's hardware.`,
     }
     
     if (!privateKey) {
-      throw new Error("Private key is required. Provide via 'privateKey' parameter or set PAYWARE_PRIVATE_KEY environment variable.");
+      throw new Error(`Private key is required. Provide via 'privateKey' parameter or set ${privateKeyVariable(args.useSandbox ?? true)}.`);
     }
     
     const result = await createTransaction({
@@ -483,6 +441,7 @@ ISV's software is running on that producer's hardware.`,
       friendlyName,
       shop,
       timeToLive,
+      deferredAllowed,
       partnerId,
       privateKey,
       passbackParams,
@@ -524,6 +483,7 @@ ISV's software is running on that producer's hardware.`,
 - Amount: ${amount} ${currency}
 - Description: ${reasonL1}${reasonL2 ? ` (${reasonL2})` : ''}
 ${callbackUrl ? `- Callback URL: ${callbackUrl}` : ''}
+${result.transaction.deferredAllowed === true ? '- Deferred Merchant Leg allowed: yes - the payment may stay ACTIVE until the transfer settles, which can take days' : ''}
 
 **API Response:**
 \`\`\`json

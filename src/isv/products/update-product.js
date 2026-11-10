@@ -9,7 +9,7 @@ import { CHANGES } from '../../shared/tool-annotations.js';
 export const updateProductTool = {
   name: "payware_products_update_product",
   annotations: CHANGES,
-  description: `Update an existing product on behalf of a merchant (ISV operation). Only provide the fields you want to change.`,
+  description: `Update an existing product on behalf of a merchant (ISV operation). Only provide the fields you want to change. The tool reads the product first and sends it whole: the server resets a field a partial update leaves out (active, shippable and quickPay to FALSE, type, time zone and time to live to defaults), a server defect.`,
 
   inputSchema: {
     type: "object",
@@ -176,7 +176,7 @@ export const updateProductTool = {
 
     // Get ISV credentials
     const isvPartnerId = getPartnerIdSafe();
-    const privateKey = getPrivateKeySafe();
+    const privateKey = getPrivateKeySafe(useSandbox);
 
     if (!isvPartnerId || !privateKey) {
       throw new Error("ISV credentials are required");

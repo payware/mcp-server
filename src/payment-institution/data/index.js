@@ -19,13 +19,14 @@ import {
   LOCALES
 } from '../../shared/data/data-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { buildDownloadExportTool } from '../../shared/data/download-export.js';
 import { CHANGES, CREATES, READS } from '../../shared/tool-annotations.js';
 
 // Create a payment institution tool factory
 const createPIDataTool = (toolName, apiFunction, description, additionalParams = {}, annotations) => ({
   name: `payware_data_${toolName}`,
   annotations,
-  description: `${description} (Payment Institution data access)`,
+  description: `${description} (Payment Institution data access). Production only: sandbox lists no reports and runs none.`,
   inputSchema: {
     type: "object",
     additionalProperties: false,
@@ -47,7 +48,7 @@ const createPIDataTool = (toolName, apiFunction, description, additionalParams =
   async handler(args) {
     const {
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe()
+      privateKey = getPrivateKeySafe(false) // reports run on production only
     } = args;
 
     if (!partnerId || !privateKey) {
@@ -93,12 +94,12 @@ export const generateReportTool = {
       },
       dateFrom: {
         type: "string",
-        description: "Start date for the reporting period (YYYY-MM-DD format). Required for premium reports.",
+        description: "Start date (YYYY-MM-DD). Optional: defaults to today; the WTD, MTD and YTD reports compute their own start.",
         pattern: "^\\d{4}-\\d{2}-\\d{2}$"
       },
       dateTo: {
         type: "string",
-        description: "End date for the reporting period (YYYY-MM-DD format). Required for premium reports.",
+        description: "End date (YYYY-MM-DD). Optional: defaults to today.",
         pattern: "^\\d{4}-\\d{2}-\\d{2}$"
       },
       ignorePagination: {
@@ -139,7 +140,7 @@ export const generateReportTool = {
       locale = LOCALES.ENGLISH_US,
       timeZone = 'GMT',
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe()
+      privateKey = getPrivateKeySafe(false) // reports run on production only
     } = args;
 
     if (!partnerId || !privateKey) {
@@ -147,17 +148,10 @@ export const generateReportTool = {
     }
 
     // Check for required date range on premium reports
-    const premiumReports = [
-      REPORT_TYPES.PROCESSED_TRANSACTIONS,
-      REPORT_TYPES.SCHEDULES_LIST,
-      REPORT_TYPES.TRANSACTIONS_PER_PRODUCT,
-      REPORT_TYPES.SALES_PER_PRODUCT,
-      REPORT_TYPES.TRANSACTIONS_PER_WEBPOS
-    ];
 
-    if (premiumReports.includes(reportUnitId) && (!dateFrom || !dateTo)) {
-      throw new Error(`Report "${reportUnitId}" requires dateFrom and dateTo parameters (YYYY-MM-DD format)`);
-    }
+    // No local date requirement: the server defaults an absent date to today, and the WTD, MTD and YTD
+    // reports compute their own start (DataRetrievalService). The tool refused premium reports without
+    // dates, which the server accepts.
 
     try {
       const result = await generateReport({
@@ -227,7 +221,7 @@ export const listReportsTool = createPIDataTool('list_reports', listReports, 'Li
 export const getReportRequestsTool = createPIDataTool('get_report_requests', getReportRequests, 'Get Report Request History', {
   reportId: {
     type: "string",
-    description: "The report unit ID (path) to get execution history for (e.g., '/processedTransactions')",
+    description: "The report id whose runs to list, bare (processedTransactions) or as the path the list returns (/processedTransactions)",
     enum: Object.values(REPORT_TYPES)
   }
 }, READS);
@@ -266,12 +260,19 @@ export const getExportStatusTool = createPIDataTool('get_export_status', getExpo
   }
 }, READS);
 
-export const downloadExportTool = createPIDataTool('download_export', downloadExport, 'Download Export', {
-  exportId: {
-    type: "string",
-    description: "The export ID from the export request (UUID format)"
+export const downloadExportTool = buildDownloadExportTool({
+  partnerType: 'payment_institution',
+  authProperties: {
+    partnerId: { type: "string", description: "Payment Institution Partner ID from payware dashboard. Uses PAYWARE_PARTNER_ID env var as default.", default: getPartnerIdSafe() },
+    privateKey: { type: "string", description: "Payment Institution RSA private key for authentication. Uses the production private key as default (reports run on production only)." }
+  },
+  resolveAuth: args => {
+    const partnerId = args.partnerId || getPartnerIdSafe();
+    const privateKey = args.privateKey || getPrivateKeySafe(false);
+    if (!partnerId || !privateKey) throw new Error("Partner ID and private key are required. Set PAYWARE_PARTNER_ID and PAYWARE_PRODUCTION_PRIVATE_KEY_PATH, or provide them as parameters.");
+    return { partnerId, privateKey };
   }
-}, READS);
+});
 
 export const cancelReportTool = createPIDataTool('cancel_report', cancelReport, 'Cancel Report', {
   requestId: {

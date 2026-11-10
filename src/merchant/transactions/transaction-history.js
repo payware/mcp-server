@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
-import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
 import { READS } from '../../shared/tool-annotations.js';
 
@@ -35,7 +35,7 @@ export async function getTransactionHistory({ transactionId, partnerId, privateK
     return {
       success: true,
       transaction: response.data,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -121,8 +121,8 @@ retry once the window passes. The failure result exposes this as \`error.throttl
     properties: {
       transactionId: {
         type: "string",
-        description: "Transaction ID to get history for. Format: 2-char prefix + 8-char ID. Supports: 'pw' (standard), 'pr' (product), 'ps' (soundbite)",
-        pattern: "^(pw|pr|ps)[0-9A-Za-z]{8}$"
+        description: "The pw transaction id. History looks the id up as given, so a product, placement, soundbite or POI id is not found: use the pw id the process response returned. Up to 32 characters (identifiers may grow beyond today's 10).",
+        pattern: "^pw[0-9A-Za-z]{8,30}$"
       },
       partnerId: {
         type: "string",
@@ -155,7 +155,7 @@ retry once the window passes. The failure result exposes this as \`error.throttl
     }
     
     if (!privateKey) {
-      throw new Error("Private key is required. Provide via 'privateKey' parameter or set PAYWARE_PRIVATE_KEY environment variable.");
+      throw new Error(`Private key is required. Provide via 'privateKey' parameter or set ${privateKeyVariable(args.useSandbox ?? true)}.`);
     }
     
     const result = await getTransactionHistory({ transactionId, partnerId, privateKey, useSandbox });
@@ -260,7 +260,7 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 3. **ERR_METHOD_NOT_ALLOWED**: HTTP method issue
 
 **Troubleshooting:**
-1. Verify transaction ID is correct: 10 characters total, starts with 'pw' (standard), 'pr' (product), or 'ps' (soundbite)
+1. Verify transaction ID is correct: the pw id (up to 32 characters); this endpoint looks the id up as given, so a pr, pl, ps or pi id is not found: use the transactionId of the process response
 2. Ensure transaction exists and you have access to it
 3. If getting rate limit errors, wait 60 seconds before retrying
 4. For ACTIVE transactions, use 'payware_operations_get_transaction_status' instead

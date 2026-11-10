@@ -4,7 +4,7 @@
  */
 
 import { createJWTToken } from './jwt-token.js';
-import { getPartnerTypeSafe, isISV, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { getPartnerTypeSafe, isISV, getPartnerIdSafe } from '../../config/env.js';
 
 /**
  * Create JWT token appropriate for the current partner type
@@ -20,7 +20,9 @@ export async function createJWTForPartner(options = {}) {
   const partnerType = getPartnerTypeSafe();
   const {
     partnerId = getPartnerIdSafe(),
-    privateKey = getPrivateKeySafe(),
+    // No default: the key belongs to the environment the caller is about to call, which only the
+    // caller knows. A sandbox default signed production calls with the sandbox key.
+    privateKey,
     requestBody = null,
     merchantId = null,
     oauth2Token = null

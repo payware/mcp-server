@@ -12,6 +12,7 @@ import {
   EXPORT_FORMATS
 } from '../../shared/data/data-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { buildDownloadExportTool } from '../../shared/data/download-export.js';
 
 // Import individual tools
 import { generateReportTool } from './generate-report.js';
@@ -53,7 +54,7 @@ export const getExportStatusTool = {
     const {
       exportId,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe()
+      privateKey = getPrivateKeySafe(false) // reports run on production only
     } = args;
 
     if (!partnerId || !privateKey) {
@@ -114,127 +115,30 @@ ${downloadInfo}
 };
 
 /**
- * Download export tool for merchants
+ * Download export tool for merchants (shared/data/download-export.js builds it for every role)
  */
-export const downloadExportTool = {
-  name: "payware_data_download_export",
-  annotations: ADDS,
-  description: "Download a READY export file. The export must be in READY status. Returns binary data for the file.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      exportId: {
-        type: "string",
-        description: "The export ID from the export request (UUID format)"
-      },
-      saveToFile: {
-        type: "boolean",
-        description: "Whether to save the downloaded file to disk. If true, saves it to a payware-mcp-downloads folder in the system temp directory and returns the path. If false, only shows metadata/preview.",
-        default: false
-      },
-      partnerId: {
-        type: "string",
-        description: "Partner ID from payware dashboard. Uses PAYWARE_PARTNER_ID env var as default.",
-        default: getPartnerIdSafe()
-      },
-      privateKey: {
-        type: "string",
-        description: "RSA private key for authentication. Uses production private key as default (Data API is production-only)."
-      }
+export const downloadExportTool = buildDownloadExportTool({
+  partnerType: 'merchant',
+  authProperties: {
+    partnerId: {
+      type: "string",
+      description: "Partner ID from payware dashboard. Uses PAYWARE_PARTNER_ID env var as default.",
+      default: getPartnerIdSafe()
     },
-    required: ["exportId"]
+    privateKey: {
+      type: "string",
+      description: "RSA private key for authentication. Uses the production private key as default (reports run on production only)."
+    }
   },
-
-  async handler(args) {
-    const {
-      exportId,
-      saveToFile = false,
-      partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(false)  // false = production (Data API is production-only)
-    } = args;
-
+  resolveAuth: args => {
+    const partnerId = args.partnerId || getPartnerIdSafe();
+    const privateKey = args.privateKey || getPrivateKeySafe(false);
     if (!partnerId || !privateKey) {
       throw new Error("Partner ID and private key are required. Set PAYWARE_PARTNER_ID and PAYWARE_PRODUCTION_PRIVATE_KEY_PATH environment variables or provide them as parameters.");
     }
-
-    try {
-      const result = await downloadExport({
-        exportId,
-        partnerType: 'merchant',
-        partnerId,
-        privateKey
-      });
-
-      const sizeInKB = Math.round(result.data.length / 1024);
-      const contentType = result.contentType || 'unknown';
-      const isTextFormat = contentType.includes('csv') || contentType.includes('json') || contentType.includes('text');
-
-      let savedFileInfo = '';
-      let contentPreview = '';
-
-      if (saveToFile) {
-        // Determine file extension from content type
-        const extensionMap = {
-          'application/pdf': 'pdf',
-          'application/vnd.ms-excel': 'xls',
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-          'text/csv': 'csv',
-          'application/json': 'json'
-        };
-        const extension = extensionMap[contentType] || 'bin';
-        const filename = `report_${exportId.substring(0, 8)}.${extension}`;
-        // The temp directory is writable wherever the server runs; its working directory, set by the
-        // MCP client, often is not. This was a fixed developer path, which no other machine has.
-        const os = await import('os');
-        const path = await import('path');
-        const filepath = path.join(os.tmpdir(), 'payware-mcp-downloads', filename);
-
-        // Save file to downloads directory
-        const fs = await import('fs');
-        const downloadDir = path.dirname(filepath);
-
-        // Create downloads directory if it doesn't exist
-        if (!fs.existsSync(downloadDir)) {
-          fs.mkdirSync(downloadDir, { recursive: true });
-        }
-
-        fs.writeFileSync(filepath, result.data);
-        savedFileInfo = `- Saved to: \`${filepath}\`\n- Filename: ${filename}\n`;
-      }
-
-      if (isTextFormat) {
-        // For text formats, show a preview
-        const textContent = Buffer.from(result.data).toString('utf-8');
-        const previewLength = saveToFile ? 500 : 2000; // Shorter preview if saved to file
-        const preview = textContent.length > previewLength ?
-          textContent.substring(0, previewLength) + '\n\n...[truncated' + (saveToFile ? ', see full file]' : ']') :
-          textContent;
-        contentPreview = `\n**Content Preview:**\n\`\`\`\n${preview}\n\`\`\`\n`;
-      } else if (!saveToFile) {
-        contentPreview = `\n**File Type:** Binary format (${contentType})\n**Note:** Binary files cannot be displayed as text. Use \`saveToFile: true\` to save the file to disk.\n`;
-      }
-
-      return {
-        content: [{
-          type: "text",
-          text: `📊 **Export Downloaded Successfully**
-
-**File Information:**
-- Export ID: ${exportId}
-- Content Type: ${result.contentType}
-- File Size: ${sizeInKB} KB (${result.contentLength} bytes)
-${savedFileInfo}${contentPreview}
-**Summary:**
-✅ ${saveToFile ? 'File saved to disk and' : 'File'} downloaded successfully
-
-${saveToFile ? '**Tip:** The file has been saved and can be opened with the appropriate application.' : '**Tip:** Use `saveToFile: true` parameter to save the file to disk'}`
-        }]
-      };
-    } catch (error) {
-      throw new Error(`Failed to download export: ${error.message}`);
-    }
+    return { partnerId, privateKey };
   }
-};
+});
 
 /**
  * Cancel report tool for merchants
@@ -267,7 +171,7 @@ export const cancelReportTool = {
     const {
       requestId,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe()
+      privateKey = getPrivateKeySafe(false) // reports run on production only
     } = args;
 
     if (!partnerId || !privateKey) {
@@ -338,7 +242,7 @@ export const cancelExportTool = {
     const {
       exportId,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe()
+      privateKey = getPrivateKeySafe(false) // reports run on production only
     } = args;
 
     if (!partnerId || !privateKey) {

@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
-import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
 import { CHANGES } from '../../shared/tool-annotations.js';
 
@@ -64,7 +64,7 @@ export async function cancelTransaction({
     return {
       success: true,
       transaction: response.data,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -91,7 +91,7 @@ export const cancelTransactionTool = {
         // "cancel a product payment", read the 404 as "already gone", and left the product live and
         // scannable. Products are taken down through the products API, not by cancelling them.
         description: "Transaction ID to cancel (must be an ACTIVE 'pw' transaction created by this merchant). Format: 'pw' + 8 characters. Product ('pr') and soundbite ('ps') ids are NOT cancellable - deactivate those through the products API.",
-        pattern: "^pw[0-9A-Za-z]{8}$"
+        pattern: "^pw[0-9A-Za-z]{8,30}$"
       },
       statusMessage: {
         type: "string",
@@ -139,7 +139,7 @@ export const cancelTransactionTool = {
     }
     
     if (!privateKey) {
-      throw new Error("Private key is required. Provide via 'privateKey' parameter or set PAYWARE_PRIVATE_KEY environment variable.");
+      throw new Error(`Private key is required. Provide via 'privateKey' parameter or set ${privateKeyVariable(args.useSandbox ?? true)}.`);
     }
     
     const result = await cancelTransaction({
@@ -226,7 +226,7 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 - ⚠️ **Before Expiry**: Cannot cancel expired transactions
 
 **Troubleshooting:**
-1. Verify transaction ID is correct: 10 characters total, starting with 'pw'. Product ('pr') and soundbite ('ps') ids cannot be cancelled - this endpoint resolves the id literally and answers 404 for them; deactivate those through the products API instead.
+1. Verify transaction ID is correct: up to 32 characters, starting with 'pw'. Product ('pr') and soundbite ('ps') ids cannot be cancelled - this endpoint resolves the id literally and answers 404 for them; deactivate those through the products API instead.
 2. **Ensure you are the transaction creator** (not just any merchant)
 3. Check transaction hasn't been processed already by anyone
 4. Verify status message is under 100 characters

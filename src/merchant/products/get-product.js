@@ -40,7 +40,7 @@ export const getProductTool = {
     const {
       productId,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(),
+      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
     } = args;
 

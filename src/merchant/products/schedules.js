@@ -15,7 +15,7 @@ import { CHANGES, CREATES, READS } from '../../shared/tool-annotations.js';
 export const createScheduleTool = {
   name: "payware_products_create_schedule",
   annotations: CREATES,
-  description: "Create a price schedule for a product to manage time-based pricing",
+  description: "Create a price schedule for a product to manage time-based pricing. Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).",
 
   inputSchema: {
     type: "object",
@@ -85,7 +85,7 @@ export const createScheduleTool = {
       dateFrom,
       dateTo,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(),
+      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
     } = args;
 
@@ -176,7 +176,7 @@ ${JSON.stringify(schedule, null, 2)}
 export const getSchedulesTool = {
   name: "payware_products_get_schedules",
   annotations: READS,
-  description: "Get all price schedules for a product",
+  description: "Get all price schedules for a product. Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).",
 
   inputSchema: {
     type: "object",
@@ -208,7 +208,7 @@ export const getSchedulesTool = {
     const {
       productId,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(),
+      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
     } = args;
 
@@ -288,7 +288,7 @@ ${schedulesList}
 export const getScheduleTool = {
   name: "payware_products_get_schedule",
   annotations: READS,
-  description: "Get detailed information about a specific price schedule",
+  description: "Get detailed information about a specific price schedule. Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).",
 
   inputSchema: {
     type: "object",
@@ -325,7 +325,7 @@ export const getScheduleTool = {
       productId,
       scheduleId,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(),
+      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
     } = args;
 
@@ -401,7 +401,7 @@ ${JSON.stringify(schedule, null, 2)}
 export const updateScheduleTool = {
   name: "payware_products_update_schedule",
   annotations: CHANGES,
-  description: "Update an existing price schedule. Only provide fields you want to change.",
+  description: "Update an existing price schedule. Only provide fields you want to change. The tool reads the schedule (and the product's time zone) first and sends it whole: the server resets a field a partial update leaves out (the discount to 0%, the dates to today), a server defect. Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).",
 
   inputSchema: {
     type: "object",
@@ -473,7 +473,7 @@ export const updateScheduleTool = {
       dateFrom,
       dateTo,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(),
+      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
     } = args;
 
@@ -549,7 +549,7 @@ ${JSON.stringify(schedule, null, 2)}
 export const deleteScheduleTool = {
   name: "payware_products_delete_schedule",
   annotations: CHANGES,
-  description: "Delete a price schedule. This action cannot be undone.",
+  description: "Delete a price schedule. This action cannot be undone. Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).",
 
   inputSchema: {
     type: "object",
@@ -586,7 +586,7 @@ export const deleteScheduleTool = {
       productId,
       scheduleId,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(),
+      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
     } = args;
 

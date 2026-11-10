@@ -14,7 +14,9 @@ import { CHANGES, CREATES, READS } from '../../shared/tool-annotations.js';
 export const registerAudioTool = {
   name: "payware_products_register_audio",
   annotations: CREATES,
-  description: `Register an audio file (soundbite) for a product to enable audio-based payment initiation.
+  description: `Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).
+
+Register an audio file (soundbite) for a product to enable audio-based payment initiation.
 
 **Supported formats:** MP3, WAV, OGG, M4A, FLAC, AAC, WMA, MP4, MOV, up to 100 MB, holding 2 to 120 seconds of audio
 **Note:** For video files, only the audio channel is registered`,
@@ -54,7 +56,7 @@ export const registerAudioTool = {
       productId,
       audioPath,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(),
+      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
     } = args;
 
@@ -143,7 +145,7 @@ ${audio.status === '1' ? '✅ Audio is ready for use in soundbite transactions' 
 export const getAudiosTool = {
   name: "payware_products_get_audios",
   annotations: READS,
-  description: "Get all registered audio files for a product",
+  description: "Get all registered audio files for a product. Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).",
 
   inputSchema: {
     type: "object",
@@ -175,7 +177,7 @@ export const getAudiosTool = {
     const {
       productId,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(),
+      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
     } = args;
 
@@ -255,7 +257,7 @@ ${audiosList}
 export const getAudioTool = {
   name: "payware_products_get_audio",
   annotations: READS,
-  description: "Get detailed information about a specific audio file",
+  description: "Get detailed information about a specific audio file. Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).",
 
   inputSchema: {
     type: "object",
@@ -292,7 +294,7 @@ export const getAudioTool = {
       productId,
       audioId,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(),
+      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
     } = args;
 
@@ -369,7 +371,7 @@ ${audio.status === '1' ? '✅ **Ready:** Audio is processed and ready for soundb
 export const updateAudioTool = {
   name: "payware_products_update_audio",
   annotations: CHANGES,
-  description: "Update audio information (title) or reassign audio to another product",
+  description: "Update audio information (title) or reassign audio to another product. Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).",
 
   inputSchema: {
     type: "object",
@@ -418,7 +420,7 @@ export const updateAudioTool = {
       title,
       newProductId,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(),
+      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
     } = args;
 
@@ -503,7 +505,7 @@ ${JSON.stringify(audio, null, 2)}
 export const deleteAudioTool = {
   name: "payware_products_delete_audio",
   annotations: CHANGES,
-  description: "Delete an audio file from a product. This action cannot be undone.",
+  description: "Delete an audio file from a product. This action cannot be undone. Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).",
 
   inputSchema: {
     type: "object",
@@ -540,7 +542,7 @@ export const deleteAudioTool = {
       productId,
       audioId,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(),
+      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
     } = args;
 

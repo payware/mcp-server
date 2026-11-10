@@ -25,6 +25,9 @@ import { merchantLogsTools } from './logs/index.js';
 // Shop tools - needed before any call that takes a shop / shopCode
 import { merchantShopTools } from './shops/index.js';
 
+// POI tools: the server serves POIs to merchants as well as to ISVs acting for them
+import { merchantPOITools } from './poi/index.js';
+
 // Campaigns, placements and airings - one definition shared by merchants and ISVs
 import { placementTools } from '../shared/placements/tools.js';
 
@@ -33,6 +36,7 @@ import { getServerInfoTool } from '../utils/server-info.js';
 
 // Import shared tools
 import { sharedTools } from '../shared/index.js';
+import { withErrorResult } from '../shared/tool-result.js';
 
 /**
  * All merchant-specific tools
@@ -59,6 +63,9 @@ export const merchantTools = [
 
   // Logs management (Premium feature)
   ...merchantLogsTools,
+
+  // Points of interaction
+  ...merchantPOITools,
 
   // Shop lookup
   ...merchantShopTools,
@@ -104,9 +111,10 @@ export function getMerchantTools() {
       newName = tool.name; // Keep shops grouping
     }
 
-    return {
+    // withErrorResult: a failure reaches the client as an isError result (shared/tool-result.js).
+    return withErrorResult({
       ...tool,
       name: newName
-    };
+    });
   });
 }

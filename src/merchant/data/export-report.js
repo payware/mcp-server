@@ -88,10 +88,7 @@ export const exportReportTool = {
 3. When export status is "READY", use "Download Export" tool to get the file
 
 **Available Export Formats:**
-- **PDF**: ${EXPORT_FORMATS.PDF} - Formatted reports with charts and styling
-- **CSV**: ${EXPORT_FORMATS.CSV} - Comma-separated values for data analysis
-- **Excel**: ${EXPORT_FORMATS.EXCEL} - Microsoft Excel format
-- **JSON**: ${EXPORT_FORMATS.JSON} - Structured data format
+${Object.values(EXPORT_FORMATS).join(', ')} (the server's ReportOutputFormat; it falls back to the report's default for anything else)
 
 **Export Status Meanings:**
 - 🟡 **QUEUED**: Export is waiting to be processed

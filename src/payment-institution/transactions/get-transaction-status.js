@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
-import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
 import { READS } from '../../shared/tool-annotations.js';
 
@@ -42,7 +42,7 @@ export async function getPITransactionStatus({
     return {
       success: true,
       transaction: response.data,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -56,7 +56,7 @@ export async function getPITransactionStatus({
 export const getPITransactionStatusTool = {
   name: "payware_operations_get_transaction_status",
   annotations: READS,
-  description: `Get the current status of an active payware transaction as a financial institution.
+  description: `Get the current status of a pending payware transaction as a financial institution: ACTIVE, or EXECUTING once your institution has locked it.
 
 **Use Cases:**
 - Check transaction status and details
@@ -71,8 +71,11 @@ export const getPITransactionStatusTool = {
 - Transaction amount and currency
 - Reason lines and creation timestamp
 - Remaining time to live
-- Current transaction state
+- Current transaction state: ACTIVE, or EXECUTING after your institution's EXECUTING finalize
+- \`deferredAllowed: true\` when the merchant opted this transaction in to a deferred Merchant Leg (absent otherwise); only then may EXECUTING carry \`transferType: DEFERRED\`
 - \`product\` - payer-facing presentation, for product-originated transactions only (see below)
+
+🔒 **EXECUTING.** Only the payer's institution sees this status, between its EXECUTING finalize (the lock, sent immediately before money moves) and its CONFIRMED or FAILED. A locked transaction has left the expiry clock: it does not expire, and payware accepts its CONFIRMED (once the Merchant Leg has completed) or FAILED at any time. A merchant or ISV reading it sees ACTIVE, and no callback is sent until it is final.
 
 🛍️ **The nested \`product\` object.** Since 2026-07-22 the presentation fields are grouped under
 \`product\` rather than sitting flat on the response - the old top-level \`imageUrl\` is gone.
@@ -110,14 +113,14 @@ your institution, \`account\` in your institution's format). \`fee\` is **the va
 finalize**; \`feeFixed\` and \`feeRate\` are informational, and recomputing the fee from them is rejected
 with ERR_FEE_MISMATCH.
 
-**Note:** This endpoint only returns active transactions. Use \`payware_operations_get_transaction_history\` for completed/expired transactions.`,
+**Note:** This endpoint only returns pending transactions (ACTIVE or EXECUTING); once final it answers 404. Use \`payware_operations_get_transaction_history\` for completed/expired transactions.`,
   inputSchema: {
     type: "object",
     properties: {
       transactionId: {
         type: "string",
-        description: "Transaction ID to check status. Format: 2-char prefix + 8-char ID. Supports: 'pw' (standard), 'pr' (product), 'pl' (placement: pays as its product, and the payment is attributed to the placement), 'ps' (soundbite)",
-        pattern: "^(pw|pr|pl|ps)[0-9A-Za-z]{8}$"
+        description: "The id to look up: 'pw' (a transaction), 'pr' (product), 'pl' (placement: pays as its product, and the payment is attributed to the placement), 'ps' (soundbite) or 'pi' (a POI: its pending price as transaction data). Up to 32 characters (identifiers may grow beyond today's 10).",
+        pattern: "^(pw|pr|pl|ps|pi)[0-9A-Za-z]{8,30}$"
       },
       partnerId: {
         type: "string",
@@ -154,7 +157,7 @@ with ERR_FEE_MISMATCH.
     }
 
     if (!privateKey) {
-      throw new Error("Private key is required. Provide via 'privateKey' parameter or set PAYWARE_PRIVATE_KEY environment variable.");
+      throw new Error(`Private key is required. Provide via 'privateKey' parameter or set ${privateKeyVariable(args.useSandbox ?? true)}.`);
     }
 
     const result = await getPITransactionStatus({
@@ -169,6 +172,8 @@ with ERR_FEE_MISMATCH.
     if (result.success) {
       const tx = result.transaction;
       const createdDate = tx.created ? new Date(tx.created).toISOString() : 'N/A';
+      // EXECUTING reaches only the payer's institution; everything else pending reads ACTIVE.
+      const locked = tx.status === 'EXECUTING';
 
       // Transaction type display
       const typeDisplay = tx.transactionType || 'DEFAULT';
@@ -183,10 +188,10 @@ with ERR_FEE_MISMATCH.
 - ID: ${tx.transactionId || transactionId}
 - Type: ${typeDisplay}
 - Initiated By: ${initiatorDisplay}
-- Status: ⏳ ACTIVE
+- Status: ${locked ? '🔒 EXECUTING' : '⏳ ACTIVE'}
 - Created: ${createdDate}
-- Remaining TTL: ${tx.timeToLive || 'N/A'} seconds
-
+- Remaining TTL: ${locked ? 'not running (locked)' : `${tx.timeToLive || 'N/A'} seconds`}
+${tx.transferType ? `- Transfer Type: ${tx.transferType}\n` : ''}${tx.deferredAllowed === true ? '- Deferred Merchant Leg allowed: yes (transferType DEFERRED may be sent at EXECUTING)\n' : ''}
 **Transaction Details:**
 - Amount: ${tx.amount || 'N/A'} ${tx.currency || 'N/A'}
 ${tx.paymentMethod ? `- Payment Method: ${tx.paymentMethod}\n` : ''}- Reason L1: ${tx.reasonL1 || 'N/A'}
@@ -217,15 +222,22 @@ ${JSON.stringify(result.transaction, null, 2)}
 - Timestamp: ${result.timestamp}
 
 **Next Steps:**
-1. Process it if your institution has not yet; once processed, finalize it
+${locked
+  ? `1. The lock is yours: complete the Merchant Leg
+2. Use \`payware_operations_finalize_transaction\` with CONFIRMED (the status alone is enough) once it has completed, or FAILED if it was rejected${tx.transferType === 'DEFERRED' ? ' (with feeLegOutcome)' : ''}`
+  : `1. Process it if your institution has not yet
 2. ${tx.timeToLive && parseInt(tx.timeToLive) < 60 ? '⚠️ Transaction expires soon!' : 'Monitor remaining TTL'}
 3. Use \`payware_operations_process_transaction\` if you need to process this transaction
-4. Use \`payware_operations_finalize_transaction\` to confirm/decline after processing
+4. Use \`payware_operations_finalize_transaction\` with EXECUTING immediately before money moves, then CONFIRMED once the Merchant Leg has completed (or DECLINED if the payer declines before the lock)`}
 
 **⚠️ Transaction State:**
-- This is an **active** transaction
+${locked
+  ? `- **Locked** for execution by the payer's institution
+- It does not expire; DECLINED and CANCELLED are no longer accepted
+- The merchant sees it as ACTIVE until CONFIRMED or FAILED`
+  : `- This is an **active** transaction
 - Participants can still interact with it
-- Will expire in ${tx.timeToLive || 'unknown'} seconds if not completed`
+- Will expire in ${tx.timeToLive || 'unknown'} seconds unless your institution's EXECUTING is accepted first`}`
         }]
       };
     } else {
@@ -249,12 +261,12 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 **Timestamp:** ${result.timestamp}
 
 **Common Issues:**
-1. **ERR_MISSING_TRANSACTION (404)**: Transaction not found, expired, or already completed
-2. **Invalid Transaction ID**: Check transaction ID format (10 chars: 'pw'/'pr'/'pl'/'ps' + 8 chars)
+1. **ERR_MISSING_TRANSACTION (404)**: Transaction not found, expired, or already completed (CONFIRMED and FAILED are no longer pending)
+2. **Invalid Transaction ID**: Check transaction ID format (a 2-letter prefix and up to 30 more characters)
 3. **Authentication Issues**: Verify JWT token and partner credentials
 
 **Troubleshooting:**
-1. Verify transaction ID is correct: 10 characters total, starts with 'pw' (standard), 'pr' (product), 'pl' (placement) or 'ps' (soundbite)
+1. Verify transaction ID is correct: up to 32 characters, starts with 'pw' (standard), 'pr' (product), 'pl' (placement), 'ps' (soundbite) or 'pi' (POI)
 2. Check if transaction has expired or been completed
 3. Use \`payware_operations_get_transaction_history\` for completed/expired transactions
 4. Verify your partner credentials and API access

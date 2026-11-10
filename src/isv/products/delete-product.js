@@ -59,7 +59,7 @@ export const deleteProductTool = {
 
     // Get ISV credentials
     const isvPartnerId = getPartnerIdSafe();
-    const privateKey = getPrivateKeySafe();
+    const privateKey = getPrivateKeySafe(useSandbox);
 
     if (!isvPartnerId || !privateKey) {
       throw new Error("ISV credentials are required");

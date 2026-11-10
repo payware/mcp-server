@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
-import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
+import { QR_OPTION_PROPERTIES, BARCODE_OPTION_PROPERTIES, buildQrOptions, buildBarOptions } from '../../shared/media-options.js';
 import { CREATES } from '../../shared/tool-annotations.js';
 
 /**
@@ -44,8 +45,10 @@ export async function createPITransaction({
     throw new Error('role is required and must be either "SRC" (payer) or "DST" (payee)');
   }
 
-  if (!account) {
-    throw new Error('account is required (unique identifier of the account)');
+  // The server requires an account from the payee (DST) only. The payer (SRC) sends none: payware
+  // does not keep the payer's account, and one that is sent is ignored (FIValidationService.accountIsPayees).
+  if (role === 'DST' && !account) {
+    throw new Error('account is required when creating as the payee (DST): the account the money is paid into');
   }
 
   if (!friendlyName) {
@@ -68,49 +71,36 @@ export async function createPITransaction({
     throw new Error('Partner ID and private key are required for proper JWT creation');
   }
 
-  // Build QR options if applicable
-  const qrOptions = {};
-  if (type === 'QR') {
-    if (qrFormat) qrOptions.qrFormat = qrFormat;
-    if (qrBorder !== undefined) qrOptions.qrBorder = qrBorder;
-    if (qrErrorCorrection) qrOptions.qrErrorCorrection = qrErrorCorrection;
-    if (qrScale) qrOptions.qrScale = qrScale;
-    if (qrVersion) qrOptions.qrVersion = qrVersion;
-  }
+  const qrOptions = buildQrOptions(type, { qrFormat, qrBorder, qrErrorCorrection, qrScale, qrVersion });
 
-  // Build barcode options if applicable
-  const barOptions = {};
-  if (type === 'BARCODE') {
-    if (barFormat) barOptions.barFormat = barFormat;
-    if (barModuleWidth) barOptions.barModuleWidth = barModuleWidth;
-    if (barBarHeight) barOptions.barBarHeight = barBarHeight;
-    if (barFontSize) barOptions.barFontSize = barFontSize;
-    if (barHumanReadableLocation) barOptions.barHumanReadableLocation = barHumanReadableLocation;
-  }
+  const barOptions = buildBarOptions(type, { barFormat, barModuleWidth, barBarHeight, barFontSize, barHumanReadableLocation });
 
   // Build request body according to payment institution API documentation
   const requestBody = {
     role,
-    account,
+    ...(role === 'DST' && account && { account }),
     friendlyName,
     ...(callbackUrl && { callbackUrl }),
     ...(passbackParams && {
       passbackParams: typeof passbackParams === 'string' ? passbackParams : JSON.stringify(passbackParams)
     }),
-    ...(amount !== undefined && {
-      trData: {
-        amount: amount.toString(),
-        currency,
-        ...(reasonL1 && { reasonL1 }),
-        ...(reasonL2 && { reasonL2 })
-      }
-    }),
+    // trData always, with an amount: the server validates the currency and the amount on every create
+    // (FIValidationService.validateGenerateTransactionRequest; a missing amount is ERR_INVALID_AMOUNT,
+    // zero is allowed). It was sent only with an amount, so a create without one lost the currency and
+    // answered 400; then without the amount, which answered 400 too. 0.00 is the flexible amount, as
+    // the merchant tool sends.
+    trData: {
+      amount: amount !== undefined && amount !== null && amount !== '' ? amount.toString() : '0.00',
+      currency,
+      ...(reasonL1 && { reasonL1 }),
+      ...(reasonL2 && { reasonL2 })
+    },
     trOptions: {
       type,
       timeToLive
     },
-    ...(type === 'QR' && Object.keys(qrOptions).length > 0 && { qrOptions }),
-    ...(type === 'BARCODE' && Object.keys(barOptions).length > 0 && { barOptions })
+    ...(qrOptions && { qrOptions }),
+    ...(barOptions && { barOptions })
   };
 
   // Convert to deterministic minimized JSON as required by payware API for SHA-256 calculation
@@ -140,7 +130,7 @@ export async function createPITransaction({
     return {
       success: true,
       transaction: response.data,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       replayed: response.headers?.['idempotent-replayed'] === 'true',
       timestamp: new Date().toISOString()
     };
@@ -159,7 +149,7 @@ export const createPITransactionTool = {
 
 **Payment Institution Features:**
 - **Role**: DST (payee/receiver) or SRC (payer/sender)
-- **Account**: Required unique account identifier
+- **Account**: the account the money is paid into, required as the payee (DST); as the payer (SRC) leave it out, payware does not keep the payer's account
 - **FriendlyName**: Required account holder name
 - **P2P Support**: Cross-payment institution transactions
 - **Flexible Amounts**: Support for amount-flexible transactions
@@ -200,7 +190,7 @@ export const createPITransactionTool = {
       },
       account: {
         type: "string",
-        description: "Unique identifier of the account (required)",
+        description: "The account the money is paid into. Required when role is DST (payee); leave it out for SRC (payer): payware does not keep the payer's account, and the tool does not send one.",
         maxLength: 36
       },
       friendlyName: {
@@ -262,71 +252,16 @@ export const createPITransactionTool = {
         description: "Additional parameters passed back in callbacks (max 200 chars)",
         maxLength: 200
       },
-      // QR Code Options
-      qrFormat: {
-        type: "string",
-        enum: ["PNG", "JPEG", "SVG"],
-        description: "Image format for QR code (only when type=QR, default: SVG)"
-      },
-      qrBorder: {
-        type: "number",
-        minimum: 1,
-        maximum: 10,
-        description: "Border size in modules around QR code (only when type=QR, default: 4)"
-      },
-      qrErrorCorrection: {
-        type: "string",
-        enum: ["LOW", "MEDIUM", "QUARTILE", "HIGH"],
-        description: "Error correction level (only when type=QR, default: QUARTILE)"
-      },
-      qrScale: {
-        type: "number",
-        minimum: 1,
-        maximum: 100,
-        description: "Size of each module in pixels (only when type=QR, default: 16)"
-      },
-      qrVersion: {
-        type: "number",
-        minimum: 1,
-        maximum: 40,
-        description: "QR code version (only when type=QR, default: 10)"
-      },
-      // Barcode Options
-      barFormat: {
-        type: "string",
-        enum: ["PNG", "SVG", "JPG"],
-        description: "Image format for barcode (only when type=BARCODE, default: SVG)"
-      },
-      barModuleWidth: {
-        type: "number",
-        minimum: 1,
-        maximum: 10,
-        description: "Barcode module width in pixels (applies when type=BARCODE)"
-      },
-      barBarHeight: {
-        type: "number",
-        minimum: 15,
-        maximum: 1000,
-        description: "Barcode height in pixels (applies when type=BARCODE)"
-      },
-      barFontSize: {
-        type: "number",
-        minimum: 0,
-        maximum: 24,
-        description: "Barcode text font size (applies when type=BARCODE)"
-      },
-      barHumanReadableLocation: {
-        type: "string",
-        enum: ["NONE", "BOTTOM", "TOP"],
-        description: "Location of human readable text (applies when type=BARCODE)"
-      },
+      // QR and barcode options: one definition for every create tool (shared/media-options.js)
+      ...QR_OPTION_PROPERTIES,
+      ...BARCODE_OPTION_PROPERTIES,
       useSandbox: {
         type: "boolean",
         description: "Use sandbox environment for testing",
         default: true
       }
     },
-    required: ["role", "account", "friendlyName", "currency"]
+    required: ["role", "friendlyName", "currency"]
   },
 
   async handler(args) {
@@ -364,8 +299,8 @@ export const createPITransactionTool = {
       throw new Error("role is required and must be either 'SRC' (payer) or 'DST' (payee)");
     }
 
-    if (!account) {
-      throw new Error("account is required (unique identifier of the account)");
+    if (role === 'DST' && !account) {
+      throw new Error("account is required when creating as the payee (DST): the account the money is paid into");
     }
 
     if (!friendlyName) {
@@ -377,7 +312,7 @@ export const createPITransactionTool = {
     }
 
     if (!privateKey) {
-      throw new Error("Private key is required. Provide via 'privateKey' parameter or set PAYWARE_PRIVATE_KEY environment variable.");
+      throw new Error(`Private key is required. Provide via 'privateKey' parameter or set ${privateKeyVariable(args.useSandbox ?? true)}.`);
     }
 
     const result = await createPITransaction({
@@ -427,7 +362,7 @@ export const createPITransactionTool = {
 - Role: ${roleDescription} (${role})
 - Type: ${type}
 - Status: ${statusEmoji} ${status}
-- Account: ${account}
+${account && role === 'DST' ? `- Account: ${account}` : '- Account: not sent (the payer sends none)'}
 - Friendly Name: ${friendlyName}
 ${amount ? `- Amount: ${amount} ${currency}` : '- Amount: Flexible (0.00)'}
 ${reasonL1 ? `- Description: ${reasonL1}${reasonL2 ? ` (${reasonL2})` : ''}` : ''}

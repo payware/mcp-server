@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
-import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
 import { READS } from '../../shared/tool-annotations.js';
 
@@ -42,7 +42,7 @@ export async function getPITransactionHistory({
     return {
       success: true,
       transaction: response.data,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -78,8 +78,8 @@ export const getPITransactionHistoryTool = {
     properties: {
       transactionId: {
         type: "string",
-        description: "Transaction ID to retrieve history. Format: 2-char prefix + 8-char ID. Supports: 'pw' (standard), 'pr' (product), 'ps' (soundbite)",
-        pattern: "^(pw|pr|ps)[0-9A-Za-z]{8}$"
+        description: "The pw transaction id. History looks the id up as given, so a product, placement, soundbite or POI id is not found: use the pw id the process response returned. Up to 32 characters (identifiers may grow beyond today's 10).",
+        pattern: "^pw[0-9A-Za-z]{8,30}$"
       },
       partnerId: {
         type: "string",
@@ -116,7 +116,7 @@ export const getPITransactionHistoryTool = {
     }
 
     if (!privateKey) {
-      throw new Error("Private key is required. Provide via 'privateKey' parameter or set PAYWARE_PRIVATE_KEY environment variable.");
+      throw new Error(`Private key is required. Provide via 'privateKey' parameter or set ${privateKeyVariable(args.useSandbox ?? true)}.`);
     }
 
     const result = await getPITransactionHistory({
@@ -241,7 +241,7 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 4. **Transaction Still Active**: Use \`payware_operations_get_transaction_status\` for active transactions
 
 **Troubleshooting:**
-1. Verify transaction ID is correct: 10 characters total, starts with 'pw' (standard), 'pr' (product), or 'ps' (soundbite)
+1. Verify transaction ID is correct: the pw id (up to 32 characters); this endpoint looks the id up as given, so a pr, pl, ps or pi id is not found: use the transactionId of the process response
 2. Check if transaction is still active (not yet completed/expired)
 3. Implement retry logic for rate limiting (HTTP 429)
 4. Verify your payment institution credentials and API access

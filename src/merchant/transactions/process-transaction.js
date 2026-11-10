@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
-import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
 import { COMMITS } from '../../shared/tool-annotations.js';
 
@@ -22,7 +22,6 @@ export async function processTransaction({
   callbackUrl,
   passbackParams,
   timeToLive = 120,
-  paymentMethod,
   partnerId,
   privateKey,
   idempotencyKey,
@@ -59,7 +58,6 @@ export async function processTransaction({
     ...(shop && { shop }),
     ...(callbackUrl && { callbackUrl }),
     ...(passbackParams && { passbackParams }),
-    ...(paymentMethod && { paymentMethod }),
     trData: {
       amount: amount.toString(),
       currency,
@@ -97,7 +95,7 @@ export async function processTransaction({
     return {
       success: true,
       transaction: response.data,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       replayed: response.headers?.['idempotent-replayed'] === 'true',
       timestamp: new Date().toISOString()
     };
@@ -148,8 +146,8 @@ export const processTransactionTool = {
       },
       transactionId: {
         type: "string",
-        description: "Transaction ID to process. Format: 2-char prefix + 8-char ID. Supports: 'pw' (standard), 'pr' (product), 'pl' (placement: pays as its product, and the payment is attributed to the placement), 'ps' (soundbite)",
-        pattern: "^(pw|pr|pl|ps)[0-9A-Za-z]{8}$"
+        description: "Transaction ID to process: 'pw' (standard), 'pr' (product), 'pl' (placement: pays as its product, and the payment is attributed to the placement), 'ps' (soundbite). Up to 32 characters (identifiers may grow beyond today's 10).",
+        pattern: "^(pw|pr|pl|ps)[0-9A-Za-z]{8,30}$"
       },
       amount: {
         type: ["number", "string"], 
@@ -205,11 +203,6 @@ export const processTransactionTool = {
         maximum: 600,
         default: 120
       },
-      paymentMethod: {
-        type: "string",
-        enum: ["A2A", "CARD_FUNDED", "BNPL", "INSTANT_CREDIT"],
-        description: "Payment method chosen by customer. A2A = direct transfer (lower fee, no rewards). CARD_FUNDED = card-linked account (higher fee, rewards eligible). BNPL = buy now pay later (installments). INSTANT_CREDIT = credit line approved at purchase."
-      },
       partnerId: {
         type: "string",
         description: "Partner ID from payware dashboard. Can use PAYWARE_PARTNER_ID env var as default.",
@@ -241,7 +234,6 @@ export const processTransactionTool = {
       callbackUrl,
       passbackParams,
       timeToLive = 120,
-      paymentMethod,
       partnerId = getPartnerIdSafe(),
       privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       idempotencyKey,
@@ -265,7 +257,7 @@ export const processTransactionTool = {
     }
     
     if (!privateKey) {
-      throw new Error("Private key is required. Provide via 'privateKey' parameter or set PAYWARE_PRIVATE_KEY environment variable.");
+      throw new Error(`Private key is required. Provide via 'privateKey' parameter or set ${privateKeyVariable(args.useSandbox ?? true)}.`);
     }
     
     const result = await processTransaction({
@@ -280,7 +272,6 @@ export const processTransactionTool = {
       callbackUrl,
       passbackParams,
       timeToLive,
-      paymentMethod,
       partnerId,
       privateKey,
       idempotencyKey,
@@ -299,7 +290,7 @@ export const processTransactionTool = {
 **Transaction Details:**
 - Amount: ${amount} ${currency}
 - Reason: ${reasonL1}${reasonL2 ? ` (${reasonL2})` : ''}
-${paymentMethod ? `- Payment Method: ${paymentMethod}\n` : ''}- Time to Live: ${timeToLive} seconds
+- Time to Live: ${timeToLive} seconds
 ${callbackUrl ? `- Callback URL: ${callbackUrl}` : ''}
 ${passbackParams ? `- Passback Params: ${passbackParams}` : ''}
 
@@ -350,7 +341,7 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 4. **ERR_SPECIFYING_AMOUNT_NOT_ALLOWED**: Amount exceeds transaction limit
 
 **Troubleshooting:**
-1. Verify transaction ID is correct: 10 characters total, starts with 'pw' (standard), 'pr' (product), or 'ps' (soundbite)
+1. Verify transaction ID is correct: up to 32 characters, starts with 'pw' (standard), 'pr' (product), 'pl' (placement) or 'ps' (soundbite)
 2. Ensure you're not the transaction creator (merchants process peer transactions)
 3. Check transaction hasn't already been processed
 4. Verify amount doesn't exceed original transaction amount`

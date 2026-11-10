@@ -8,6 +8,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import './config/env.js'; // Load environment variables
+import { PACKAGE_VERSION } from './config/package-info.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -22,7 +23,7 @@ class PaywareMCPBridge {
     this.server = new Server(
       {
         name: 'payware-mcp-bridge',
-        version: '1.0.0',
+        version: PACKAGE_VERSION,
       },
       {
         capabilities: {

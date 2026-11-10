@@ -9,7 +9,7 @@ import { CHANGES } from '../../shared/tool-annotations.js';
 export const updateProductTool = {
   name: "payware_products_update_product",
   annotations: CHANGES,
-  description: `Update an existing product. Only provide the fields you want to change.
+  description: `Update an existing product. Only provide the fields you want to change. The tool reads the product first and sends it whole: the server resets a field a partial update leaves out (active, shippable and quickPay to FALSE, type, time zone and time to live to defaults), a server defect.
 
 **Product Structure:**
 📦 **PRODUCT METADATA**: name, shortDescription, longDescription, sku, upc, shippable, active, shop
@@ -164,7 +164,7 @@ export const updateProductTool = {
       termsUrl,
       termsText,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(),
+      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
     } = args;
 

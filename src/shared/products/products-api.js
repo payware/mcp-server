@@ -1,5 +1,4 @@
 import axios from 'axios';
-import FormData from 'form-data';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
@@ -149,7 +148,7 @@ export async function createProduct({
   prData = {},
   prOptions = {},
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   if (!name) {
@@ -202,7 +201,7 @@ export async function createProduct({
  */
 export async function getProducts({
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   const headers = await createAuthHeaders(partnerType, authParams);
@@ -234,7 +233,7 @@ export async function getProducts({
 export async function getProduct({
   productId,
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   if (!productId) {
@@ -264,8 +263,77 @@ export async function getProduct({
   }
 }
 
+const present = value => value !== undefined && value !== null;
+const compact = obj => Object.fromEntries(Object.entries(obj).filter(([, value]) => present(value)));
+
+/** A zoned date-time the server printed ("2026-11-10T10:00:00+02:00[Europe/Sofia]") as it reads one back. */
+const zonedToInput = value => (value ? String(value).slice(0, 19).replace('T', ' ') : undefined);
+
+/** An instant ("2026-11-10T08:00:00.000+00:00" or epoch millis) as "yyyy-MM-dd HH:mm:ss" in a time zone. */
+function instantToInput(value, timeZone) {
+  if (!present(value)) return undefined;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return undefined;
+  // sv-SE formats as "2026-11-10 10:00:00".
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: timeZone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).format(date);
+}
+
 /**
- * Update product
+ * The ProductRequest that keeps a product exactly as the server returned it (ProductDTO, flat) - the
+ * base a partial update is laid over.
+ *
+ * Why every field is sent: ProductRequest, ProductData and ScheduleRequest give their fields
+ * @Builder.Default values (active, shippable, quickPay "FALSE"; price "0.00", type ITEM, time zone UTC,
+ * time to live 86400; a 0% discount and today's date), which Jackson applies to a field the request
+ * leaves out, and the update prefers any non-null request value over the stored one
+ * (ProductService.formUpdateProductValidationRequest, ScheduleService.formUpdateScheduleDto). So a PATCH
+ * carrying only a new name also switched the product off and reset its type, time zone and time to
+ * live. A server defect; until it is fixed, read first and send everything.
+ */
+export function productRequestFrom(dto) {
+  const flag = value => (present(value) ? (value ? 'TRUE' : 'FALSE') : undefined);
+  return compact({
+    shop: dto.shopCode,
+    name: dto.name,
+    shortDescription: dto.shortDescription,
+    longDescription: dto.longDescription,
+    sku: dto.sku,
+    upc: dto.upc,
+    shippable: flag(dto.shippable),
+    quickPay: flag(dto.quickPay),
+    active: flag(dto.active),
+    prData: compact({
+      type: dto.type,
+      regularPrice: dto.regularPrice,
+      currency: dto.currencyCode,
+      overlapPriority: dto.overlapPriority,
+      timeZone: dto.timeZone,
+      timeToLive: present(dto.timeToLive) ? String(dto.timeToLive) : undefined,
+      activeFrom: zonedToInput(dto.activeFromZoned),
+      activeTo: zonedToInput(dto.activeToZoned)
+    }),
+    prOptions: compact({ imageUrl: dto.imageUrl, termsUrl: dto.termsUrl, termsText: dto.termsText })
+  });
+}
+
+/** The ScheduleRequest that keeps a schedule as the server returned it (ScheduleDTO), in the product's time zone. */
+export function scheduleRequestFrom(dto, timeZone) {
+  return compact({
+    description: dto.description,
+    priceCorrection: dto.priceCorrection,
+    correctionType: dto.correctionType,
+    correctionValue: present(dto.correctionValue) ? String(dto.correctionValue) : undefined,
+    dateFrom: instantToInput(dto.dateFrom, timeZone),
+    dateTo: instantToInput(dto.dateTo, timeZone)
+  });
+}
+
+/**
+ * Update product: read it, lay the requested changes over it, send the whole product (see
+ * productRequestFrom for why a partial body is not safe).
  */
 export async function updateProduct({
   productId,
@@ -275,31 +343,27 @@ export async function updateProduct({
   sku,
   upc,
   shippable,
+  quickPay,
   active,
   shop,
   prData = {},
   prOptions = {},
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   if (!productId) {
     throw new Error('productId is required');
   }
 
-  const requestBody = {};
-
-  // Only include fields that are provided
-  if (name !== undefined) requestBody.name = name;
-  if (shop !== undefined) requestBody.shop = shop;
-  if (shortDescription !== undefined) requestBody.shortDescription = shortDescription;
-  if (longDescription !== undefined) requestBody.longDescription = longDescription;
-  if (sku !== undefined) requestBody.sku = sku;
-  if (upc !== undefined) requestBody.upc = upc;
-  if (shippable !== undefined) requestBody.shippable = shippable;
-  if (active !== undefined) requestBody.active = active;
-  if (Object.keys(prData).length > 0) requestBody.prData = prData;
-  if (Object.keys(prOptions).length > 0) requestBody.prOptions = prOptions;
+  const current = await getProduct({ productId, partnerType, useSandbox, ...authParams });
+  const base = productRequestFrom(current.data || {});
+  const requestBody = {
+    ...base,
+    ...compact({ name, shop, shortDescription, longDescription, sku, upc, shippable, quickPay, active }),
+    prData: { ...(base.prData || {}), ...compact(prData || {}) },
+    prOptions: { ...(base.prOptions || {}), ...compact(prOptions || {}) }
+  };
 
   const minimizedBody = createMinimizedJSON(requestBody);
   const headers = await createAuthHeaders(partnerType, { ...authParams, requestBody: minimizedBody });
@@ -333,7 +397,7 @@ export async function updateProduct({
 export async function deleteProduct({
   productId,
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   if (!productId) {
@@ -371,7 +435,7 @@ export async function getProductImage({
   qrOptions = {},
   barOptions = {},
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   if (!productId) {
@@ -431,7 +495,7 @@ export async function createPriceSchedule({
   dateFrom,
   dateTo,
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   if (!productId) {
@@ -480,7 +544,7 @@ export async function createPriceSchedule({
 export async function getProductSchedules({
   productId,
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   if (!productId) {
@@ -517,7 +581,7 @@ export async function getSchedule({
   productId,
   scheduleId,
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   if (!productId) {
@@ -563,7 +627,7 @@ export async function updatePriceSchedule({
   dateFrom,
   dateTo,
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   if (!productId) {
@@ -573,14 +637,14 @@ export async function updatePriceSchedule({
     throw new Error('scheduleId is required');
   }
 
-  const requestBody = {};
-
-  if (description !== undefined) requestBody.description = description;
-  if (priceCorrection !== undefined) requestBody.priceCorrection = priceCorrection;
-  if (correctionType !== undefined) requestBody.correctionType = correctionType;
-  if (correctionValue !== undefined) requestBody.correctionValue = correctionValue;
-  if (dateFrom !== undefined) requestBody.dateFrom = dateFrom;
-  if (dateTo !== undefined) requestBody.dateTo = dateTo;
+  // Read the product (for its time zone, in which the schedule's dates are written back) and the
+  // schedule, then send the whole schedule: see productRequestFrom for why a partial body is not safe.
+  const product = await getProduct({ productId, partnerType, useSandbox, ...authParams });
+  const current = await getSchedule({ productId, scheduleId, partnerType, useSandbox, ...authParams });
+  const requestBody = {
+    ...scheduleRequestFrom(current.data || {}, product.data?.timeZone),
+    ...compact({ description, priceCorrection, correctionType, correctionValue, dateFrom, dateTo })
+  };
 
   const minimizedBody = createMinimizedJSON(requestBody);
   const headers = await createAuthHeaders(partnerType, { ...authParams, requestBody: minimizedBody });
@@ -615,7 +679,7 @@ export async function deletePriceSchedule({
   productId,
   scheduleId,
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   if (!productId) {
@@ -659,7 +723,7 @@ export async function registerAudio({
   audioFile,
   audioPath,
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   if (!productId) {
@@ -669,13 +733,15 @@ export async function registerAudio({
     throw new Error('Either audioFile buffer or audioPath is required');
   }
 
+  // Node 18's own FormData and Blob: the form-data package this used was never a declared dependency.
   const formData = new FormData();
 
   if (audioFile) {
-    formData.append('file', audioFile);
+    formData.append('file', new Blob([audioFile]), 'audio');
   } else if (audioPath) {
-    const fs = await import('fs');
-    formData.append('file', fs.createReadStream(audioPath));
+    const { readFileSync } = await import('fs');
+    const { basename } = await import('path');
+    formData.append('file', new Blob([readFileSync(audioPath)]), basename(audioPath));
   }
 
   const headers = await createMultipartAuthHeaders(partnerType, authParams);
@@ -686,10 +752,8 @@ export async function registerAudio({
       `${baseUrl}/products/${productId}/audios/upload`,
       formData,
       {
-        headers: {
-          ...headers,
-          ...formData.getHeaders()
-        }
+        // axios sets the multipart Content-Type with its boundary for a native FormData
+        headers
       }
     );
 
@@ -713,7 +777,7 @@ export async function registerAudio({
 export async function getProductAudios({
   productId,
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   if (!productId) {
@@ -750,7 +814,7 @@ export async function getAudio({
   productId,
   audioId,
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   if (!productId) {
@@ -792,7 +856,7 @@ export async function updateAudio({
   title,
   newProductId,
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   if (!productId) {
@@ -851,7 +915,7 @@ export async function deleteAudio({
   productId,
   audioId,
   partnerType,
-  useSandbox = false,
+  useSandbox = true,
   ...authParams
 }) {
   if (!productId) {

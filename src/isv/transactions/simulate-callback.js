@@ -86,6 +86,10 @@ A POI sale's callback also carries \`poiId\`, the POI that created the transacti
         type: 'string',
         description: "payware's fee plus VAT where it applies, at the currency's smallest payable unit (e.g. '0.29'). The payer's institution transfers it to payware alongside the merchant's payment, and amount is net of it. Pass null to model the anomaly case where a transaction has no recorded fee and the server OMITS the property - deliberately distinguishable from a genuine '0.00'."
       },
+      feeVat: {
+        type: "string",
+        description: "The VAT included in fee (fee minus feeVat is payware's fee excluding VAT), at the same scale; zero when no VAT applies (reverse charge, or a merchant outside the EU). Present exactly when fee is (server TransactionCallbackPayload). Defaults to zero."
+      },
       feeFixed: {
         type: 'string',
         description: 'Fixed fee component of the applicable fee configuration. Informational, for reconciliation. Present on FINALIZED callbacks since 2026-08-21.',
@@ -129,6 +133,7 @@ A POI sale's callback also carries \`poiId\`, the POI that created the transacti
       amount = '57.60',
       currency = 'EUR',
       fee,
+      feeVat,
       feeFixed = '0.1000',
       feeRate = '0.0150',
       statusMessage,
@@ -142,7 +147,7 @@ A POI sale's callback also carries \`poiId\`, the POI that created the transacti
     }
 
     const payload = generateMockCallback(transactionId, status, {
-      amount, currency, fee, feeFixed, feeRate, statusMessage, paymentMethod, poiId
+      amount, currency, fee, feeVat, feeFixed, feeRate, statusMessage, paymentMethod, poiId
     });
 
     const delivery = callbackUrl ? await simulateCallbackDelivery(callbackUrl, payload) : null;

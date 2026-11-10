@@ -9,44 +9,17 @@ const SANDBOX_CONFIG = {
   baseUrl: 'https://sandbox.payware.eu/api',
   apiVersion: '1',
   environment: 'sandbox',
-  supportedCurrencies: [
-    // Major currencies
-    'EUR', 'USD', 'GBP', 'JPY', 'CHF', 'CAD', 'AUD', 'CNY', 'SEK', 'NOK', 'DKK',
-    // All other supported currencies (100+ total)
-    'AED', 'AFN', 'ALL', 'AMD', 'ANG', 'AOA', 'ARS', 'AWG', 'AZN',
-    'BAM', 'BBD', 'BDT', 'BHD', 'BIF', 'BMD', 'BND', 'BOB', 'BRL', 'BSD', 'BTC', 'BTN', 'BWP', 'BYN', 'BZD',
-    'CDF', 'CLP', 'COP', 'CRC', 'CUP', 'CVE', 'CZK',
-    'DJF', 'DOP', 'DZD',
-    'EGP', 'ERN', 'ETB',
-    'FJD', 'FKP',
-    'GEL', 'GHS', 'GIP', 'GMD', 'GNF', 'GTQ', 'GYD',
-    'HKD', 'HNL', 'HRK', 'HTG', 'HUF',
-    'IDR', 'ILS', 'INR', 'IQD', 'IRR', 'ISK',
-    'JMD', 'JOD',
-    'KES', 'KGS', 'KHR', 'KMF', 'KPW', 'KRW', 'KWD', 'KYD', 'KZT',
-    'LAK', 'LBP', 'LKR', 'LRD', 'LSL', 'LYD',
-    'MAD', 'MDL', 'MGA', 'MKD', 'MMK', 'MNT', 'MOP', 'MRO', 'MUR', 'MVR', 'MWK', 'MXN', 'MYR', 'MZN',
-    'NAD', 'NGN', 'NIO', 'NPR', 'NZD',
-    'OMR',
-    'PAB', 'PEN', 'PGK', 'PHP', 'PKR', 'PLN', 'PYG',
-    'QAR',
-    'RON', 'RSD', 'RUB', 'RWF',
-    'SAR', 'SBD', 'SCR', 'SDG', 'SGD', 'SHP', 'SLL', 'SOS', 'SRD', 'STD', 'SVC', 'SYP', 'SZL',
-    'THB', 'TJS', 'TMT', 'TND', 'TOP', 'TRY', 'TTD', 'TWD', 'TZS',
-    'UAH', 'UGX', 'UYU', 'UZS',
-    'VND', 'VUV',
-    'WST',
-    'XAF', 'XCD', 'XOF', 'XPF',
-    'YER',
-    'ZAR', 'ZMW', 'ZWL'
-  ], // ISO 3-character codes
+  // Any ISO 4217 code in payware's currency table: the server checks the table
+  // (MerchantValidationService.validateCurrencyExistence, an unknown code is refused). The hand-written
+  // list this replaced named codes the table need not hold (BTC, withdrawn ones such as HRK and MRO).
+  currencies: 'ISO 4217 codes payware knows; an unknown code is refused',
   supportedTransactionTypes: ['PLAIN', 'QR', 'BARCODE'], // trOptions.type values
   transactionTypes: ['DEFAULT', 'SHIPPABLE'], // transactionType values
-  maxAmount: 'Unlimited', // Limited by Java type implementation
-  minAmount: '0.00', // Zero allowed for flexible amounts
-  maxTTL: 600, // seconds
+  // Up to 36 digits, at the currency's own minor unit (not always two decimals), zero or more.
+  amountRule: 'a decimal string at the currency\'s minor unit, zero or more, at most 36 digits',
+  maxTTL: 600, // seconds: the default ceiling; payware can raise a merchant's own ceiling
   minTTL: 60, // seconds
-  defaultTTL: 120, // seconds
+  defaultTTL: 120, // seconds, when timeToLive is omitted
   audience: 'https://payware.eu', // Required JWT audience
   transactionIdPrefix: 'pw' // All transaction IDs start with 'pw'
 };
@@ -111,7 +84,7 @@ export const setupSandboxAuthTool = {
   async handler(args) {
     const {
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe()
+      privateKey = getPrivateKeySafe(true)
     } = args;
 
     if (!partnerId) {
@@ -139,19 +112,19 @@ ${JSON.stringify(config, null, 2)}
 **Supported Features:**
 - Request Types (trOptions.type): ${config.supportedTransactionTypes.join(', ')}
 - Transaction Types: ${config.transactionTypes.join(', ')}
-- Currencies: ${config.supportedCurrencies.join(', ')} (ISO 3-char codes)
-- Amount Range: €${config.minAmount} - ${config.maxAmount} (currency values)
-- TTL Range: ${config.minTTL}-${config.maxTTL} seconds (default: ${config.defaultTTL})
+- Currencies: ${config.currencies}
+- Amount: ${config.amountRule}
+- TTL Range: ${config.minTTL}-${config.maxTTL} seconds unless payware raised your ceiling (default: ${config.defaultTTL})
 - Transaction ID Format: Starts with '${config.transactionIdPrefix}'
-- QR Options: Format (PNG/JPEG/SVG), Border, Error Correction (L/M/Q/H), Scale, Version
-- Barcode Options: Format (CODE128/CODE39/EAN13), Width, Height, Font Size, Text Location
+- QR Options: image format (PNG, JPG, SVG), border 1-10, error correction (LOW, MEDIUM, QUARTILE, HIGH), scale 1-100, version 1-40
+- Barcode Options: image format (PNG, JPG, SVG), module width 1-10, bar height 15-1000, font size 0-24, human-readable text location (NONE, BOTTOM, TOP)
 - Additional: passbackParams for custom callback data
 
 **API Endpoints:**
 - Create Transaction: \`POST ${config.endpoints.createTransaction}\`
 - Get Transaction Status: \`GET ${config.endpoints.getTransactionStatus}\`
-- Process Transaction: \`POST ${config.endpoints.processTransaction}\` (merchants only)
-- Cancel Transaction: \`PATCH ${config.endpoints.cancelTransaction}\` (creators only)
+- Process Transaction: \`POST ${config.endpoints.processTransaction}\` (merchants and payment institutions)
+- Cancel Transaction: \`PATCH ${config.endpoints.cancelTransaction}\` (the merchant that created it; the same route finalizes for an institution)
 - Transaction History: \`GET ${config.endpoints.getTransactionHistory}\` (completed/expired)
 - Callback Endpoint: \`POST [your-callback-url]\` (configured by you)
 
@@ -170,9 +143,9 @@ ${Object.entries(config.headers).map(([key, value]) => `- ${key}: ${value}`).joi
 - trData.currency: ISO 3-character code (required)
 - trData.reasonL1: Description, max 100 chars (required)
 - trData.reasonL2: Continuation, max 100 chars (optional)
-- trData.amount: Currency value as string/number, 0.00+ (optional for flexible)
+- trData.amount: decimal string at the currency's minor unit, zero or more (required by the server; the create tool sends 0.00 when you give none)
 - trOptions.type: PLAIN, QR, or BARCODE (default: PLAIN)
-- trOptions.timeToLive: 60-600 seconds (default: 120)
+- trOptions.timeToLive: 60-600 seconds unless payware raised your ceiling (default: 120)
 
 **Next Steps:**
 1. Generate RSA key pair (2048-bit minimum)

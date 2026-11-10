@@ -77,7 +77,7 @@ export async function createPOI({
     return {
       success: true,
       poi: response.data,
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -146,7 +146,7 @@ export async function createPOIBatch({
       success: true,
       created: response.data?.created ?? 0,
       pois: response.data?.pois ?? [],
-      requestId: response.headers['x-request-id'],
+      requestId: response.headers['x-correlation-id'],
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -393,8 +393,9 @@ batch is **403 \`ERR_SHOP_NOT_IN_SCOPE\`**. The acting merchant's plan governs, 
             type: 'text',
             text: `${errorText('Failed to Create POI Batch', result)}
 
-**Nothing was created.** The call is atomic, so a failure leaves no partial estate behind - fix the
-cause and re-send the same batch.`
+${result.error.status && result.error.status < 500
+  ? '**Nothing was created.** payware refused the batch, and the call is atomic, so a refusal leaves no partial estate behind: fix the cause and send it again.'
+  : '**The outcome is not known.** There was no answer, or the server failed, and the batch may have been created. The endpoint takes no idempotency key, so sending it again can create up to 50 POIs twice: list the shop\'s POIs (payware_poi_list) and send only what is missing.'}`
           }]
         };
       }

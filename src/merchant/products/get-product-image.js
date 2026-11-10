@@ -130,7 +130,7 @@ export const getProductImageTool = {
       barFontSize = 12,
       barHumanReadableLocation = BARCODE_LOCATIONS.NONE,
       partnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(),
+      privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
     } = args;
 
