@@ -2,6 +2,7 @@ import { test, describe, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import jwt from 'jsonwebtoken';
+import axios from 'axios';
 
 import { startPayware, IDS } from './helpers/payware-model.js';
 
@@ -86,15 +87,24 @@ describe('the payware model', () => {
   });
 
   test('sends recognition to the soundbite host only', async () => {
-    const form = new FormData();
-    form.append('file', new Blob([Buffer.from('fingerprint')]), 'soundbite.bin');
+    // Sent with axios, as the tools send it, not with fetch: Node 18's fetch (undici 5) retries a 421 on a new
+    // connection and cannot replay the body (UND_ERR_REQ_CONTENT_LENGTH_MISMATCH), and the matrix runs Node 18.
+    const boundary = 'payware-test-boundary';
+    const form = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="soundbite.bin"\r\n`
+        + 'Content-Type: application/octet-stream\r\n\r\n'),
+      Buffer.from('fingerprint'),
+      Buffer.from(`\r\n--${boundary}--\r\n`)
+    ]);
     const token = jwt.sign({ iss: 'TESTBANK', aud: 'https://payware.eu', iat: Math.floor(Date.now() / 1000) },
       payware.privateKeys.sandbox, { algorithm: 'RS256', header: { alg: 'RS256', typ: 'JWT' } });
-    const headers = { Authorization: `Bearer ${token}`, 'Api-Version': '1' };
-    const api = await fetch(`${payware.sandbox.url}/api/transactions`, { method: 'POST', headers, body: form });
+    const headers = { Authorization: `Bearer ${token}`, 'Api-Version': '1',
+      'Content-Type': `multipart/form-data; boundary=${boundary}` };
+    const post = url => axios.post(url, form, { headers, validateStatus: () => true });
+    const api = await post(`${payware.sandbox.url}/api/transactions`);
     assert.equal(api.status, 421);
-    assert.equal((await api.json()).errorCode, 'ERR_SOUNDBITE_HOST');
-    const soundbite = await fetch(`${payware.soundbiteSandbox.url}/api/transactions`, { method: 'POST', headers, body: form });
+    assert.equal(api.data.errorCode, 'ERR_SOUNDBITE_HOST');
+    const soundbite = await post(`${payware.soundbiteSandbox.url}/api/transactions`);
     assert.equal(soundbite.status, 200);
   });
 
