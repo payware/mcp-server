@@ -89,6 +89,13 @@ async function createAuthHeaders(partnerType, authParams) {
       break;
 
     case 'isv':
+      // An ISV calling for itself (its own reports): signed like any partner, aud https://payware.eu.
+      // With a merchant's partner id and OAuth2 token it is acting for that merchant instead, and runs
+      // the merchant's reports (server DataRetrievalService, 2026-11-11).
+      if (!authParams.merchantPartnerId && !authParams.oauth2Token) {
+        tokenData = createJWTToken(authParams.isvPartnerId, authParams.privateKey, authParams.requestBody);
+        break;
+      }
       // ISV JWT with OAuth2 - note the parameter mapping
       tokenData = await createJWTForPartner({
         partnerId: authParams.isvPartnerId,

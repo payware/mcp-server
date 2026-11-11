@@ -908,13 +908,58 @@ describe('as a client sees the tools', () => {
     assert.equal(payware.sandbox.requests.length, 0, 'recognition never goes to the API host');
   });
 
-  test('update_product sends the whole product: what it read, with the change laid over it', async () => {
+  // payware keeps every stored value a PATCH leaves out (server 2026-11-11). Until 2.2.0 both tools read
+  // first and sent everything, which echoed the stored start date: refused once it is before today.
+  test('update_product sends only what the caller gave, and reads nothing first', async () => {
     await call('merchant', 'payware_products_update_product', { productId: 'pr12345678', name: 'Tea' });
-    const patch = server.requests.find(r => r.method === 'PATCH');
-    assert.equal(patch.json.name, 'Tea');
-    assert.equal(patch.json.shortDescription, 'A cup of coffee');
-    assert.equal(patch.json.prData.regularPrice, '2.50');
-    assert.equal(patch.json.active, 'TRUE');
+    assert.deepEqual(server.requests.map(r => `${r.method} ${r.path}`), ['PATCH /api/products/pr12345678']);
+    assert.deepEqual(server.lastRequest.json, { name: 'Tea' });
+  });
+
+  test('update_product nests only the product data it was given', async () => {
+    await call('merchant', 'payware_products_update_product', { productId: 'pr12345678', regularPrice: '3.10' });
+    assert.deepEqual(server.lastRequest.json, { prData: { regularPrice: '3.10' } });
+  });
+
+  test('update_schedule sends only what the caller gave, and reads nothing first', async () => {
+    await call('merchant', 'payware_products_update_schedule', { productId: 'pr12345678', scheduleId: 11, description: 'Late hour' });
+    assert.deepEqual(server.requests.map(r => `${r.method} ${r.path}`), ['PATCH /api/products/pr12345678/schedules/11']);
+    assert.deepEqual(server.lastRequest.json, { description: 'Late hour' });
+  });
+
+  test('an update naming a start before today is refused, as payware refuses it', async () => {
+    const result = await call('merchant', 'payware_products_update_product', { productId: 'pr12345678', activeFrom: '2020-01-01' });
+    assert.equal(result.isError, true);
+    assert.match(text(result), /ERR_INVALID_ACTIVE_FROM_DATE/);
+  });
+
+  test('an ISV runs a merchant\'s report with the merchant\'s token and its own without one, and polls each in its own context', async () => {
+    const onBehalf = { merchantPartnerId: 'PZAYNMVE', oauth2Token: 'test-oauth2-token' };
+    const forMerchant = await call('isv', 'payware_data_generate_report', { reportUnitId: 'processedTransactions', ...onBehalf });
+    const signed = payware.production.lastRequest.jwt.payload;
+    assert.deepEqual([signed.aud, signed.sub], ['PZAYNMVE', 'test-oauth2-token']);
+    assert.match(text(forMerchant), /Acting for merchant: PZAYNMVE/);
+    assert.doesNotMatch(text(forMerchant), /test-oauth2-token/, 'the merchant\'s token never goes into a result');
+
+    const forItself = await call('isv', 'payware_data_generate_report', { reportUnitId: 'processedTransactions' });
+    const own = payware.production.lastRequest.jwt.payload;
+    assert.deepEqual([own.iss, own.aud, own.sub], ['TESTISV1', 'https://payware.eu', undefined]);
+    assert.match(text(forItself), /Called for your ISV itself/);
+
+    const requestId = /Request ID: (\S+)/.exec(text(forMerchant))[1];
+    const sameContext = await call('isv', 'payware_data_get_report_status', { requestId, ...onBehalf });
+    assert.notEqual(sameContext.isError, true);
+    const otherContext = await call('isv', 'payware_data_get_report_status', { requestId });
+    assert.equal(otherContext.isError, true);
+    assert.match(text(otherContext), /ERR_REPORT_REQUEST_NOT_FOUND/);
+  });
+
+  test('an ISV gives the merchant and its token together or not at all', async () => {
+    const before = payware.production.requests.length;
+    const result = await call('isv', 'payware_data_generate_report', { reportUnitId: 'processedTransactions', merchantPartnerId: 'PZAYNMVE' });
+    assert.equal(result.isError, true);
+    assert.match(text(result), /together/);
+    assert.equal(payware.production.requests.length, before, 'nothing is sent');
   });
 
   test('reports: the unit id sent is the last segment of the report path, and only the server\'s formats are offered', async () => {

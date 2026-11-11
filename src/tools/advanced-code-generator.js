@@ -199,18 +199,11 @@ const OPERATIONS = {
     path: '/products/{productId}',
     params: PRODUCT,
     partnerTypes: MERCHANT_AND_ISV,
-    // The whole product, not only what changes: ProductRequest and ProductData give a left-out field a
-    // @Builder.Default value ("FALSE", ITEM, UTC, 86400) that the update then prefers over the stored one,
-    // so a partial body switches the product off and resets it (a server defect). Read it first
-    // (get_product) and send every field, changed or not.
+    // Only what changes: payware keeps every stored value the request leaves out, the active period
+    // included when neither date is sent (server ProductService.update, 2026-11-11).
     body: {
       name: 'Premium Service',
-      shortDescription: 'A ninety-minute consultation',
-      active: 'TRUE',
-      shippable: 'FALSE',
-      quickPay: 'FALSE',
-      prData: { type: 'ITEM', regularPrice: '69.99', currency: 'EUR', overlapPriority: 'LOWEST', timeZone: 'Europe/Sofia', timeToLive: '86400' },
-      prOptions: { imageUrl: 'https://example.com/product.png' }
+      prData: { regularPrice: '69.99' }
     }
   },
   delete_product: {
@@ -415,7 +408,7 @@ ${code}
       notes.push('Data retrieval runs on production only: sandbox lists no reports and runs none.');
     }
     if (def.name === 'update_product') {
-      notes.push('Send the whole product, read first with get_product: the server resets a field the request leaves out (active, shippable and quickPay to FALSE, type, time zone and time to live to defaults), a server defect.');
+      notes.push('Send only what changes: payware keeps every stored value the request leaves out. Sending neither activeFrom nor activeTo keeps the active period; a start before today is refused.');
     }
     if (def.name === 'generate_report') {
       notes.push('`reportUnitId` is the bare report id: the last segment of a `path` from list_reports.');

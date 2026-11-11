@@ -154,4 +154,51 @@ describe('the payware model', () => {
     assert.equal((await patch({ status: 'CONFIRMED' })).status, 200);
     assert.equal((await patch({ status: 'DECLINED', statusMessage: 'x' })).json.errorCode, 'ERR_ALREADY_PROCESSED');
   });
+
+  // Server V112 and DataRetrievalService (2026-11-11): an ISV runs its own reports with its own token
+  // and a merchant's with the merchant's token, and each request is found only in the context it was run in.
+  test('keeps an ISV\'s report requests apart: for itself, for a merchant, and from the merchant', async () => {
+    const host = payware.production;
+    const key = payware.privateKeys.production;
+    const AS = {
+      isv: { iss: 'TESTISV1', key },
+      onBehalf: { iss: 'TESTISV1', aud: 'PZAYNMVE', sub: IDS.OAUTH2_TOKEN, key },
+      merchant: { iss: 'PZAYNMVE', key }
+    };
+    const run = async who => (await send(host, { method: 'POST', path: '/api/data-retrieval', body: { reportUnitId: 'processedTransactions' }, ...AS[who] })).json.requestId;
+    const forMerchant = await run('onBehalf');
+    const forItself = await run('isv');
+    assert.notEqual(forMerchant, forItself);
+
+    const status = async (id, who) => {
+      const r = await send(host, { path: `/api/data-retrieval/request/${id}/status`, ...AS[who] });
+      return r.status === 200 ? 200 : `${r.status} ${r.json.errorCode}`;
+    };
+    assert.equal(await status(forMerchant, 'onBehalf'), 200);
+    assert.equal(await status(forMerchant, 'isv'), '404 ERR_REPORT_REQUEST_NOT_FOUND');
+    assert.equal(await status(forMerchant, 'merchant'), '404 ERR_REPORT_REQUEST_NOT_FOUND', 'the row carries the ISV\'s partner id');
+    assert.equal(await status(forItself, 'isv'), 200);
+    assert.equal(await status(forItself, 'onBehalf'), '404 ERR_REPORT_REQUEST_NOT_FOUND');
+
+    const listed = async who => (await send(host, { path: '/api/data-retrieval/processedTransactions', ...AS[who] })).json.map(r => r.requestId);
+    assert.deepEqual(await listed('onBehalf'), [forMerchant]);
+    assert.deepEqual(await listed('isv'), [forItself]);
+    assert.deepEqual(await listed('merchant'), []);
+
+    const exported = await send(host, { method: 'POST', path: `/api/data-retrieval/request/${forMerchant}/export/pdf`, ...AS.onBehalf });
+    const exportId = exported.json.outputResource.exportId;
+    assert.equal((await send(host, { path: `/api/data-retrieval/export/${exportId}/download`, ...AS.onBehalf })).status, 200);
+    const foreign = await send(host, { path: `/api/data-retrieval/export/${exportId}/status`, ...AS.isv });
+    assert.deepEqual([foreign.status, foreign.json.errorCode], [404, 'ERR_REPORT_REQUEST_NOT_FOUND']);
+    const cancel = await send(host, { method: 'PUT', path: `/api/data-retrieval/${forMerchant}/cancel`, ...AS.isv });
+    assert.deepEqual([cancel.status, cancel.json.errorCode], [404, 'ERR_REPORT_REQUEST_NOT_FOUND']);
+    assert.deepEqual((await send(host, { path: `/api/data-retrieval/exports/${forMerchant}`, ...AS.isv })).json, []);
+  });
+
+  test('refuses a product start date before today, on create and on an update that names one', async () => {
+    const r = await send(payware.sandbox, { method: 'PATCH', path: `/api/products/${IDS.PRODUCT}`, body: { prData: { activeFrom: '2020-01-01' } } });
+    assert.deepEqual([r.status, r.json.errorCode], [400, 'ERR_INVALID_ACTIVE_FROM_DATE']);
+    const kept = await send(payware.sandbox, { method: 'PATCH', path: `/api/products/${IDS.PRODUCT}`, body: { name: 'Tea' } });
+    assert.equal(kept.status, 200, 'an update naming no date keeps the stored period');
+  });
 });

@@ -42,12 +42,13 @@ function extensionOf(result) {
  * @param {Object} role.authProperties schema properties the role adds (an ISV's merchant and token)
  * @param {string[]} role.authRequired those of them that are required
  * @param {Function} role.resolveAuth  args -> the auth parameters for data-api
+ * @param {string} [role.descriptionSuffix] what the role adds to the description (an ISV's two contexts)
  */
-export function buildDownloadExportTool({ partnerType, authProperties = {}, authRequired = [], resolveAuth }) {
+export function buildDownloadExportTool({ partnerType, authProperties = {}, authRequired = [], resolveAuth, descriptionSuffix = '' }) {
   return {
     name: 'payware_data_download_export',
     annotations: ADDS,
-    description: 'Download a READY export file (production only). A text export (CSV, HTML, XML) is previewed; with saveToFile the file is written to payware-mcp-downloads in the system temp directory and the result names its path. A binary export (PDF, XLS(X), DOCX, ODT, ODS, RTF) needs saveToFile.',
+    description: 'Download a READY export file (production only). A text export (CSV, HTML, XML) is previewed; with saveToFile the file is written to payware-mcp-downloads in the system temp directory and the result names its path. A binary export (PDF, XLS(X), DOCX, ODT, ODS, RTF) needs saveToFile.' + (descriptionSuffix ? ` ${descriptionSuffix}` : ''),
     inputSchema: {
       type: 'object',
       properties: {

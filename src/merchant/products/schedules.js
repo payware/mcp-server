@@ -401,7 +401,7 @@ ${JSON.stringify(schedule, null, 2)}
 export const updateScheduleTool = {
   name: "payware_products_update_schedule",
   annotations: CHANGES,
-  description: "Update an existing price schedule. Only provide fields you want to change. The tool reads the schedule (and the product's time zone) first and sends it whole: the server resets a field a partial update leaves out (the discount to 0%, the dates to today), a server defect. Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).",
+  description: "Update an existing price schedule. Only provide the fields you want to change: payware keeps every stored value the request leaves out. With neither dateFrom nor dateTo the schedule's period stays as stored; with one of them the other is worked out as on create (dateFrom alone: the period runs one month from it; dateTo alone: it starts one month before dateTo, or today if that is later), and a start before today is refused (ERR_INVALID_ACTIVE_FROM_DATE). Premium (PRM) plan only: the server answers 403 on any other plan (for an ISV, the merchant's plan).",
 
   inputSchema: {
     type: "object",

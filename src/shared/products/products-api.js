@@ -265,75 +265,24 @@ export async function getProduct({
 
 const present = value => value !== undefined && value !== null;
 const compact = obj => Object.fromEntries(Object.entries(obj).filter(([, value]) => present(value)));
-
-/** A zoned date-time the server printed ("2026-11-10T10:00:00+02:00[Europe/Sofia]") as it reads one back. */
-const zonedToInput = value => (value ? String(value).slice(0, 19).replace('T', ' ') : undefined);
-
-/** An instant ("2026-11-10T08:00:00.000+00:00" or epoch millis) as "yyyy-MM-dd HH:mm:ss" in a time zone. */
-function instantToInput(value, timeZone) {
-  if (!present(value)) return undefined;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return undefined;
-  // sv-SE formats as "2026-11-10 10:00:00".
-  return new Intl.DateTimeFormat('sv-SE', {
-    timeZone: timeZone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
-  }).format(date);
-}
+/** compact, and null when nothing is left, so an empty nested object is not sent. */
+const compactOrNothing = obj => {
+  const kept = compact(obj || {});
+  return Object.keys(kept).length > 0 ? kept : undefined;
+};
 
 /**
- * The ProductRequest that keeps a product exactly as the server returned it (ProductDTO, flat) - the
- * base a partial update is laid over.
+ * Update product: a PATCH carrying only what the caller gave.
  *
- * Why every field is sent: ProductRequest, ProductData and ScheduleRequest give their fields
- * @Builder.Default values (active, shippable, quickPay "FALSE"; price "0.00", type ITEM, time zone UTC,
- * time to live 86400; a 0% discount and today's date), which Jackson applies to a field the request
- * leaves out, and the update prefers any non-null request value over the stored one
- * (ProductService.formUpdateProductValidationRequest, ScheduleService.formUpdateScheduleDto). So a PATCH
- * carrying only a new name also switched the product off and reset its type, time zone and time to
- * live. A server defect; until it is fixed, read first and send everything.
- */
-export function productRequestFrom(dto) {
-  const flag = value => (present(value) ? (value ? 'TRUE' : 'FALSE') : undefined);
-  return compact({
-    shop: dto.shopCode,
-    name: dto.name,
-    shortDescription: dto.shortDescription,
-    longDescription: dto.longDescription,
-    sku: dto.sku,
-    upc: dto.upc,
-    shippable: flag(dto.shippable),
-    quickPay: flag(dto.quickPay),
-    active: flag(dto.active),
-    prData: compact({
-      type: dto.type,
-      regularPrice: dto.regularPrice,
-      currency: dto.currencyCode,
-      overlapPriority: dto.overlapPriority,
-      timeZone: dto.timeZone,
-      timeToLive: present(dto.timeToLive) ? String(dto.timeToLive) : undefined,
-      activeFrom: zonedToInput(dto.activeFromZoned),
-      activeTo: zonedToInput(dto.activeToZoned)
-    }),
-    prOptions: compact({ imageUrl: dto.imageUrl, termsUrl: dto.termsUrl, termsText: dto.termsText })
-  });
-}
-
-/** The ScheduleRequest that keeps a schedule as the server returned it (ScheduleDTO), in the product's time zone. */
-export function scheduleRequestFrom(dto, timeZone) {
-  return compact({
-    description: dto.description,
-    priceCorrection: dto.priceCorrection,
-    correctionType: dto.correctionType,
-    correctionValue: present(dto.correctionValue) ? String(dto.correctionValue) : undefined,
-    dateFrom: instantToInput(dto.dateFrom, timeZone),
-    dateTo: instantToInput(dto.dateTo, timeZone)
-  });
-}
-
-/**
- * Update product: read it, lay the requested changes over it, send the whole product (see
- * productRequestFrom for why a partial body is not safe).
+ * payware keeps every stored value the request leaves out (server ProductService.update since
+ * 2026-11-11, d3ee6ae3): the flags, type, price, currency, time zone, time to live, overlap priority
+ * and options. The active period follows the request's dates: with neither date it stays as stored;
+ * with one or both it is worked out from them as on create, so a start before today is refused
+ * (ERR_INVALID_ACTIVE_FROM_DATE).
+ *
+ * Until 2.2.0 this read the product and sent it whole, because the server reset what a request left
+ * out. That echoed the stored start date, which the server refuses once it is in the past, so the
+ * update failed for every product that had already started. Nothing is read now.
  */
 export async function updateProduct({
   productId,
@@ -356,14 +305,11 @@ export async function updateProduct({
     throw new Error('productId is required');
   }
 
-  const current = await getProduct({ productId, partnerType, useSandbox, ...authParams });
-  const base = productRequestFrom(current.data || {});
-  const requestBody = {
-    ...base,
-    ...compact({ name, shop, shortDescription, longDescription, sku, upc, shippable, quickPay, active }),
-    prData: { ...(base.prData || {}), ...compact(prData || {}) },
-    prOptions: { ...(base.prOptions || {}), ...compact(prOptions || {}) }
-  };
+  const requestBody = compact({
+    name, shop, shortDescription, longDescription, sku, upc, shippable, quickPay, active,
+    prData: compactOrNothing(prData),
+    prOptions: compactOrNothing(prOptions)
+  });
 
   const minimizedBody = createMinimizedJSON(requestBody);
   const headers = await createAuthHeaders(partnerType, { ...authParams, requestBody: minimizedBody });
@@ -637,14 +583,11 @@ export async function updatePriceSchedule({
     throw new Error('scheduleId is required');
   }
 
-  // Read the product (for its time zone, in which the schedule's dates are written back) and the
-  // schedule, then send the whole schedule: see productRequestFrom for why a partial body is not safe.
-  const product = await getProduct({ productId, partnerType, useSandbox, ...authParams });
-  const current = await getSchedule({ productId, scheduleId, partnerType, useSandbox, ...authParams });
-  const requestBody = {
-    ...scheduleRequestFrom(current.data || {}, product.data?.timeZone),
-    ...compact({ description, priceCorrection, correctionType, correctionValue, dateFrom, dateTo })
-  };
+  // Only what the caller gave: payware keeps every stored value the request leaves out (server
+  // ScheduleService since 2026-11-11, d3ee6ae3). With neither date the period stays as stored; with one
+  // or both it is worked out as on create. Until 2.2.0 this read the product and the schedule and sent
+  // the schedule whole, echoing a start date the server refuses once it is in the past.
+  const requestBody = compact({ description, priceCorrection, correctionType, correctionValue, dateFrom, dateTo });
 
   const minimizedBody = createMinimizedJSON(requestBody);
   const headers = await createAuthHeaders(partnerType, { ...authParams, requestBody: minimizedBody });

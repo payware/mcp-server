@@ -12,6 +12,12 @@ Releases are published to npm as `@payware/mcp-server` and to the official [MCP 
 - **ISVs (Independent Software Vendors)** - Build multi-merchant platforms with OAuth2 token management
 - **Payment Institutions** - Process A2A transfers, handle Payment Choice Architecture with multiple payment methods
 
+## What's New in 2.2.1
+
+- **Partial product and schedule updates** - `update_product` and `update_schedule` send only the fields you give, and payware keeps every stored value the request leaves out. 2.2.0 read the product first and sent it whole, which payware refuses once the product's start date has passed
+- **ISV product images** - `payware_products_get_product_image` works for an ISV acting for a merchant, on the merchant's plan and for products in the shops the merchant assigned to the ISV
+- **ISV reports, two ways** - with a merchant's token an ISV runs that merchant's reports, limited to the shops the merchant assigned to it; without one, its own reports on everything it handled. Each request is found only in the context it was run in
+
 ## What's New in 2.2.0
 
 - **Execution lock** - A payment institution finalizes with `EXECUTING` immediately before money moves, then `CONFIRMED` once the Merchant Leg has completed, or `FAILED`; `transferType` and `feeLegOutcome` are new

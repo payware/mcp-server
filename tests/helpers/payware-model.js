@@ -28,7 +28,8 @@ import { generateTestKeyPair } from './keys.js';
  * - Validation: the rules the tools' fields meet on the server (MerchantValidationService,
  *   FIValidationService, QrOptionsValidationService, BarcodeOptionsValidationService,
  *   DataRetrievalRequest, POIPriceRequest, Oauth2Controller), with the server's error codes.
- * - State: the finalize execution lock (server docs/execution-lock.md) per transaction.
+ * - State: the finalize execution lock (server docs/execution-lock.md) per transaction, and the report
+ *   requests run against it, each found only in the context it was run in (server V112).
  * - Answers: bodies shaped as the server's DTOs (ShopDTO, ReportDTO, TransactionDTO, ProductDTO,
  *   ScheduleDTO, the reference DTOs, Oauth2Token), and X-Correlation-ID on every response.
  *
@@ -84,8 +85,9 @@ const UNIT = '([A-Za-z0-9_-]{1,64})';
 /**
  * [method, path pattern, route name, audience]. Audience: 'merchant' (a merchant, or an ISV on its
  * behalf), 'isv' (an ISV for itself), 'merchant_fi' (a merchant, an ISV on its behalf, or an
- * institution), 'logs' (a merchant or an institution, LogAccessController), 'fi' (an institution),
- * 'any'. Order matters where patterns overlap.
+ * institution), 'reports' (any of those and an ISV for itself: ReportApiController asks only for STD
+ * or PRM, and an ISV is PRM), 'logs' (a merchant or an institution, LogAccessController), 'fi' (an
+ * institution), 'any'. Order matters where patterns overlap.
  */
 const API_ROUTES = [
   ['POST', '/api/transactions', 'createTransaction', 'merchant_fi'],
@@ -135,15 +137,15 @@ const API_ROUTES = [
   ['PUT', `/api/campaigns/${SEG}`, 'updateCampaign', 'merchant'],
   ['DELETE', `/api/campaigns/${SEG}`, 'deleteCampaign', 'merchant'],
 
-  ['GET', '/api/data-retrieval/reports', 'listReports', 'merchant_fi'],
-  ['POST', '/api/data-retrieval', 'runReport', 'merchant_fi'],
-  ['GET', `/api/data-retrieval/exports/${SEG}`, 'listExports', 'merchant_fi'],
-  ['GET', `/api/data-retrieval/request/${SEG}/status`, 'reportStatus', 'merchant_fi'],
-  ['POST', `/api/data-retrieval/request/${SEG}/export/${SEG}`, 'exportReport', 'merchant_fi'],
-  ['GET', `/api/data-retrieval/export/${SEG}/status`, 'exportStatus', 'merchant_fi'],
-  ['GET', `/api/data-retrieval/export/${SEG}/download`, 'downloadExport', 'merchant_fi'],
-  ['PUT', `/api/data-retrieval/${SEG}/cancel`, 'cancelReport', 'merchant_fi'],
-  ['GET', `/api/data-retrieval/${UNIT}`, 'listReportRequests', 'merchant_fi'],
+  ['GET', '/api/data-retrieval/reports', 'listReports', 'reports'],
+  ['POST', '/api/data-retrieval', 'runReport', 'reports'],
+  ['GET', `/api/data-retrieval/exports/${SEG}`, 'listExports', 'reports'],
+  ['GET', `/api/data-retrieval/request/${SEG}/status`, 'reportStatus', 'reports'],
+  ['POST', `/api/data-retrieval/request/${SEG}/export/${SEG}`, 'exportReport', 'reports'],
+  ['GET', `/api/data-retrieval/export/${SEG}/status`, 'exportStatus', 'reports'],
+  ['GET', `/api/data-retrieval/export/${SEG}/download`, 'downloadExport', 'reports'],
+  ['PUT', `/api/data-retrieval/${SEG}/cancel`, 'cancelReport', 'reports'],
+  ['GET', `/api/data-retrieval/${UNIT}`, 'listReportRequests', 'reports'],
 
   ['GET', '/api/logs', 'queryLogs', 'logs'],
   ['GET', '/api/logs/status', 'logStatus', 'logs'],
@@ -191,6 +193,9 @@ const err = (status, errorCode, message = errorCode) => ({
 });
 
 const present = v => v !== undefined && v !== null && v !== '';
+
+/** Whether a "yyyy-MM-dd[ HH:mm:ss]" start date is before today (UTC here; the server reads it in the product's zone). */
+const startsBeforeToday = value => present(value) && String(value).slice(0, 10) < new Date().toISOString().slice(0, 10);
 
 /** A decimal amount string the server accepts for this currency, or null. */
 function amountOf(value, currency, { positive = false } = {}) {
@@ -307,9 +312,39 @@ export class PaywareModel {
     this.reset();
   }
 
-  /** Back to the seeded state: one processed, ACTIVE transaction (IDS.TX). */
+  /**
+   * Back to the seeded state: one processed, ACTIVE transaction (IDS.TX), and no report requests but the
+   * seeded IDS.REQUEST and IDS.EXPORT, which answer every caller.
+   */
   reset() {
     this.transactions = new Map([[IDS.TX, { status: 'ACTIVE', processed: true, amount: '10.00', currency: 'EUR' }]]);
+    /** Report requests run against the model: requestId -> { partner, onBehalf, reportUnitId }. */
+    this.reportRequests = new Map();
+    /** Exports of those requests: exportId -> requestId. */
+    this.reportExports = new Map();
+    this.reportSeq = 0;
+  }
+
+  /**
+   * The context a report request is run and found in (server V112, DataRetrievalService 2026-11-11): the
+   * acting partner owns it, and an ISV's request run with a merchant's token is marked with that merchant.
+   * An ISV sees only the kind it is asking as; the merchant sees none of them, as they carry the ISV's id.
+   */
+  static reportContext(caller) {
+    return { partner: caller.isv ?? caller.partnerId, onBehalf: caller.isv ? caller.partnerId : null };
+  }
+
+  /** Whether a request the model ran is outside the caller's context; a seeded id is in every context. */
+  #reportHidden(requestId, caller) {
+    const row = this.reportRequests.get(requestId);
+    if (!row) return false;
+    const mine = PaywareModel.reportContext(caller);
+    return row.partner !== mine.partner || row.onBehalf !== mine.onBehalf;
+  }
+
+  #nextReportId(prefix) {
+    this.reportSeq += 1;
+    return `${prefix}${String(this.reportSeq).padStart(12, '0')}`;
   }
 
   route(req) {
@@ -392,6 +427,7 @@ export class PaywareModel {
       isv: caller.type === 'isv',
       fi: caller.type === 'payment_institution',
       merchant_fi: caller.type === 'merchant' || caller.type === 'payment_institution',
+      reports: true,
       logs: (caller.type === 'merchant' && !caller.isv) || caller.type === 'payment_institution',
       any: true
     }[route.audience];
@@ -448,14 +484,37 @@ export class PaywareModel {
           return err(400, 'ERR_VALIDATION_FAILED', 'reportUnitId: Invalid report unit id');
         }
         return null;
+      // ReportBaseController.validateRequestId / validateExportId: a request from another context is not
+      // found, with the same 404 as one that does not exist (no existence oracle).
+      case 'reportStatus':
+      case 'exportReport':
+        if (this.#reportHidden(route.params[0], caller)) return err(404, 'ERR_REPORT_REQUEST_NOT_FOUND');
+        return null;
+      case 'exportStatus':
+      case 'downloadExport': {
+        const requestId = this.reportExports.get(route.params[0]);
+        if (requestId && this.#reportHidden(requestId, caller)) return err(404, 'ERR_REPORT_REQUEST_NOT_FOUND');
+        return null;
+      }
+      case 'cancelReport': {
+        const id = route.params[0];
+        const requestId = this.reportRequests.has(id) ? id : this.reportExports.get(id);
+        if (requestId && this.#reportHidden(requestId, caller)) return err(404, 'ERR_REPORT_REQUEST_NOT_FOUND');
+        return null;
+      }
       case 'setPoiPrice':
         if (!present(body.amount) || amountOf(body.amount, body.currency, { positive: true }) === null) return err(400, 'ERR_INVALID_AMOUNT');
         if (!/^[A-Za-z]{3}$/.test(body.currency ?? '')) return err(400, 'ERR_VALIDATION_FAILED', 'currency: Currency must be a 3-letter ISO 4217 code');
         return null;
-      case 'productImage':
-        // ProductBaseController.generateImage resolves the product among the caller's own, which for an
-        // ISV acting for a merchant finds nothing: a server defect, documented on the ISV tool.
-        if (caller.isv) return err(404, 'ERR_PRODUCT_NOT_FOUND');
+      case 'createProduct':
+      case 'updateProduct':
+        // DatesUtil.synchronizeDates: a start before today is refused, on create and on an update that
+        // names one. An update naming neither date keeps the stored period (ProductService, 2026-11-11).
+        if (startsBeforeToday(body.prData?.activeFrom)) return err(400, 'ERR_INVALID_ACTIVE_FROM_DATE');
+        return null;
+      case 'createSchedule':
+      case 'updateSchedule':
+        if (startsBeforeToday(body.dateFrom)) return err(400, 'ERR_INVALID_ACTIVE_FROM_DATE');
         return null;
       case 'uploadAudio':
       case 'recognise':
@@ -550,11 +609,37 @@ export class PaywareModel {
         status: 200,
         body: [{ id: 1, version: '1', defaultFormat: 'pdf', clientVisible: true, path: '/reports/payware/processedTransactions', parameters: true, merchantVisible: true, isvVisible: true, bankVisible: true, plan: 'STD', name: 'Processed transactions', description: 'Transactions processed in the period' }]
       };
-      case 'runReport': return { status: 200, body: { requestId: IDS.REQUEST, reportUnitId: req.json.reportUnitId, status: 'queued' } };
-      case 'listReportRequests':
-      case 'listExports': return { status: 200, body: [] };
+      case 'runReport': {
+        const requestId = this.#nextReportId('3a81220c-2e38-4759-b067-');
+        this.reportRequests.set(requestId, { ...PaywareModel.reportContext(req.caller), reportUnitId: req.json.reportUnitId });
+        return { status: 200, body: { requestId, reportUnitId: req.json.reportUnitId, status: 'queued' } };
+      }
+      // ReportRequestService: the caller's own requests in the context it asks as (ReportRequestDTO).
+      case 'listReportRequests': {
+        const mine = PaywareModel.reportContext(req.caller);
+        return {
+          status: 200,
+          body: [...this.reportRequests]
+            .filter(([, r]) => r.partner === mine.partner && r.onBehalf === mine.onBehalf && r.reportUnitId === a)
+            .map(([requestId], i) => ({ id: i + 1, requestId, requestStatus: 'finished', partnerId: mine.partner }))
+        };
+      }
+      case 'listExports': {
+        if (this.#reportHidden(a, req.caller)) return { status: 200, body: [] };
+        return {
+          status: 200,
+          body: [...this.reportExports].filter(([, requestId]) => requestId === a)
+            .map(([exportId], i) => ({ id: i + 1, requestId: a, exportId, exportStatus: 'finished', partnerId: PaywareModel.reportContext(req.caller).partner }))
+        };
+      }
       case 'reportStatus': return { status: 200, body: { requestId: a, status: 'finished', generatedAt: '2026-11-10T09:00:00Z' } };
-      case 'exportReport': return { status: 200, body: { outputResource: { exportId: IDS.EXPORT, status: 'queued' } } };
+      case 'exportReport': {
+        // A request the model ran gets an export of its own, in its context; the seeded one IDS.EXPORT.
+        if (!this.reportRequests.has(a)) return { status: 200, body: { outputResource: { exportId: IDS.EXPORT, status: 'queued' } } };
+        const exportId = this.#nextReportId('4a81220c-2e38-4759-b067-');
+        this.reportExports.set(exportId, a);
+        return { status: 200, body: { outputResource: { exportId, status: 'queued' } } };
+      }
       case 'exportStatus': return { status: 200, body: { exportId: a, status: 'finished' } };
       case 'downloadExport': return {
         status: 200,

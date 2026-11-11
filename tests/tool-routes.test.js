@@ -76,16 +76,16 @@ const ROUTES = {
   payware_products_list_products: 'GET /api/products',
   payware_products_create_product: 'POST /api/products',
   payware_products_get_product: `GET /api/products/${PRODUCT}`,
-  // Read, then the whole product: the server's update keeps any field it is given and ProductRequest
-  // defaults the rest, so a partial PATCH reset fields the caller never named.
-  payware_products_update_product: [`GET /api/products/${PRODUCT}`, `PATCH /api/products/${PRODUCT}`],
+  // Only the PATCH: the server keeps every stored value the request leaves out (2026-11-11), so nothing is
+  // read first. Until 2.2.0 the tool read the product and sent it whole.
+  payware_products_update_product: `PATCH /api/products/${PRODUCT}`,
   payware_products_delete_product: `DELETE /api/products/${PRODUCT}`,
   payware_products_get_product_image: `POST /api/products/${PRODUCT}/image`,
   payware_products_get_schedules: `GET /api/products/${PRODUCT}/schedules`,
   payware_products_create_schedule: `POST /api/products/${PRODUCT}/schedules`,
   payware_products_get_schedule: `GET /api/products/${PRODUCT}/schedules/${SCHEDULE}`,
-  // The product for its time zone, the schedule, then the whole schedule (as update_product).
-  payware_products_update_schedule: [`GET /api/products/${PRODUCT}`, `GET /api/products/${PRODUCT}/schedules/${SCHEDULE}`, `PATCH /api/products/${PRODUCT}/schedules/${SCHEDULE}`],
+  // Only the PATCH, as update_product.
+  payware_products_update_schedule: `PATCH /api/products/${PRODUCT}/schedules/${SCHEDULE}`,
   payware_products_delete_schedule: `DELETE /api/products/${PRODUCT}/schedules/${SCHEDULE}`,
   payware_products_get_audios: `GET /api/products/${PRODUCT}/audios`,
   payware_products_get_audio: `GET /api/products/${PRODUCT}/audios/${AUDIO}`,
@@ -166,10 +166,7 @@ const PRODUCTION_ONLY = name => name.startsWith('payware_data_');
  * What payware refuses although the tool calls it correctly: server defects the tool text names, so
  * the refusal is the right answer for now. role/tool -> errorCode.
  */
-const SERVER_REFUSALS = {
-  // ProductBaseController.generateImage looks the product up among the ISV's own (server work 1.7).
-  'isv/payware_products_get_product_image': 'ERR_PRODUCT_NOT_FOUND'
-};
+const SERVER_REFUSALS = {};
 
 /** A value for each required parameter, by name. A required parameter missing here fails loudly. */
 const SAMPLE = {

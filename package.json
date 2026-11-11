@@ -1,6 +1,6 @@
 {
   "name": "@payware/mcp-server",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "mcpName": "io.github.payware/mcp-server",
   "description": "Official MCP server for payware payment API integration",
   "main": "src/index.js",

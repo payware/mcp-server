@@ -22,23 +22,59 @@ import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { buildDownloadExportTool } from '../../shared/data/download-export.js';
 import { CHANGES, CREATES, READS } from '../../shared/tool-annotations.js';
 
+/**
+ * Whose data a report covers, for an ISV (server DataRetrievalService and ReportService, 2026-11-11;
+ * kb tech/details/data-api, "Whose data a report covers"). VG: "ISV acting on behalf of a merchant with
+ * rights to reports must be able to provide those report; when isv uses reports api for itself is
+ * different case; we must support both". Until 2.2.1 these tools required the merchant's token and said
+ * an on-behalf report was the ISV's own, which is what the server did then.
+ */
+const WHOSE_DATA = "Two ways to call, kept apart. With merchantPartnerId and oauth2Token (the merchant's token) you act for that merchant and get its reports: the ones the merchant itself is offered, on the merchant's plan (Standard or Premium), with the merchant's data limited to the shops the merchant assigned to your ISV (none assigned: empty reports). Without them you call for your ISV itself: its own reports, covering everything it handled for all its merchants. A report request belongs to the call that ran it: acting for a merchant you list, poll, export, download and cancel only what you ran for that merchant, and calling for yourself only your own; a request id from the other context answers 404 (ERR_REPORT_REQUEST_NOT_FOUND). The merchant does not see requests you ran for it.";
+
+const MERCHANT_PARTNER_ID = {
+  type: "string",
+  description: "The merchant's partner ID, to act for that merchant (with oauth2Token). Leave both out to call for your ISV itself."
+};
+const OAUTH2_TOKEN = {
+  type: "string",
+  description: "The merchant's OAuth2 token for your ISV, given with merchantPartnerId. Leave both out to call for your ISV itself."
+};
+
+/**
+ * The data-api auth for an ISV: acting for a merchant when both its partner id and token are given,
+ * for the ISV itself when neither is. One without the other is a mistake, not a third mode.
+ */
+function resolveISVReportAuth(args) {
+  const isvPartnerId = args.isvPartnerId || getPartnerIdSafe();
+  const privateKey = args.privateKey || getPrivateKeySafe(false); // reports run on production only
+  if (!isvPartnerId || !privateKey) {
+    throw new Error("ISV Partner ID and private key are required. Set PAYWARE_PARTNER_ID and environment-specific private key variables or provide them as parameters.");
+  }
+  const { merchantPartnerId, oauth2Token } = args;
+  if (!merchantPartnerId !== !oauth2Token) {
+    throw new Error("Give merchantPartnerId and oauth2Token together to act for a merchant, or neither to call for your ISV itself.");
+  }
+  return merchantPartnerId
+    ? { isvPartnerId, privateKey, merchantPartnerId, oauth2Token }
+    : { isvPartnerId, privateKey };
+}
+
+/** Who the call was made as, for the result text; never the token itself. */
+const contextLines = auth => auth.merchantPartnerId
+  ? `- ISV Partner ID: ${auth.isvPartnerId}\n- Acting for merchant: ${auth.merchantPartnerId} (its reports, limited to the shops it assigned to your ISV)`
+  : `- ISV Partner ID: ${auth.isvPartnerId}\n- Called for your ISV itself (its own reports)`;
+
 // Create ISV data tool factory
 const createISVDataTool = (toolName, apiFunction, description, additionalParams = {}, annotations) => ({
   name: `payware_data_${toolName}`,
   annotations,
-  description: `${description} (ISV acting on behalf of merchant). Production only. On behalf of a merchant, a report resolves to your ISV, not to the merchant: it returns what your ISV mediated (server DataRetrievalService.getAuthPartnerId, trans_processed.isvPartnerId), not the merchant's own data. The merchant's plan governs the call.`,
+  description: `${description} (ISV). Production only. ${WHOSE_DATA}`,
   inputSchema: {
     type: "object",
     additionalProperties: false,
     properties: {
-      merchantPartnerId: {
-        type: "string",
-        description: "The merchant's partner ID (required for ISV operations)"
-      },
-      oauth2Token: {
-        type: "string",
-        description: "OAuth2 access token obtained from the merchant"
-      },
+      merchantPartnerId: MERCHANT_PARTNER_ID,
+      oauth2Token: OAUTH2_TOKEN,
       isvPartnerId: {
         type: "string",
         description: "ISV Partner ID from payware dashboard. Uses PAYWARE_PARTNER_ID env var as default.",
@@ -50,33 +86,18 @@ const createISVDataTool = (toolName, apiFunction, description, additionalParams 
       },
       ...additionalParams
     },
-    required: ["merchantPartnerId", "oauth2Token", ...Object.keys(additionalParams)]
+    required: Object.keys(additionalParams)
   },
 
   async handler(args) {
-    const {
-      merchantPartnerId,
-      oauth2Token,
-      isvPartnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(false) // reports run on production only
-    } = args;
-
-    if (!isvPartnerId || !privateKey) {
-      throw new Error("ISV Partner ID and private key are required.");
-    }
-
-    if (!merchantPartnerId || !oauth2Token) {
-      throw new Error("Merchant Partner ID and OAuth2 token are required for ISV operations.");
-    }
+    const auth = resolveISVReportAuth(args);
+    const { merchantPartnerId: _m, oauth2Token: _t, isvPartnerId: _i, privateKey: _k, ...rest } = args;
 
     try {
       const result = await apiFunction({
-        ...args,
+        ...rest,
         partnerType: 'isv',
-        isvPartnerId,
-        privateKey,
-        merchantPartnerId,
-        oauth2Token
+        ...auth
       });
 
       return {
@@ -88,11 +109,7 @@ const createISVDataTool = (toolName, apiFunction, description, additionalParams 
 ${JSON.stringify(result.data, null, 2)}
 
 **ISV Context:**
-- ISV Partner ID: ${isvPartnerId}
-- Merchant Partner ID: ${merchantPartnerId}
-- OAuth2 Token: ${oauth2Token.substring(0, 20)}...
-
-**Note:** This operation was performed on behalf of the merchant using ISV authentication.`
+${contextLines(auth)}`
         }]
       };
     } catch (error) {
@@ -107,7 +124,7 @@ ${JSON.stringify(result.data, null, 2)}
 export const generateReportTool = {
   name: "payware_data_generate_report",
   annotations: CREATES,
-  description: "Run a report asynchronously, as an ISV, for a merchant. Production only: sandbox lists no reports and runs none. On behalf of a merchant, a report resolves to your ISV, not to the merchant: it returns what your ISV mediated (server DataRetrievalService.getAuthPartnerId, trans_processed.isvPartnerId), not the merchant's own data. The merchant's plan governs the call. reportUnitId is a bare id from payware_data_list_reports (the last segment of its path).",
+  description: `Run a report asynchronously, as an ISV, for a merchant or for your ISV itself. Production only: sandbox lists no reports and runs none. ${WHOSE_DATA} reportUnitId is a bare id from payware_data_list_reports (the last segment of its path), called the same way: the list differs between the two contexts.`,
   inputSchema: {
     type: "object",
     additionalProperties: false,
@@ -118,14 +135,8 @@ export const generateReportTool = {
         enum: Object.values(REPORT_TYPES),
         default: REPORT_TYPES.PROCESSED_TRANSACTIONS
       },
-      merchantPartnerId: {
-        type: "string",
-        description: "The merchant's partner ID (required for ISV operations)"
-      },
-      oauth2Token: {
-        type: "string",
-        description: "OAuth2 access token obtained from the merchant"
-      },
+      merchantPartnerId: MERCHANT_PARTNER_ID,
+      oauth2Token: OAUTH2_TOKEN,
       dateFrom: {
         type: "string",
         description: "Start date (YYYY-MM-DD). Optional: defaults to today; the WTD, MTD and YTD reports compute their own start.",
@@ -162,30 +173,19 @@ export const generateReportTool = {
         description: "ISV RSA private key for authentication. Uses environment-specific private key as default."
       }
     },
-    required: ["reportUnitId", "merchantPartnerId", "oauth2Token"]
+    required: ["reportUnitId"]
   },
 
   async handler(args) {
     const {
       reportUnitId,
-      merchantPartnerId,
-      oauth2Token,
       dateFrom,
       dateTo,
       ignorePagination = false,
       locale = LOCALES.ENGLISH_US,
-      timeZone = 'GMT',
-      isvPartnerId = getPartnerIdSafe(),
-      privateKey = getPrivateKeySafe(false) // reports run on production only
+      timeZone = 'GMT'
     } = args;
-
-    if (!isvPartnerId || !privateKey) {
-      throw new Error("ISV Partner ID and private key are required. Set PAYWARE_PARTNER_ID and environment-specific private key variables or provide them as parameters.");
-    }
-
-    if (!merchantPartnerId || !oauth2Token) {
-      throw new Error("Merchant Partner ID and OAuth2 token are required for ISV operations.");
-    }
+    const auth = resolveISVReportAuth(args);
 
     try {
       const result = await generateReport({
@@ -196,10 +196,7 @@ export const generateReportTool = {
         locale,
         timeZone,
         partnerType: 'isv',
-        isvPartnerId,
-        privateKey,
-        merchantPartnerId,
-        oauth2Token
+        ...auth
       });
 
       return {
@@ -213,18 +210,15 @@ export const generateReportTool = {
 - Report Type: ${reportUnitId}
 - Generated: ${result.data.generatedAt}
 
-**ISV Authentication:**
-- ISV Partner ID: ${isvPartnerId}
-- Merchant Partner ID: ${merchantPartnerId}
-- OAuth2 Token: ${oauth2Token.substring(0, 20)}...
+**ISV Context:**
+${contextLines(auth)}
 
 **Next Steps:**
 1. Save the Request ID: \`${result.data.requestId}\`
 2. Use "Get Report Status" tool to monitor progress
 3. When status is "READY", use "Export Report" tool to get the data
 
-**⚠️ Production Only & ISV Authorization Required:**
-This feature requires proper OAuth2 authorization from the merchant and is only available in production.`
+**⚠️ Production Only:** reports run on production data only. Poll, export and download this request in the same context it was run in.`
         }]
       };
     } catch (error) {
@@ -281,19 +275,14 @@ export const getExportStatusTool = createISVDataTool('get_export_status', getExp
 export const downloadExportTool = buildDownloadExportTool({
   partnerType: 'isv',
   authProperties: {
-    merchantPartnerId: { type: "string", description: "The merchant's partner ID (required for ISV operations)" },
-    oauth2Token: { type: "string", description: "OAuth2 access token obtained from the merchant" },
+    merchantPartnerId: MERCHANT_PARTNER_ID,
+    oauth2Token: OAUTH2_TOKEN,
     isvPartnerId: { type: "string", description: "ISV Partner ID from payware dashboard. Uses PAYWARE_PARTNER_ID env var as default.", default: getPartnerIdSafe() },
     privateKey: { type: "string", description: "ISV RSA private key for authentication. Uses the production private key as default (reports run on production only)." }
   },
-  authRequired: ['merchantPartnerId', 'oauth2Token'],
-  resolveAuth: args => {
-    const isvPartnerId = args.isvPartnerId || getPartnerIdSafe();
-    const privateKey = args.privateKey || getPrivateKeySafe(false);
-    if (!isvPartnerId || !privateKey) throw new Error("ISV Partner ID and private key are required.");
-    if (!args.merchantPartnerId || !args.oauth2Token) throw new Error("Merchant Partner ID and OAuth2 token are required for ISV operations.");
-    return { isvPartnerId, privateKey, merchantPartnerId: args.merchantPartnerId, oauth2Token: args.oauth2Token };
-  }
+  authRequired: [],
+  resolveAuth: resolveISVReportAuth,
+  descriptionSuffix: `${WHOSE_DATA}`
 });
 
 export const cancelReportTool = createISVDataTool('cancel_report', cancelReport, 'Cancel Report', {

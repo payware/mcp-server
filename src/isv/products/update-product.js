@@ -9,7 +9,7 @@ import { CHANGES } from '../../shared/tool-annotations.js';
 export const updateProductTool = {
   name: "payware_products_update_product",
   annotations: CHANGES,
-  description: `Update an existing product on behalf of a merchant (ISV operation). Only provide the fields you want to change. The tool reads the product first and sends it whole: the server resets a field a partial update leaves out (active, shippable and quickPay to FALSE, type, time zone and time to live to defaults), a server defect.`,
+  description: `Update an existing product on behalf of a merchant (ISV operation). Only provide the fields you want to change: payware keeps every stored value the request leaves out. With neither activeFrom nor activeTo the active period stays as stored; with one of them the other is worked out as on create (activeFrom alone: the period runs one year from it; activeTo alone: it starts one year before activeTo, or today if that is later), and a start before today is refused (ERR_INVALID_ACTIVE_FROM_DATE).`,
 
   inputSchema: {
     type: "object",
