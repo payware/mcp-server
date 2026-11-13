@@ -410,8 +410,8 @@ describe('finalize transaction: the execution lock', () => {
 
   test('FAILED carries its status message and fee leg outcome, and no amount', async () => {
     server.respondWith(200, {});
-    await finalize({ status: 'FAILED', statusMessage: 'Merchant Leg rejected', feeLegOutcome: 'RETURNED', amount: '112.00' });
-    assert.deepEqual(server.lastRequest.json, { status: 'FAILED', statusMessage: 'Merchant Leg rejected', feeLegOutcome: 'RETURNED' });
+    await finalize({ status: 'FAILED', statusMessage: 'Merchant Leg rejected', feeLegOutcome: 'NOT_EXECUTED', amount: '112.00' });
+    assert.deepEqual(server.lastRequest.json, { status: 'FAILED', statusMessage: 'Merchant Leg rejected', feeLegOutcome: 'NOT_EXECUTED' });
     assert.equal(server.lastRequest.contentHashMatches, true);
   });
 
@@ -432,6 +432,11 @@ describe('finalize transaction: the execution lock', () => {
     );
     await assert.rejects(
       () => finalize({ status: 'FAILED', statusMessage: 'Rejected', feeLegOutcome: 'REFUNDED' }),
+      /ERR_INVALID_FEE_LEG_OUTCOME/
+    );
+    // No Fee Leg is executed before CONFIRMED, so none can have been returned (server 2026-11-13).
+    await assert.rejects(
+      () => finalize({ status: 'FAILED', statusMessage: 'Rejected', feeLegOutcome: 'RETURNED' }),
       /ERR_INVALID_FEE_LEG_OUTCOME/
     );
     assert.equal(server.requests.length, 0);
@@ -973,7 +978,7 @@ describe('as a client sees the tools', () => {
 
   test('a tool that throws is an isError result, not a JSON-RPC error', async () => {
     const result = await call('payment_institution', 'payware_operations_finalize_transaction', {
-      transactionId: 'pw12345678', status: 'CONFIRMED', feeLegOutcome: 'RETURNED'
+      transactionId: 'pw12345678', status: 'CONFIRMED', feeLegOutcome: 'NOT_EXECUTED'
     });
     assert.equal(result.isError, true);
     assert.match(text(result), /feeLegOutcome is sent with FAILED only/);

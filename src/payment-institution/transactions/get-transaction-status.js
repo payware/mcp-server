@@ -224,7 +224,7 @@ ${JSON.stringify(result.transaction, null, 2)}
 **Next Steps:**
 ${locked
   ? `1. The lock is yours: complete the Merchant Leg
-2. Use \`payware_operations_finalize_transaction\` with CONFIRMED (the status alone is enough) once it has completed, or FAILED if it was rejected${tx.transferType === 'DEFERRED' ? ' (with feeLegOutcome)' : ''}`
+2. Use \`payware_operations_finalize_transaction\` with CONFIRMED (the status alone is enough) once it has completed, or FAILED if it was rejected`
   : `1. Process it if your institution has not yet
 2. ${tx.timeToLive && parseInt(tx.timeToLive) < 60 ? '⚠️ Transaction expires soon!' : 'Monitor remaining TTL'}
 3. Use \`payware_operations_process_transaction\` if you need to process this transaction

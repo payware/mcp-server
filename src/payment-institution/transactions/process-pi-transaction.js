@@ -432,7 +432,7 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 
 **Common Payment Institution Issues:**
 1. **ERR_MISSING_TRANSACTION**: Transaction ID not found. **ERR_TRANSACTION_EXPIRED** (also 404): its time to live has run out and it is closed as unpaid
-2. **ERR_ALREADY_PROCESSED**: Transaction already processed
+2. **ERR_ALREADY_PROCESSED**: Transaction already processed. **ERR_PAYEE_UNAVAILABLE** (409): the merchant being paid cannot accept payments; nothing was created or changed, do not take the payer's authorisation
 3. **ERR_MISSING_PARTNER_ACCOUNT**: no account while processing as the payee (a transaction its payer created)
 4. **ERR_MISSING_FRIENDLY_NAME**: Friendly name parameter missing
 5. **ERR_MISSING_CALLBACK_URL**: Callback URL required when processing as payee

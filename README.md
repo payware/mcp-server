@@ -12,6 +12,11 @@ Releases are published to npm as `@payware/mcp-server` and to the official [MCP 
 - **ISVs (Independent Software Vendors)** - Build multi-merchant platforms with OAuth2 token management
 - **Payment Institutions** - Process A2A transfers, handle Payment Choice Architecture with multiple payment methods
 
+## What's New in 2.2.2
+
+- **The deferred Fee Leg goes after CONFIRMED** - for every transfer type the Fee Leg is executed only after payware has accepted `CONFIRMED`; during a `DEFERRED` transfer the institution keeps the Fee Amount reserved on the payer's account and releases it if the Merchant Leg fails. `feeLegOutcome` is optional and only `NOT_EXECUTED` is accepted: the finalize tool refuses `RETURNED` before sending
+- **A merchant that can no longer accept payments** - the institution tools describe `ERR_PAYEE_UNAVAILABLE` (409): payware refuses `EXECUTING` for a merchant that is switched off, nothing is locked and no money may move
+
 ## What's New in 2.2.1
 
 - **Partial product and schedule updates** - `update_product` and `update_schedule` send only the fields you give, and payware keeps every stored value the request leaves out. 2.2.0 read the product first and sent it whole, which payware refuses once the product's start date has passed

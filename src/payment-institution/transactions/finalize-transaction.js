@@ -7,7 +7,9 @@ import { COMMITS } from '../../shared/tool-annotations.js';
 
 export const FINALIZE_STATUSES = ['EXECUTING', 'CONFIRMED', 'CANCELLED', 'DECLINED', 'FAILED'];
 export const TRANSFER_TYPES = ['INSTANT', 'INTERNAL', 'DEFERRED'];
-export const FEE_LEG_OUTCOMES = ['NOT_EXECUTED', 'RETURNED'];
+// Only NOT_EXECUTED: no Fee Leg is executed before CONFIRMED, whatever the transfer type (server 2026-11-13), so none
+// can have been returned. RETURNED is refused here before the server would refuse it (ERR_INVALID_FEE_LEG_OUTCOME).
+export const FEE_LEG_OUTCOMES = ['NOT_EXECUTED'];
 
 const isBlank = value => value === undefined || value === null || value === '';
 
@@ -18,8 +20,8 @@ const isBlank = value => value === undefined || value === null || value === '';
  * EXECUTING immediately before money moves, carrying everything payware checks, then CONFIRMED or
  * FAILED once the Merchant Leg has completed or been rejected. So the amount, fee, currency and
  * transfer type are required at EXECUTING and optional at CONFIRMED, where they must equal the lock.
- * What depends on the lock itself (DEFERRED needs the merchant's opt-in, feeLegOutcome is required
- * after a DEFERRED lock) is the server's to decide: this tool cannot see the lock.
+ * What depends on the lock itself (DEFERRED needs the merchant's opt-in) is the server's to decide:
+ * this tool cannot see the lock.
  */
 export function checkFinalizeArgs({ transactionId, status, statusMessage, amount, fee, currency, transferType, feeLegOutcome }) {
   if (!transactionId) {
@@ -175,12 +177,12 @@ function nextStepsFor(status, transferType, statusMessage) {
     case 'EXECUTING':
       return `1. 🔒 payware has locked the transaction: it has left the expiry clock and payware will not refuse its CONFIRMED or FAILED for reasons of its own
 2. Execute the Merchant Leg now: the \`amount\` of this response, already net of the fee (\`payerAmount\` is the gross), to the payee, the transaction ID as remittance information${transferType === 'DEFERRED' ? `
-3. DEFERRED: send the Fee Leg (\`fee\`, to \`feeAccount\`) together with the Merchant Leg, so the payer cannot cancel it during the wait` : ''}
+3. DEFERRED: keep the Fee Amount (\`fee\`) reserved on the payer's account until CONFIRMED, so the payer cannot spend it during the wait` : ''}
 ${transferType === 'DEFERRED' ? '4' : '3'}. Send CONFIRMED (the status alone is enough) only once the Merchant Leg has completed${transferType === 'INSTANT' ? ' - for INSTANT, on the receiving bank\'s confirmation' : transferType === 'INTERNAL' ? ' - for INTERNAL, once credited' : transferType === 'DEFERRED' ? ' - for DEFERRED, once settled to the merchant\'s account, which can take days' : ''}
-${transferType === 'DEFERRED' ? '5' : '4'}. If the Merchant Leg is rejected, send FAILED with a statusMessage${transferType === 'DEFERRED' ? ' and feeLegOutcome (RETURNED once you have returned the Fee Leg to the payer, NOT_EXECUTED if it never left)' : ''}`;
+${transferType === 'DEFERRED' ? '5' : '4'}. If the Merchant Leg is rejected, send FAILED with a statusMessage and do not execute the Fee Leg${transferType === 'DEFERRED' ? '; release the reserved Fee Amount' : ''}`;
     case 'CONFIRMED':
       return `1. ✅ The Merchant Leg has completed and the transaction is final
-2. ${transferType === 'DEFERRED' ? 'DEFERRED: the Fee Leg already went with the Merchant Leg' : 'Execute the Fee Leg now, where `fee` is greater than zero (`fee`, to `feeAccount`, the transaction ID as remittance information). For a DEFERRED lock it already went with the Merchant Leg'}
+2. Execute the Fee Leg now, where \`fee\` is greater than zero (\`fee\`, to \`feeAccount\`, the transaction ID as remittance information)${transferType === 'DEFERRED' ? ', from the Fee Amount you kept reserved' : ''}
 3. A later return (recall, PSD2 Article 73/89 refund) is a reversal: tell payware the transaction ID
 4. Use \`payware_operations_get_transaction_history\` to retrieve details later`;
     default:
@@ -203,7 +205,7 @@ export const finalizeTransactionTool = {
 2. Immediately before money moves, send **EXECUTING** with \`amount\`, \`fee\`, \`currency\` and \`transferType\`. payware checks everything (processed, sent by the payer's institution, currency, amount, the fee echo, fee configuration and exchange rate, the time to live) and, if it accepts, locks the transaction: it leaves the expiry clock, and payware will not refuse it afterwards for reasons of its own. **A refusal means nothing moves**: release the reservation.
 3. Execute the Merchant Leg to the payee: the payer amount minus \`fee\`, which is the \`amount\` the EXECUTING response returns (already net; \`payerAmount\` there is the gross).
 4. Send **CONFIRMED** only once the Merchant Leg has completed (INSTANT: the receiving bank's confirmation under Article 5a(4)(c) of Regulation (EU) No 260/2012; INTERNAL: credited; DEFERRED: settled to the merchant's account), or **FAILED** if it was rejected. CONFIRMED after EXECUTING may be sent with just the status; an \`amount\`, \`fee\`, \`currency\` or \`transferType\` you repeat must equal the locked value (409 ERR_EXECUTION_MISMATCH).
-5. Fee Leg (\`fee\`, to payware's fee account \`feeAccount\` from the process response): for INSTANT and INTERNAL, after payware has accepted CONFIRMED; for DEFERRED, together with sending the Merchant Leg, so the payer cannot cancel it during the wait. If a DEFERRED Merchant Leg is then rejected, return the Fee Leg to the payer and send FAILED with \`feeLegOutcome: RETURNED\`.
+5. Fee Leg (\`fee\`, to payware's fee account \`feeAccount\` from the process response): after payware has accepted CONFIRMED, for every transfer type. For DEFERRED, keep the Fee Amount reserved on the payer's account from EXECUTING until then; if the Merchant Leg is rejected, release it and send FAILED.
 
 Each transfer goes in full, with the transaction ID as remittance information; nothing is deducted from either. CONFIRMED or FAILED from ACTIVE (no EXECUTING first) is refused with 409 ERR_NOT_EXECUTING.
 
@@ -214,7 +216,7 @@ Each transfer goes in full, with the transaction ID as remittance information; n
 **Statuses:**
 - **EXECUTING**: the lock, sent by the payer's institution after processing (requires amount, fee, currency, transferType). An expired transaction is refused with 404 ERR_TRANSACTION_EXPIRED. Repeating the identical EXECUTING returns 200 with no side effects, so it is safe to retry on a timeout; a different one is 409 ERR_EXECUTION_MISMATCH.
 - **CONFIRMED**: the Merchant Leg has completed. Accepted at any time after EXECUTING, with no time-to-live check.
-- **FAILED**: the Merchant Leg was rejected (requires statusMessage; feeLegOutcome after a DEFERRED lock). No fee is earned.
+- **FAILED**: the Merchant Leg was rejected (requires statusMessage). The Fee Leg is never executed. No fee is earned.
 - **DECLINED**: the payer declined, before the lock (requires statusMessage).
 - **CANCELLED**: only for a transaction your institution initiated, before the lock (requires statusMessage).
 After EXECUTING, DECLINED and CANCELLED are refused with 409 ERR_ALREADY_PROCESSED.
@@ -282,7 +284,7 @@ then, once the Merchant Leg has completed:
       feeLegOutcome: {
         type: "string",
         enum: FEE_LEG_OUTCOMES,
-        description: "With FAILED only: what happened to the Fee Leg. NOT_EXECUTED: it never left. RETURNED: it went with a DEFERRED Merchant Leg and you returned it to the payer. Required with FAILED after a DEFERRED lock (400 ERR_MISSING_FEE_LEG_OUTCOME). RETURNED is invalid after an INSTANT or INTERNAL lock (400 ERR_INVALID_FEE_LEG_OUTCOME), where the Fee Leg is executed only after CONFIRMED."
+        description: "With FAILED only, and optional: NOT_EXECUTED, the only value accepted, because no Fee Leg is executed before CONFIRMED whatever the transfer type. Anything else is 400 ERR_INVALID_FEE_LEG_OUTCOME."
       },
       partnerId: {
         type: "string",
@@ -431,10 +433,10 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 2. **ERR_TRANSACTION_NOT_PROCESSED**: Transaction hasn't been processed yet
 3. **ERR_NOT_EXECUTING** (409): CONFIRMED or FAILED sent while the transaction is still ACTIVE - send EXECUTING first, before any money moves
 4. **ERR_EXECUTION_MISMATCH** (409): a repeated EXECUTING with a different body, or a CONFIRMED whose amount, fee, currency or transferType differs from the lock
-5. **ERR_ALREADY_PROCESSED** (409): already final, or DECLINED/CANCELLED after EXECUTING
+5. **ERR_ALREADY_PROCESSED** (409): already final, or DECLINED/CANCELLED after EXECUTING. **ERR_PAYEE_UNAVAILABLE** (409): EXECUTING refused because the merchant being paid can no longer accept payments; nothing is locked and no money may move
 6. **ERR_MISSING_TRANSFER_TYPE** / **ERR_INVALID_TRANSFER_TYPE**: EXECUTING needs transferType INSTANT, INTERNAL or DEFERRED
 7. **ERR_DEFERRED_TRANSFER_NOT_ALLOWED**: DEFERRED on a transaction without deferredAllowed: true
-8. **ERR_MISSING_FEE_LEG_OUTCOME** / **ERR_INVALID_FEE_LEG_OUTCOME**: FAILED after a DEFERRED lock needs feeLegOutcome; RETURNED is invalid after INSTANT or INTERNAL
+8. **ERR_INVALID_FEE_LEG_OUTCOME**: a feeLegOutcome other than NOT_EXECUTED (no Fee Leg is executed before CONFIRMED, so none can have been returned)
 9. **ERR_FEE_MISMATCH**: the fee was recomputed or re-rounded instead of echoed from the process response
 10. **ERR_FEE_CONFIGURATION_UNAVAILABLE** / **ERR_MISSING_EXCHANGE_RATE** (503): payware could not check the fee; nothing was applied, so retrying EXECUTING later is safe
 11. **ERR_INVALID_STATUS**, **ERR_MISSING_STATUS_MESSAGE**, **ERR_SPECIFYING_CURRENCY_NOT_ALLOWED**, **ERR_INVALID_AMOUNT**, **ERR_UNAUTHORIZED_OPERATION**

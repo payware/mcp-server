@@ -89,7 +89,7 @@ const FINALIZE_STEPS = [
       status: 'FAILED',
       statusMessage: 'Merchant Leg rejected'
     },
-    notes: 'Send it instead of `CONFIRMED`. After an `INSTANT` or `INTERNAL` lock the Fee Leg was never executed: do not execute it. After a `DEFERRED` lock, add `feeLegOutcome`: `RETURNED` once you have returned the Fee Leg to the payer, `NOT_EXECUTED` if it never left (`ERR_MISSING_FEE_LEG_OUTCOME` without it).'
+    notes: 'Send it instead of `CONFIRMED`. The Fee Leg is executed only after `CONFIRMED`, whatever the transfer type, so it was never executed: do not execute it. After a `DEFERRED` lock, release the Fee Amount you kept reserved. `feeLegOutcome` is optional and only `NOT_EXECUTED` is accepted.'
   }
 ];
 
