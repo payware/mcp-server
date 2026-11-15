@@ -1,5 +1,5 @@
 import { getPartnerIdSafe } from '../../config/env.js';
-import { generateMockCallback, simulateCallbackDelivery } from '../../merchant/transactions/simulate-callback.js';
+import { generateMockCallback, simulateCallbackDelivery, CALLBACK_ITEMS_PROPERTY } from '../../merchant/transactions/simulate-callback.js';
 import { LOCAL } from '../../shared/tool-annotations.js';
 
 /**
@@ -48,6 +48,8 @@ pair is stable across retries and is the key payware guarantees.
 
 A POI sale's callback also carries \`poiId\`, the POI that created the transaction.
 
+A payment from a product, a placement, a purchase session, or one created with lines also carries (absent otherwise) \`productId\`, \`placementId\` (Premium only), \`sessionId\` (the session's pa id) and \`items\` with their \`total\` (type, productId, name, quantity, unitPrice, amount, and country on a delivery line payware priced; no images). \`total\` is the sum of the lines, what the payer paid. On CONFIRMED \`amount\` is net of the fee, so \`amount\` + \`fee\` = \`total\`; on any other status \`amount\` equals \`total\`. With \`items\`, leave \`amount\` out: it is worked out, and an \`amount\` the server would never send with those lines is refused.
+
 **Not on this payload:** \`deliveryAddress\` (removed 2026-08-07 - fetch it from
 \`payware_operations_get_transaction_history\`), \`producerPartnerId\`, \`transactionType\` and
 \`initiatedBy\`.`,
@@ -73,8 +75,7 @@ A POI sale's callback also carries \`poiId\`, the POI that created the transacti
       },
       amount: {
         type: 'string',
-        description: "Transaction amount as a decimal string at the currency's own scale (e.g. '57.60')",
-        default: '57.60'
+        description: "Transaction amount as a decimal string at the currency's own scale (e.g. '57.60'; that is the default without items). With items leave it out: on CONFIRMED it is total minus fee, on any other status the total; a different value is refused"
       },
       currency: {
         type: 'string',
@@ -113,6 +114,19 @@ A POI sale's callback also carries \`poiId\`, the POI that created the transacti
         type: 'string',
         description: 'Set to simulate a POI sale: the callback then carries the poiId of the POI that created the transaction'
       },
+      productId: {
+        type: 'string',
+        description: 'Set to simulate a payment that came from a product: the callback then carries the productId (from the product snapshot)'
+      },
+      placementId: {
+        type: 'string',
+        description: 'Set to simulate a payment attributed to a placement (Premium merchants): the callback then carries the placementId'
+      },
+      sessionId: {
+        type: 'string',
+        description: "Set to simulate a payment that came from an agent purchase session: the callback then carries the session's pa id"
+      },
+      items: CALLBACK_ITEMS_PROPERTY,
       merchantPartnerId: {
         type: 'string',
         description: 'Partner ID of the merchant whose callback this simulates. Used for labelling only - no call is made on their behalf.'
@@ -130,7 +144,8 @@ A POI sale's callback also carries \`poiId\`, the POI that created the transacti
       transactionId,
       status = 'CONFIRMED',
       callbackUrl,
-      amount = '57.60',
+      // No default: with items it is worked out from them, else 57.60 (generateMockCallback).
+      amount,
       currency = 'EUR',
       fee,
       feeVat,
@@ -139,6 +154,10 @@ A POI sale's callback also carries \`poiId\`, the POI that created the transacti
       statusMessage,
       paymentMethod,
       poiId,
+      productId,
+      placementId,
+      sessionId,
+      items,
       merchantPartnerId
     } = args;
 
@@ -146,9 +165,15 @@ A POI sale's callback also carries \`poiId\`, the POI that created the transacti
       throw new Error('Transaction ID is required');
     }
 
-    const payload = generateMockCallback(transactionId, status, {
-      amount, currency, fee, feeVat, feeFixed, feeRate, statusMessage, paymentMethod, poiId
-    });
+    let payload;
+    try {
+      payload = generateMockCallback(transactionId, status, {
+        amount, currency, fee, feeVat, feeFixed, feeRate, statusMessage, paymentMethod, poiId,
+        productId, placementId, sessionId, items
+      });
+    } catch (error) {
+      return { content: [{ type: 'text', text: `❌ **Callback Simulation Refused**\n\n${error.message}` }], isError: true };
+    }
 
     const delivery = callbackUrl ? await simulateCallbackDelivery(callbackUrl, payload) : null;
 

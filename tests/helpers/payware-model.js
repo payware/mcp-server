@@ -95,6 +95,8 @@ const API_ROUTES = [
   ['POST', `/api/transactions/${SEG}`, 'processTransaction', 'merchant_fi'],
   ['PATCH', `/api/transactions/${SEG}`, 'finalizeTransaction', 'merchant_fi'],
   ['GET', `/api/transactions-history/${SEG}`, 'getTransactionHistory', 'merchant_fi'],
+  // Institutions only (ApiTier.FI): re-prices pr, pl, ps and pa with no side effects.
+  ['GET', `/api/transactions/${SEG}/quote`, 'quote', 'fi'],
 
   ['GET', '/api/products', 'listProducts', 'merchant'],
   ['POST', '/api/products', 'createProduct', 'merchant'],
@@ -102,6 +104,8 @@ const API_ROUTES = [
   ['PATCH', `/api/products/${SEG}`, 'updateProduct', 'merchant'],
   ['DELETE', `/api/products/${SEG}`, 'deleteProduct', 'merchant'],
   ['POST', `/api/products/${SEG}/image`, 'productImage', 'merchant'],
+  ['GET', `/api/products/${SEG}/delivery`, 'getProductDelivery', 'merchant'],
+  ['PUT', `/api/products/${SEG}/delivery`, 'setProductDelivery', 'merchant'],
   ['GET', `/api/products/${SEG}/schedules`, 'listSchedules', 'merchant'],
   ['POST', `/api/products/${SEG}/schedules`, 'createSchedule', 'merchant'],
   ['GET', `/api/products/${SEG}/schedules/${SEG}`, 'getSchedule', 'merchant'],
@@ -153,6 +157,9 @@ const API_ROUTES = [
   ['GET', '/api/logs/download', 'downloadLogs', 'logs'],
 
   ['GET', '/api/shops', 'listShops', 'merchant'],
+  // Delivery settings (spec 22.7): one controller, ApiTier.MERCHANT, an ISV on behalf within its shop scope.
+  ['GET', `/api/shops/${SEG}/delivery`, 'getShopDelivery', 'merchant'],
+  ['PUT', `/api/shops/${SEG}/delivery`, 'setShopDelivery', 'merchant'],
 
   ['GET', '/api/poi', 'listPois', 'merchant'],
   ['POST', '/api/poi', 'createPoi', 'merchant'],
@@ -197,15 +204,62 @@ const present = v => v !== undefined && v !== null && v !== '';
 /** Whether a "yyyy-MM-dd[ HH:mm:ss]" start date is before today (UTC here; the server reads it in the product's zone). */
 const startsBeforeToday = value => present(value) && String(value).slice(0, 10) < new Date().toISOString().slice(0, 10);
 
+/** The refusals of the deliveryCountry and quantity query parameters on an offer read or a quote. */
+function offerQueryRefusal(query) {
+  if (present(query.deliveryCountry) && !/^[A-Za-z]{2}$/.test(query.deliveryCountry)) return err(400, 'ERR_INVALID_DELIVERY_COUNTRY');
+  if (present(query.quantity) && !/^([1-9]|[1-9][0-9])$/.test(query.quantity)) return err(400, 'ERR_INVALID_QUANTITY');
+  return null;
+}
+
+/**
+ * Merchant `items` (spec 22.6): 1-50 lines, ITEM with quantity 1-99 and amount = quantity x unitPrice,
+ * DISCOUNT below zero and everything else not, summing exactly to trData.amount; a bank-created payment
+ * with items is refused (ERR_INVALID_ITEMS), as is an amount of 0.00.
+ */
+function itemsRefusal(items, amount, currency, bank) {
+  const TYPES = ['ITEM', 'SHIPPING', 'DISCOUNT', 'TAX', 'SURCHARGE'];
+  // An empty list has its own code (VG 2026-11-15): leave items out instead.
+  if (!bank && Array.isArray(items) && items.length === 0) return err(400, 'ERR_ITEMS_EMPTY');
+  if (bank || !Array.isArray(items) || items.length > 50 || !(Number(amount) > 0)) return err(400, 'ERR_INVALID_ITEMS');
+  let sum = 0;
+  for (const line of items) {
+    if (!TYPES.includes(line?.type) || !present(line.name) || String(line.name).length > 100) return err(400, 'ERR_INVALID_ITEMS');
+    // payware sets country only on the delivery lines it prices; a merchant line with one is refused.
+    if (present(line.country)) return err(400, 'ERR_INVALID_ITEMS');
+    if (amountOf(line.amount, currency, { allowNegative: true }) === null) return err(400, 'ERR_INVALID_ITEMS');
+    const value = Number(line.amount);
+    if (line.type === 'DISCOUNT' ? !(value < 0) : value < 0) return err(400, 'ERR_INVALID_ITEMS');
+    if (line.type === 'ITEM') {
+      if (!(Number.isInteger(line.quantity) && line.quantity >= 1 && line.quantity <= 99)) return err(400, 'ERR_INVALID_ITEMS');
+      if (Math.abs(line.quantity * Number(line.unitPrice) - value) > 1e-9) return err(400, 'ERR_INVALID_ITEMS');
+    }
+    sum += value;
+  }
+  return Math.abs(sum - Number(amount)) < 1e-9 ? null : err(400, 'ERR_ITEMS_DO_NOT_SUM');
+}
+
+/**
+ * The server's caps on an amount a caller sends: at most 15 significant digits (trailing zeros of the fraction are not
+ * significant) and at most 15 integer digits (TransactionFeeService.MAX_AMOUNT_SIGNIFICANT_DIGITS and decision 10).
+ */
+function exceedsAmountDigits(value) {
+  const s = String(value).replace(/^-/, '');
+  if (!/^\d+(\.\d+)?$/.test(s)) return false;
+  const [whole, fraction = ''] = s.split('.');
+  const integer = whole.replace(/^0+/, '');
+  const digits = (integer + fraction.replace(/0+$/, '')).replace(/^0+/, '').replace(/0+$/, '');
+  return integer.length > 15 || digits.length > 15;
+}
+
 /** A decimal amount string the server accepts for this currency, or null. */
-function amountOf(value, currency, { positive = false } = {}) {
+function amountOf(value, currency, { positive = false, allowNegative = false } = {}) {
   if (!present(value)) return null;
   const s = String(value);
-  if (!/^\d+(\.\d+)?$/.test(s) || s.replace(/[^0-9]/g, '').length > 36) return null;
+  if (!(allowNegative ? /^-?\d+(\.\d+)?$/ : /^\d+(\.\d+)?$/).test(s) || s.replace(/[^0-9]/g, '').length > 36) return null;
   const significant = (s.split('.')[1] || '').replace(/0+$/, '').length;
   if (significant > (CURRENCIES[String(currency).toUpperCase()] ?? 2)) return null;
   const n = Number(s);
-  if (positive ? n <= 0 : n < 0) return null;
+  if (positive ? n <= 0 : (n < 0 && !allowNegative)) return null;
   return n;
 }
 
@@ -251,6 +305,12 @@ export function transactionDto(id, overrides = {}) {
     ...overrides
   };
 }
+
+/**
+ * The shops' active shippable products, for the shop delivery PUT's undeliverableProducts (server DeliverySettingsService,
+ * VG 2026-11-15): those whose currency has no row in a non-empty saved table.
+ */
+const SHIPPABLE_PRODUCTS = [{ shopCode: 'SHOP01', productId: 'prVase0001', name: 'Vase', currency: 'EUR' }];
 
 const PRODUCT_DTO = {
   productId: IDS.PRODUCT,
@@ -445,8 +505,13 @@ export class PaywareModel {
         const tr = body.trData;
         if (bank && !['SRC', 'DST'].includes(body.role)) return err(400, 'ERR_UNKNOWN_ROLE');
         if (!tr || !knownCurrency(tr.currency)) return err(400, 'ERR_UNKNOWN_CURRENCY');
+        if (present(tr.amount) && exceedsAmountDigits(tr.amount)) return err(400, 'ERR_INVALID_AMOUNT_LENGTH');
         if (amountOf(tr.amount, tr.currency) === null) return err(400, 'ERR_INVALID_AMOUNT');
         if (!bank && !present(tr.reasonL1)) return err(400, 'ERR_MISSING_REASON');
+        if (present(body.items)) {
+          const refusal = itemsRefusal(body.items, tr.amount, tr.currency, bank);
+          if (refusal) return refusal;
+        }
         if (present(tr.reasonL1) && tr.reasonL1.length > 100) return err(400, 'ERR_INVALID_REASONL1_LENGTH');
         if (present(tr.reasonL2) && tr.reasonL2.length > 100) return err(400, 'ERR_INVALID_REASONL2_LENGTH');
         const ttl = body.trOptions?.timeToLive;
@@ -461,12 +526,14 @@ export class PaywareModel {
         // A bank names the grounds unless the id brings its own (a product, placement or soundbite).
         const reasonRequired = bank ? !/^(pr|pl|ps)/.test(id) : true;
         if (reasonRequired && !present(tr.reasonL1)) return err(400, 'ERR_MISSING_REASON');
+        if (present(tr.quantity) && !(Number.isInteger(tr.quantity) && tr.quantity >= 1 && tr.quantity <= 99)) return err(400, 'ERR_INVALID_QUANTITY');
         if (body.deliveryAddress) {
           const a = body.deliveryAddress;
           if (!present(a.fullName) || a.fullName.length > 200) return err(400, 'ERR_INVALID_DELIVERY_ADDRESS');
           for (const field of ['streetAddressLine1', 'zipCode', 'city', 'country']) {
             if (!present(a[field])) return err(400, 'ERR_INVALID_DELIVERY_ADDRESS');
           }
+          if (!/^[A-Za-z]{2}$/.test(a.country)) return err(400, 'ERR_INVALID_DELIVERY_COUNTRY');
         }
         return null;
       }
@@ -475,6 +542,37 @@ export class PaywareModel {
         const [id] = route.params;
         // Both look the id up as given: history only knows pw transactions.
         if (route.name === 'getTransactionHistory' && !id.startsWith('pw')) return err(404, 'ERR_TRANSACTION_NOT_FOUND');
+        return offerQueryRefusal(req.query);
+      }
+      case 'quote': {
+        const [id] = route.params;
+        if (!/^(pr|pl|ps|pa)/.test(id)) return err(400, 'ERR_INVALID_TRANSACTION_ID');
+        return offerQueryRefusal(req.query);
+      }
+      case 'setShopDelivery': {
+        const rows = body.countries;
+        if (!Array.isArray(rows) || rows.length > 250) return err(400, 'ERR_INVALID_DELIVERY_SETTINGS');
+        const seen = new Set();
+        for (const row of rows) {
+          if (!/^[A-Za-z]{2}$/.test(row?.country ?? '')) return err(400, 'ERR_INVALID_DELIVERY_COUNTRY');
+          if (!knownCurrency(row.currency) || amountOf(row.fee, row.currency) === null) return err(400, 'ERR_INVALID_DELIVERY_SETTINGS');
+          if (present(row.freeAbove) && amountOf(row.freeAbove, row.currency, { positive: true }) === null) return err(400, 'ERR_INVALID_DELIVERY_SETTINGS');
+          const key = `${row.country.toUpperCase()}/${row.currency}`;
+          if (seen.has(key)) return err(400, 'ERR_INVALID_DELIVERY_SETTINGS');
+          seen.add(key);
+        }
+        return null;
+      }
+      case 'setProductDelivery': {
+        const rows = body.countries;
+        if (!Array.isArray(rows)) return err(400, 'ERR_INVALID_DELIVERY_SETTINGS');
+        for (const row of rows) {
+          if (!/^[A-Za-z]{2}$/.test(row?.country ?? '')) return err(400, 'ERR_INVALID_DELIVERY_COUNTRY');
+          // A row is either excluded with no surcharge, or not excluded with a surcharge of 0 or more.
+          if (row.excluded === true ? present(row.surchargePerUnit) : (row.excluded !== false || amountOf(row.surchargePerUnit, 'EUR') === null)) {
+            return err(400, 'ERR_INVALID_DELIVERY_SETTINGS');
+          }
+        }
         return null;
       }
       case 'finalizeTransaction':
@@ -650,6 +748,43 @@ export class PaywareModel {
       case 'queryLogs': return { status: 200, body: { entries: [], hasMore: false } };
       case 'logStatus': return { status: 200, body: { available: true, totalSizeBytes: 0, fileCount: 0 } };
 
+      case 'getShopDelivery': return {
+        status: 200,
+        body: { shopCode: a, countries: [{ country: 'BG', currency: 'EUR', fee: '5.00', freeAbove: '50.00' }] }
+      };
+      case 'setShopDelivery': {
+        // The PUT answers the saved table and, only on the PUT and only when there are some, the shop's shippable
+        // products its currencies leave deliverable nowhere (omitted when none, server NON_EMPTY).
+        const countries = body0(req).countries ?? [];
+        const currencies = new Set(countries.map(r => r.currency));
+        const stranded = countries.length === 0 ? [] : SHIPPABLE_PRODUCTS
+          .filter(p => p.shopCode === a && !currencies.has(p.currency))
+          .map(({ productId, name, currency }) => ({ productId, name, currency }));
+        return { status: 200, body: { shopCode: a, countries, ...(stranded.length > 0 && { undeliverableProducts: stranded }) } };
+      }
+      case 'getProductDelivery':
+      case 'setProductDelivery': return {
+        status: 200,
+        body: { productId: a, countries: req.method === 'PUT' ? (body0(req).countries ?? []) : [{ country: 'RO', excluded: true }, { country: 'BG', excluded: false, surchargePerUnit: '3.00' }] }
+      };
+      case 'quote': {
+        // As TransactionQuoteDTO (NON_NULL): quantity only for a product quote, never for a pa; deliveryCountry and
+        // countryServed only when a country was given (the model's product is not shipped, so it is always served).
+        const session = a.startsWith('pa');
+        const quantity = session ? 1 : Number(req.query.quantity ?? 1);
+        const country = req.query.deliveryCountry?.toUpperCase();
+        return {
+          status: 200,
+          body: {
+            transactionId: a, currency: 'EUR',
+            ...(!session && { quantity }),
+            ...(country && { deliveryCountry: country, countryServed: true }),
+            items: [{ type: 'ITEM', productId: IDS.PRODUCT, name: 'Vase', quantity, unitPrice: '40.00', amount: (40 * quantity).toFixed(2) }],
+            total: (40 * quantity).toFixed(2)
+          }
+        };
+      }
+
       case 'listShops': return {
         status: 200,
         body: [{ id: 1, name: 'Main store', code: 'SHOP01', ecommerce: false, isDefault: true, paymentProfileId: 1, paymentProfileName: 'Default', merchantId: 1, merchantName: 'Test Merchant', country: 'BG', countryOverridden: false }]
@@ -717,6 +852,9 @@ export class PaywareModel {
     return { status: 200, body: transactionDto(id, { status, ...(body.statusMessage && { statusMessage: body.statusMessage }), finalized: Date.now() }) };
   }
 }
+
+/** The JSON body of a request, or an empty object. */
+const body0 = req => req.json ?? {};
 
 /** What an identical EXECUTING repeat must match. */
 const lockOf = body => ({ amount: body.amount, fee: body.fee, currency: body.currency, transferType: body.transferType });

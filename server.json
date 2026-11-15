@@ -2,44 +2,45 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.payware/mcp-server",
   "title": "payware",
-  "description": "payware A2A payments API for merchants, ISVs and payment institutions",
+  "description": "payware A2A payments API for merchants, ISVs, payment institutions and buying agents",
   "websiteUrl": "https://payware.eu/en/for-developers",
   "repository": {
     "url": "https://github.com/payware/mcp-server",
     "source": "github"
   },
-  "version": "2.2.2",
+  "version": "2.3.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@payware/mcp-server",
-      "version": "2.2.2",
+      "version": "2.3.0",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
           "name": "PAYWARE_PARTNER_TYPE",
-          "description": "Partner role: merchant, isv or payment_institution",
+          "description": "Partner role: merchant, isv, payment_institution or payer (a buying agent, no keys needed)",
           "isRequired": false,
           "default": "merchant",
           "choices": [
             "merchant",
             "isv",
-            "payment_institution"
+            "payment_institution",
+            "payer"
           ],
           "format": "string"
         },
         {
           "name": "PAYWARE_PARTNER_ID",
-          "description": "Partner ID from the payware dashboard",
-          "isRequired": true,
+          "description": "Partner ID from the payware dashboard (not needed for the payer role)",
+          "isRequired": false,
           "format": "string"
         },
         {
           "name": "PAYWARE_SANDBOX_PRIVATE_KEY_PATH",
-          "description": "Path to the RSA private key for the sandbox",
-          "isRequired": true,
+          "description": "Path to the RSA private key for the sandbox (not needed for the payer role)",
+          "isRequired": false,
           "format": "filepath"
         },
         {
@@ -62,8 +63,14 @@
           "format": "string"
         },
         {
+          "name": "PAYWARE_LINKS_BASE_URL",
+          "description": "Payer role only: the base URL of the public link host, e.g. http://localhost:8080 for a local payware server. Defaults to https://go-sandbox.payware.eu (sandbox) or https://go.payware.eu (production)",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
           "name": "PAYWARE_MCP_TOOLSETS",
-          "description": "Comma-separated toolsets to load, e.g. products,placements. Unset loads every tool. Toolsets: auth, transactions, products, placements, data, logs, poi, shops, onboarding, utils",
+          "description": "Comma-separated toolsets to load, e.g. products,placements. Unset loads every tool. Toolsets: auth, transactions, products, placements, data, logs, poi, shops, onboarding, utils, payer",
           "isRequired": false,
           "format": "string"
         }

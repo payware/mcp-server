@@ -26,7 +26,8 @@ export const TOOLSETS = {
   poi: 'Points of interaction: terminals, their prices and QR codes',
   shops: 'Shop codes',
   onboarding: 'ISV merchant invitations and the reference data their forms need',
-  utils: 'Code samples, documentation, request formatting and server information'
+  utils: 'Code samples, documentation, request formatting and server information',
+  payer: 'A buying agent: read payment links, price them, create purchase sessions and watch a payment (no keys)'
 };
 
 const BY_PREFIX = [
@@ -40,6 +41,8 @@ const BY_PREFIX = [
   ['payware_shops_', 'shops'],
   ['payware_isv_', 'onboarding'],
   ['payware_reference_', 'onboarding'],
+  ['payware_fi_', 'transactions'],
+  ['payware_payer_', 'payer'],
   ['payware_utils_', 'utils'],
   ['payware_generate_', 'utils']
 ];

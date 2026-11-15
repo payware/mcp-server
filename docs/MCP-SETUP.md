@@ -103,8 +103,42 @@ PORT=3000
 | `shops` | Shop codes |
 | `onboarding` | ISV merchant invitations and the reference data their forms need |
 | `utils` | Code samples, documentation, request formatting and server information |
+| `payer` | A buying agent: read payment links, price them, create purchase sessions and watch a payment (partner type `payer`, no keys) |
 
 Example: `PAYWARE_MCP_TOOLSETS=products,placements,shops`. Names are case-insensitive. An unknown name is ignored with a warning on stderr, which MCP clients keep in their server log, and if no name is known every tool loads. A tool outside the chosen toolsets is neither listed nor callable. This is not access control: what a call may do is still decided by payware for your partner account.
+
+## Running the payer and the bank against a local server
+
+A buying agent needs no partner ID and no key. Set `PAYWARE_PARTNER_TYPE=payer` and, for a payware server on your machine, `PAYWARE_LINKS_BASE_URL=http://localhost:8080` (the server serves `/links/**` itself). Without that variable the payer uses `https://go-sandbox.payware.eu`, or `https://go.payware.eu` when a tool is called with `useSandbox: false`.
+
+A payment institution, the bank that approves what the agent set up, is a second entry of the same server: `PAYWARE_PARTNER_TYPE=payment_institution`, its `PAYWARE_PARTNER_ID`, its private key in `PAYWARE_SANDBOX_PRIVATE_KEY_PATH` and `PAYWARE_SANDBOX_URL=http://localhost:8080/api`. Both go into one client configuration:
+
+```json
+{
+  "mcpServers": {
+    "payware-payer": {
+      "command": "node",
+      "args": ["/path/to/mcp/src/index.js"],
+      "env": {
+        "PAYWARE_PARTNER_TYPE": "payer",
+        "PAYWARE_LINKS_BASE_URL": "http://localhost:8080"
+      }
+    },
+    "payware-bank": {
+      "command": "node",
+      "args": ["/path/to/mcp/src/index.js"],
+      "env": {
+        "PAYWARE_PARTNER_TYPE": "payment_institution",
+        "PAYWARE_PARTNER_ID": "YOUR_LOCAL_FI_PARTNER_ID",
+        "PAYWARE_SANDBOX_PRIVATE_KEY_PATH": "/path/to/keys/local-fi-private-key.pem",
+        "PAYWARE_SANDBOX_URL": "http://localhost:8080/api"
+      }
+    }
+  }
+}
+```
+
+Flow: the payer reads the link (`payware_payer_read_link`) and creates a session (`payware_payer_create_session`), which returns a `pa` id and a link. The bank reads the `pa` id (`payware_operations_get_transaction_status`), processes it with `amount` equal to the session `total` (`payware_operations_process_transaction`) and finalizes it with `EXECUTING` and then `CONFIRMED` (`payware_operations_finalize_transaction`). The payer follows it with `payware_payer_watch` until `PAID`. Payment links are real only on `go.payware.eu` and `paywa.re` (`go-sandbox.payware.eu` and `sandbox.paywa.re` for the sandbox, `localhost` for local development).
 
 ## Available Tools
 

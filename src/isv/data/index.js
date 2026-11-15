@@ -15,6 +15,7 @@ import {
   getReportRequests,
   getExportList,
   REPORT_TYPES,
+  PERIOD_PROPERTY,
   EXPORT_FORMATS,
   LOCALES
 } from '../../shared/data/data-api.js';
@@ -131,7 +132,7 @@ export const generateReportTool = {
     properties: {
       reportUnitId: {
         type: "string",
-        description: "The report id, bare (processedTransactionsMTD): the last segment of a path from payware_data_list_reports. Which reports you may run is the list that tool returns.",
+        description: "The report id, bare (monthlyStatement): the last segment of a path from payware_data_list_reports. Which reports you may run is the list that tool returns.",
         enum: Object.values(REPORT_TYPES),
         default: REPORT_TYPES.PROCESSED_TRANSACTIONS
       },
@@ -139,14 +140,15 @@ export const generateReportTool = {
       oauth2Token: OAUTH2_TOKEN,
       dateFrom: {
         type: "string",
-        description: "Start date (YYYY-MM-DD). Optional: defaults to today; the WTD, MTD and YTD reports compute their own start.",
+        description: "Start date (YYYY-MM-DD), with period CUSTOM or no period. Ignored with any other preset.",
         pattern: "^\\d{4}-\\d{2}-\\d{2}$"
       },
       dateTo: {
         type: "string",
-        description: "End date (YYYY-MM-DD). Optional: defaults to today.",
+        description: "End date (YYYY-MM-DD), with period CUSTOM or no period. Only an end date covers that one day; no end on a range is today.",
         pattern: "^\\d{4}-\\d{2}-\\d{2}$"
       },
+      period: PERIOD_PROPERTY,
       ignorePagination: {
         type: "boolean",
         description: "If true, return report as single continuous document. If false, paginate results.",
@@ -181,6 +183,7 @@ export const generateReportTool = {
       reportUnitId,
       dateFrom,
       dateTo,
+      period,
       ignorePagination = false,
       locale = LOCALES.ENGLISH_US,
       timeZone = 'GMT'
@@ -192,6 +195,7 @@ export const generateReportTool = {
         reportUnitId,
         dateFrom,
         dateTo,
+        period,
         ignorePagination,
         locale,
         timeZone,

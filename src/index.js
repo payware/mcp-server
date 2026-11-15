@@ -2,7 +2,7 @@
 
 /**
  * payware MCP Server with Partner Type Support
- * Dynamically loads tools based on partner type (merchant, isv, payment_institution)
+ * Dynamically loads tools based on partner type (merchant, isv, payment_institution, payer)
  * Provides authentication and transaction tools for payware API integration
  */
 
@@ -26,6 +26,7 @@ import { getSharedTools } from './shared/index.js';
 import { getMerchantTools } from './merchant/index.js';
 import { getISVTools } from './isv/index.js';
 import { getPaymentInstitutionTools } from './payment-institution/index.js';
+import { getPayerTools } from './payer/index.js';
 
 class PaywareMCPServer {
   constructor() {
@@ -69,6 +70,9 @@ class PaywareMCPServer {
         break;
       case 'payment_institution':
         allTools = getPaymentInstitutionTools();
+        break;
+      case 'payer':
+        allTools = getPayerTools();
         break;
       default:
         throw new Error(`Unknown partner type: ${this.partnerType}`);

@@ -5,7 +5,8 @@
 export const PARTNER_TYPES = {
   MERCHANT: 'merchant',
   ISV: 'isv',
-  PAYMENT_INSTITUTION: 'payment_institution'
+  PAYMENT_INSTITUTION: 'payment_institution',
+  PAYER: 'payer'
 };
 
 export const PARTNER_TYPE_CONFIGS = {
@@ -68,6 +69,21 @@ export const PARTNER_TYPE_CONFIGS = {
     requiredEnvVars: [
       'PAYWARE_PARTNER_ID',
       'PAYWARE_PRIVATE_KEY_PATH'
+    ]
+  },
+
+  [PARTNER_TYPES.PAYER]: {
+    name: 'Payer',
+    description: 'A buying agent acting for a person, using public payment links',
+    authType: 'none', // the link host is public: no partner ID, no key, no JWT
+    capabilities: [
+      'link_lookup',
+      'purchase_sessions',
+      'payment_watch'
+    ],
+    requiredEnvVars: [],
+    optionalEnvVars: [
+      'PAYWARE_LINKS_BASE_URL'
     ]
   }
 };

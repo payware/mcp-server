@@ -11,6 +11,8 @@ import { READS } from '../../shared/tool-annotations.js';
  */
 export async function getPITransactionStatus({
   transactionId,
+  deliveryCountry,
+  quantity,
   partnerId,
   privateKey,
   useSandbox = true
@@ -36,7 +38,15 @@ export async function getPITransactionStatus({
   try {
     const baseUrl = useSandbox ? getSandboxUrl() : getProductionUrl();
     const response = await axios.get(`${baseUrl}/transactions/${transactionId}`, {
-      headers
+      headers,
+      // Offer reads only (pr, pl, ps): the country the delivery is priced for and the quantity of the
+      // lines. Left out when not given, so a plain read is the request it always was.
+      ...((deliveryCountry || quantity !== undefined) && {
+        params: {
+          ...(deliveryCountry && { deliveryCountry }),
+          ...(quantity !== undefined && { quantity })
+        }
+      })
     });
 
     return {
@@ -64,6 +74,7 @@ export const getPITransactionStatusTool = {
 - Get participant information (payee account, friendly names, BICs)
 - Check remaining time to live
 - Fetch what to display to the payer for a product-originated transaction
+- Read an agent purchase session (a \`pa\` id): its lines, delivery and total
 
 **Response includes:**
 - Transaction ID and type
@@ -101,6 +112,18 @@ Four rules a payer-facing app must follow:
 4. **A missing field is usually a plan boundary, not an error.** \`imageUrl\` and \`termsUrl\` are
    Standard and above; \`termsText\` and the descriptions are universal.
 
+🧾 **Lines, total and delivery (\`items\`, \`total\`, \`delivery\`).** When the payment has lines (a product read with a quantity, a purchase session, a merchant payment created with \`items\`) the response also carries:
+- \`items\`: each line has \`type\` (ITEM, SHIPPING, DISCOUNT, TAX or SURCHARGE), \`name\`, \`amount\` (negative only on a DISCOUNT) and, as they apply, \`productId\`, \`quantity\` (1-99), \`unitPrice\`, \`country\` (SHIPPING) and, for catalogue lines of a product read, the image and terms fields and \`shippable\`. A delivery payware priced is the SHIPPING line named "Delivery" with \`country\` set; the amount may be 0.00. **Translate lines by \`type\`, never by \`name\`.**
+- \`total\`: the sum of the lines, which is what the payer pays. For a \`pr\`, \`pl\` or \`ps\` read, \`amount\` stays the unit sale price: **show and send \`total\`**.
+- \`delivery\`, for shippable products: \`country\` and \`countryServed\` (present when a country is known), and \`countries\`, every country the shop serves with its delivery amount for these lines (absent when the shop has no table: any country, no delivery charge). \`countryServed: false\` means processing for that country is refused with 409 \`ERR_DELIVERY_COUNTRY_NOT_SERVED\`.
+- A product priced 0.00 (the payer sets the amount) carries no \`items\`, \`total\` or \`delivery\`.
+- \`deliveryDetails: true\` (pr, pl and ps reads; absent otherwise): payware's page at the product's link can take the payer's quantity and delivery address (shippable on a paid plan, priced above 0.00, sessions switched on), the same flag the public lookup carries. **A bank that cannot capture an address opens \`https://{link host}/{id}?delivery\` only when this is true**; without it the page has no such form and the payer would come back with nothing.
+- Lines are stored with the payment only when you process with \`quantity\` (or pay a \`pa\`, or a merchant created the payment with lines); such a payment is paid exactly its \`total\` (no tip). Processed without \`quantity\`, no lines are stored and the amount may be above the price.
+
+**Optional \`deliveryCountry\` and \`quantity\`** (pr, pl and ps reads; \`deliveryCountry\` also for a pa): the ISO alpha-2 country the delivery is priced for (else 400 \`ERR_INVALID_DELIVERY_COUNTRY\`) and the quantity, 1-99, default 1 (else 400 \`ERR_INVALID_QUANTITY\`). A read with them records the product view once, as any first read does; to **re-read the price** after the payer picks a country or a quantity, use \`payware_fi_quote\`, which has no side effects.
+
+🤖 **\`pa\`: an agent purchase session.** An AI agent builds a basket on a payware link and hands the payer a link with a \`pa\` id. Read it here like any other id. \`transactionId\` is the \`pa\`, \`transactionType\` is SHIPPABLE when any line is, \`amount\` equals \`total\`, \`reasonL1\` is "company - shop", \`reasonL2\` a summary such as "Vase (+1)", and \`timeToLive\` the smallest of its products'. There is no \`product\` block; the lines carry what to show. \`delivery.address\` is present when the session holds one (the agent's, or one the payer entered on payware's page), and only authenticated institutions ever read it: never a merchant before payment, never the public. **A session that holds an address is priced for that address's country**, whatever \`deliveryCountry\` says; \`deliveryCountry\` prices a session without one. If your payer delivers elsewhere, re-price with \`payware_fi_quote\` for that country. \`delivery.addressConfirmed: true\` means the payer confirmed the address on payware's page; only an address the payer entered there stands in for yours when you process without one, an agent's address never does. **Routing rule:** a \`product\` object, or \`items\` whose lines carry a \`productId\`, means a product review screen. Errors: 404 \`ERR_SESSION_NOT_FOUND\` or \`ERR_SESSION_EXPIRED\`. Process it with \`payware_operations_process_transaction\` (amount = \`total\`).
+
 For a \`pr\`, \`pl\` or \`ps\` identifier the values are resolved live (product -> shop -> merchant fallback, then
 plan gating); for the resulting \`pw\` transaction they are the snapshot frozen at creation, so what
 you get always reflects what the payer could have been shown at scan time.
@@ -119,8 +142,19 @@ with ERR_FEE_MISMATCH.
     properties: {
       transactionId: {
         type: "string",
-        description: "The id to look up: 'pw' (a transaction), 'pr' (product), 'pl' (placement: pays as its product, and the payment is attributed to the placement), 'ps' (soundbite) or 'pi' (a POI: its pending price as transaction data). Up to 32 characters (identifiers may grow beyond today's 10).",
-        pattern: "^(pw|pr|pl|ps|pi)[0-9A-Za-z]{8,30}$"
+        description: "The id to look up: 'pw' (a transaction), 'pr' (product), 'pl' (placement: pays as its product, and the payment is attributed to the placement), 'ps' (soundbite), 'pi' (a POI: its pending price as transaction data) or 'pa' (an agent purchase session: its lines and total). Up to 32 characters (identifiers may grow beyond today's 10).",
+        pattern: "^(pw|pr|pl|ps|pi|pa)[0-9A-Za-z]{8,30}$"
+      },
+      deliveryCountry: {
+        type: "string",
+        description: "pr, pl and ps reads, and a pa without an address: ISO 3166-1 alpha-2 code, e.g. BG, of the country the delivery is priced for (a pa that holds an address is priced for that address's country; use payware_fi_quote for another). Adds the SHIPPING line to items when the product is shippable and the country is served; the delivery block says whether it is served. Else 400 ERR_INVALID_DELIVERY_COUNTRY.",
+        pattern: "^[A-Za-z]{2}$"
+      },
+      quantity: {
+        type: "integer",
+        description: "pr, pl and ps reads only: how many units the lines are built for, 1-99, default 1. items and total follow it; amount stays the unit price. Else 400 ERR_INVALID_QUANTITY.",
+        minimum: 1,
+        maximum: 99
       },
       partnerId: {
         type: "string",
@@ -143,6 +177,8 @@ with ERR_FEE_MISMATCH.
   async handler(args) {
     const {
       transactionId,
+      deliveryCountry,
+      quantity,
       partnerId = getPartnerIdSafe(),
       privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
@@ -162,6 +198,8 @@ with ERR_FEE_MISMATCH.
 
     const result = await getPITransactionStatus({
       transactionId,
+      deliveryCountry,
+      quantity,
       partnerId,
       privateKey,
       useSandbox
@@ -194,7 +232,7 @@ with ERR_FEE_MISMATCH.
 ${tx.transferType ? `- Transfer Type: ${tx.transferType}\n` : ''}${tx.deferredAllowed === true ? '- Deferred Merchant Leg allowed: yes (transferType DEFERRED may be sent at EXECUTING)\n' : ''}
 **Transaction Details:**
 - Amount: ${tx.amount || 'N/A'} ${tx.currency || 'N/A'}
-${tx.paymentMethod ? `- Payment Method: ${tx.paymentMethod}\n` : ''}- Reason L1: ${tx.reasonL1 || 'N/A'}
+${tx.total !== undefined ? `- Total (what the payer pays, the sum of the lines): ${tx.total} ${tx.currency || ''}\n` : ''}${Array.isArray(tx.items) && tx.items.length > 0 ? `- Lines: ${tx.items.map(i => `${i.type} ${i.name}${i.quantity ? ` x${i.quantity}` : ''} ${i.amount}`).join('; ')}\n` : ''}${tx.paymentMethod ? `- Payment Method: ${tx.paymentMethod}\n` : ''}- Reason L1: ${tx.reasonL1 || 'N/A'}
 ${tx.reasonL2 ? `- Reason L2: ${tx.reasonL2}` : ''}
 ${tx.fee !== undefined && tx.fee !== null ? `
 **Fee Leg:**
@@ -217,7 +255,7 @@ ${JSON.stringify(result.transaction, null, 2)}
 \`\`\`
 
 **API Call Details:**
-- Endpoint: GET ${baseUrl}/transactions/${transactionId}
+- Endpoint: GET ${baseUrl}/transactions/${transactionId}${deliveryCountry || quantity !== undefined ? `?${[deliveryCountry && `deliveryCountry=${deliveryCountry}`, quantity !== undefined && `quantity=${quantity}`].filter(Boolean).join('&')}` : ''}
 - Request ID: ${result.requestId || 'N/A'}
 - Timestamp: ${result.timestamp}
 

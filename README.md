@@ -11,6 +11,15 @@ Releases are published to npm as `@payware/mcp-server` and to the official [MCP 
 - **Merchants** - Accept payments, manage products, generate transaction reports
 - **ISVs (Independent Software Vendors)** - Build multi-merchant platforms with OAuth2 token management
 - **Payment Institutions** - Process A2A transfers, handle Payment Choice Architecture with multiple payment methods
+- **Payers** - A buying agent acting for a person: read a payment link, open a purchase session and follow the payment, with no keys at all
+
+## What's New in 2.3.0
+
+- **Delivery pricing** - Merchants, and ISVs for them, set what a shop charges for delivery per country (`payware_shops_get_delivery` and `payware_shops_set_delivery`) and per product which countries are excluded or cost extra (`payware_products_get_delivery` and `payware_products_set_delivery`). A PUT replaces the whole table; an empty list means deliver anywhere with no fee
+- **Lines on a payment** - `payware_operations_create_transaction` takes optional `items` (items, delivery, discounts, taxes) that the payer's bank shows and that sum exactly to the amount. Both `simulate_callback` tools model the new callback fields: `productId`, `placementId`, `sessionId`, `items` and `total`
+- **Institutions** - the offer read takes `deliveryCountry` and `quantity`, `payware_fi_quote` re-prices an offer with no side effects, the process tool takes `quantity` (sent as `trData.quantity`), and `pa` ids (agent purchase sessions) are documented. A delivery address country is an ISO 3166-1 alpha-2 code, e.g. `BG`
+- **The payer role** - a new partner type `payer` with no keys and a toolset `payer`: `payware_payer_read_link`, `payware_payer_check_price`, `payware_payer_create_session` and `payware_payer_watch`, for an AI assistant that buys on behalf of a person. The person approves in their own banking app. See [Agentic commerce against a local server](#agentic-commerce-against-a-local-server)
+- **Review fixes (2026-11-15)** - `read_link` describes the lookup's real fields (`deliveryDetails`, `deliveryTo`, `lastPayment`, no product block or delivery prices); `watch` stops on NOT_PAID and CANCELLED too, and honours a 429's `Retry-After`; a merchant line can no longer carry `country`, and an empty `items` list names `ERR_ITEMS_EMPTY`; `simulate_callback` works `amount` out from the lines (net of the fee on CONFIRMED) and refuses one the server would never send; the shop delivery PUT shows `undeliverableProducts` as a warning; the texts follow the 2026-11-15 contract (`deliveryDetails` on the institution offer read, a session priced for its address country, a surcharge requires `quantity`, the two currency-change refusals, 15 integer digits)
 
 ## What's New in 2.2.2
 
@@ -58,6 +67,18 @@ For merchants, and for ISVs acting for them. Changes need the merchant's PRM pla
 - **Airing Rules**: Schedule when a placement is on air, with recurrences, time windows and time zones, and replace a whole schedule in one call
 - **Airing Calendar**: Every airing across all products in a time range
 - **Results**: Offers shown, payments started and confirmed, and confirmed amounts per placement or campaign
+
+### 🚚 Delivery Tools
+For merchants, and for ISVs acting for them (Standard or Premium plan).
+- **Shop delivery**: the fee per country, with an optional free-above amount, for a shop (`payware_shops_get_delivery`, `payware_shops_set_delivery`)
+- **Product delivery**: per product, the countries it is not delivered to and the countries where it costs extra per unit (`payware_products_get_delivery`, `payware_products_set_delivery`)
+
+### 🤖 Payer Tools (no keys)
+For an AI assistant acting as the buyer. They talk to the public link host only.
+- **Read Link**: what a `go.payware.eu` or `paywa.re` link is for, who gets paid, the price (`payware_payer_read_link`)
+- **Check Price**: a product for a quantity and a delivery country, and whether the merchant delivers there, without opening a session (`payware_payer_check_price`)
+- **Create Session**: price the lines and the delivery for a country and get a payment link for the person (`payware_payer_create_session`)
+- **Watch**: follow the link until it is paid, expired or unavailable (`payware_payer_watch`)
 
 ### 📋 Logs Tools (Premium)
 - **Query Logs**: Search and filter application logs by level, logger, message content, and date range
@@ -117,7 +138,7 @@ Every tool definition goes into the assistant's context on every turn, and a mer
 PAYWARE_MCP_TOOLSETS=products,placements
 ```
 
-Toolsets: `auth`, `transactions`, `products`, `placements`, `data`, `logs`, `poi`, `shops`, `onboarding`, `utils`. Unset, or `all`, loads every tool. An unknown name is ignored with a warning in the server log. A tool outside the chosen toolsets is neither listed nor callable; this narrows what the assistant is offered and does not change what your partner account may do. An ISV that obtains OAuth2 tokens through this server includes `auth`.
+Toolsets: `auth`, `transactions`, `products`, `placements`, `data`, `logs`, `poi`, `shops`, `onboarding`, `utils`, `payer`. Unset, or `all`, loads every tool. An unknown name is ignored with a warning in the server log. A tool outside the chosen toolsets is neither listed nor callable; this narrows what the assistant is offered and does not change what your partner account may do. An ISV that obtains OAuth2 tokens through this server includes `auth`.
 
 ### 3. Start the MCP Server
 
@@ -391,6 +412,56 @@ Get MCP server information and configuration.
 
 **Note:** All transaction data is serialized using consistent property ordering to prevent content hash mismatch errors.
 
+## Agentic commerce against a local server
+
+An AI assistant can buy on a person's behalf through payware: the assistant reads a payment link, opens a purchase session priced for the delivery country, and gives the person a link to approve in their own banking app. To try the whole flow on one machine, run two copies of this server against a payware server on `http://localhost:8080`: one as the **payer** (the assistant that buys, no keys) and one as the **payment institution** (the bank, which reads the session, processes it and finalizes it). The merchant side is set up beforehand with the delivery and product tools, or in the portal.
+
+| Server entry | Variable | Value |
+|:-|:-|:-|
+| payer | `PAYWARE_PARTNER_TYPE` | `payer` |
+| payer | `PAYWARE_LINKS_BASE_URL` | `http://localhost:8080` (the server serves `/links/**` itself) |
+| payment institution | `PAYWARE_PARTNER_TYPE` | `payment_institution` |
+| payment institution | `PAYWARE_PARTNER_ID` | the institution's partner ID on that server |
+| payment institution | `PAYWARE_SANDBOX_PRIVATE_KEY_PATH` | the institution's private key file |
+| payment institution | `PAYWARE_SANDBOX_URL` | `http://localhost:8080/api` |
+
+A payer needs no partner ID and no key, and its tools never sign anything. Each tool takes `useSandbox` (default `true`), so with these variables set every call goes to the local server; `PAYWARE_LINKS_BASE_URL` overrides the link host for both environments, and without it the payer uses `https://go-sandbox.payware.eu` (sandbox) or `https://go.payware.eu` (production, `useSandbox: false`).
+
+Claude Code (`.mcp.json` or `claude mcp add-json`) and Claude Desktop (`claude_desktop_config.json`) take the same two entries. Use the absolute path of `src/index.js` in your checkout (on Windows, a path such as `C:\\tools\\mcp\\src\\index.js`, with each backslash written twice inside the JSON):
+
+```json
+{
+  "mcpServers": {
+    "payware-payer": {
+      "command": "node",
+      "args": ["/path/to/mcp/src/index.js"],
+      "env": {
+        "PAYWARE_PARTNER_TYPE": "payer",
+        "PAYWARE_LINKS_BASE_URL": "http://localhost:8080"
+      }
+    },
+    "payware-bank": {
+      "command": "node",
+      "args": ["/path/to/mcp/src/index.js"],
+      "env": {
+        "PAYWARE_PARTNER_TYPE": "payment_institution",
+        "PAYWARE_PARTNER_ID": "YOUR_LOCAL_FI_PARTNER_ID",
+        "PAYWARE_SANDBOX_PRIVATE_KEY_PATH": "/path/to/keys/local-fi-private-key.pem",
+        "PAYWARE_SANDBOX_URL": "http://localhost:8080/api"
+      }
+    }
+  }
+}
+```
+
+A walk-through, with the assistant playing both sides:
+
+1. **Payer:** `payware_payer_read_link` with the product link (`pr...`), optionally `payware_payer_check_price` for the person's delivery country, then `payware_payer_create_session` with the lines and the delivery address. It returns the session: a `pa` id, the link, the items, the total and when it expires.
+2. **Bank:** `payware_operations_get_transaction_status` with the `pa` id (add `deliveryCountry` and `quantity` for a `pr` id; `payware_fi_quote` re-prices without side effects), then `payware_operations_process_transaction` with `amount` equal to the `total`, then `payware_operations_finalize_transaction` with `EXECUTING` and `CONFIRMED`.
+3. **Payer:** `payware_payer_watch` with the `pa` id returns `PAID`.
+
+Payment links are real only on `go.payware.eu` and `paywa.re` (`go-sandbox.payware.eu` and `sandbox.paywa.re` for the sandbox, `localhost` for local development), and the payer tools refuse any other host. A person always approves in their own banking app and never gives their bank credentials to an assistant. Payments are final.
+
 ## Dependencies
 
 - `@modelcontextprotocol/sdk`: MCP server framework
@@ -405,6 +476,7 @@ RSA keys are generated with Node's own `crypto`, and multipart uploads use Node'
 
 - **Sandbox by default, production on request**: tools that call payware take `useSandbox` (default `true`); `false` calls production and signs with the production key (`PAYWARE_PRODUCTION_PRIVATE_KEY_PATH`). Reports run on production only.
 - **Base URLs**: `https://sandbox.payware.eu/api` and `https://api.payware.eu/api`; the OAuth2 endpoints sit at the host root (`/oauth2/...`); soundbite recognition has its own hosts, `https://soundbite-sandbox.payware.eu/api` and `https://soundbite.payware.eu/api`
+- **Link host (payer)**: `https://go-sandbox.payware.eu` and `https://go.payware.eu`, or `PAYWARE_LINKS_BASE_URL` for both (for a local server, `http://localhost:8080`); the payer tools serve `GET /links/{id}` and `POST /links/{id}/sessions` there, with no authentication
 - **Currencies**: any ISO 4217 code payware knows; amounts follow the currency's minor unit
 - **Transaction media types**: PLAIN, QR, BARCODE
 

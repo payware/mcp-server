@@ -15,8 +15,10 @@ const SANDBOX_CONFIG = {
   currencies: 'ISO 4217 codes payware knows; an unknown code is refused',
   supportedTransactionTypes: ['PLAIN', 'QR', 'BARCODE'], // trOptions.type values
   transactionTypes: ['DEFAULT', 'SHIPPABLE'], // transactionType values
-  // Up to 36 digits, at the currency's own minor unit (not always two decimals), zero or more.
-  amountRule: 'a decimal string at the currency\'s minor unit, zero or more, at most 36 digits',
+  // At most 15 significant digits and 15 integer digits (36 characters), at the currency's own minor unit (not
+  // always two decimals), zero or more. Fifteen is the server's TransactionFeeService.MAX_AMOUNT_SIGNIFICANT_DIGITS;
+  // the integer bound keeps a value like 1 followed by 35 zeros out (VG 2026-11-15, review decision 10).
+  amountRule: 'a decimal string at the currency\'s minor unit, zero or more, at most 15 significant digits and 15 integer digits',
   maxTTL: 600, // seconds: the default ceiling; payware can raise a merchant's own ceiling
   minTTL: 60, // seconds
   defaultTTL: 120, // seconds, when timeToLive is omitted

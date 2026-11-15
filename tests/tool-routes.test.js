@@ -112,6 +112,15 @@ const ROUTES = {
   payware_logs_status: 'GET /api/logs/status',
 
   payware_shops_list: 'GET /api/shops',
+  // Delivery settings: from the wire contract, section 22.7 of the agentic commerce spec. Check them
+  // against the server's controller once it is merged (not written when these were added).
+  payware_shops_get_delivery: 'GET /api/shops/SHOP01/delivery',
+  payware_shops_set_delivery: 'PUT /api/shops/SHOP01/delivery',
+  payware_products_get_delivery: `GET /api/products/${PRODUCT}/delivery`,
+  payware_products_set_delivery: `PUT /api/products/${PRODUCT}/delivery`,
+
+  // Institutions only: re-prices pr, pl, ps and pa with no side effects (spec 22.3, same caveat).
+  payware_fi_quote: `GET /api/transactions/${PRODUCT}/quote`,
 
   payware_poi_list: 'GET /api/poi',
   payware_poi_create: 'POST /api/poi',
@@ -185,7 +194,9 @@ const SAMPLE = {
   medium: 'OUTDOOR', carriers: ['QR', 'NFC'], frequency: 'DAILY', startDate: '2026-10-15',
   windows: [{ start: '08:00', end: '08:30' }],
   rules: [{ frequency: 'DAILY', startDate: '2026-10-15', windows: [{ start: '08:00', end: '08:30' }] }],
-  from: '2026-10-19', to: '2026-10-26'
+  from: '2026-10-19', to: '2026-10-26',
+  // A shop's delivery table; the product tool's rows are in EXTRA_ARGS (a different shape).
+  countries: [{ country: 'BG', currency: 'EUR', fee: '5.00' }]
 };
 
 /** Optional arguments a tool needs to take the path under test. */
@@ -200,7 +211,10 @@ const EXTRA_ARGS = {
   payware_products_update_audio: { title: 'Jingle' },
   // reasonL1 is optional in the institution's schema (a product brings its own) but a pw id needs it.
   payware_operations_process_transaction: { reasonL1: 'Test' },
-  payware_utils_format_request: { jwtToken: 'x.y.z' }
+  payware_utils_format_request: { jwtToken: 'x.y.z' },
+  payware_products_set_delivery: { countries: [{ country: 'RO', excluded: true }, { country: 'BG', excluded: false, surchargePerUnit: '3.00' }] },
+  // Only a product, placement, soundbite or session id can be quoted.
+  payware_fi_quote: { transactionId: PRODUCT }
 };
 
 // The generated-program test below runs programs against a plain recording server with its own key.

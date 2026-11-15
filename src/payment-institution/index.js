@@ -21,6 +21,7 @@ import { getPITransactionStatusTool } from './transactions/get-transaction-statu
 import { getPITransactionHistoryTool } from './transactions/get-transaction-history.js';
 import { soundbiteTransactionTool } from './transactions/soundbite-transaction.js';
 import { simulatePICallbackTool } from './transactions/simulate-pi-callback.js';
+import { quoteTool } from './transactions/quote.js';
 
 // Data tools
 import { paymentInstitutionDataTools } from './data/index.js';
@@ -50,6 +51,7 @@ export const paymentInstitutionTools = [
   getPITransactionHistoryTool,
   soundbiteTransactionTool,
   simulatePICallbackTool,
+  quoteTool,
 
   // Data management
   ...paymentInstitutionDataTools,

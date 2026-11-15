@@ -1,6 +1,6 @@
 /**
  * Environment configuration for payware MCP server
- * Supports different partner types: merchant, isv, payment_institution
+ * Supports different partner types: merchant, isv, payment_institution, payer
  */
 
 // Suppress dotenv informational messages that interfere with MCP JSON-RPC transport
@@ -14,7 +14,7 @@ import { resolve } from 'path';
 config({ debug: false });
 
 // Valid partner types
-const VALID_PARTNER_TYPES = ['merchant', 'isv', 'payment_institution'];
+const VALID_PARTNER_TYPES = ['merchant', 'isv', 'payment_institution', 'payer'];
 const DEFAULT_PARTNER_TYPE = 'merchant';
 
 /**
@@ -100,6 +100,22 @@ export function getSoundbiteUrl(useSandbox = true) {
     : process.env.PAYWARE_SOUNDBITE_PRODUCTION_URL || 'https://soundbite.payware.eu/api';
 }
 
+/**
+ * The base URL of the public link host, which serves /links/** (lookup and purchase sessions). It has
+ * no /api suffix and needs no key: a payer reads and buys through it without credentials.
+ *
+ * PAYWARE_LINKS_BASE_URL overrides both environments. Against a local server it is the server itself
+ * (http://localhost:8080), which serves /links/** directly; in production the host is go.payware.eu,
+ * where nginx maps /{id} to /links/{id} and the same /links/... paths are served as well.
+ */
+export function getLinksUrl(useSandbox = true) {
+  const override = (process.env.PAYWARE_LINKS_BASE_URL || '').trim();
+  if (override) {
+    return override.replace(/\/+$/, '');
+  }
+  return useSandbox ? 'https://go-sandbox.payware.eu' : 'https://go.payware.eu';
+}
+
 /** The environment variable that holds the private key path of one environment, for error texts. */
 export function privateKeyVariable(useSandbox = true) {
   return useSandbox ? 'PAYWARE_SANDBOX_PRIVATE_KEY_PATH' : 'PAYWARE_PRODUCTION_PRIVATE_KEY_PATH';
@@ -149,7 +165,7 @@ export function getPrivateKeySafe(useSandbox = true) {
 
 /**
  * Get partner type from environment
- * @returns {string} Partner type (merchant, isv, or payment_institution)
+ * @returns {string} Partner type (merchant, isv, payment_institution, or payer)
  */
 export function getPartnerType() {
   const partnerType = process.env.PAYWARE_PARTNER_TYPE || DEFAULT_PARTNER_TYPE;
@@ -187,6 +203,14 @@ export function isISV() {
  */
 export function isPaymentInstitution() {
   return getPartnerTypeSafe() === 'payment_institution';
+}
+
+/**
+ * Check if current partner type is Payer (a buying agent: no keys, public link host only)
+ * @returns {boolean} True if partner type is Payer
+ */
+export function isPayer() {
+  return getPartnerTypeSafe() === 'payer';
 }
 
 /**
@@ -230,6 +254,13 @@ export function getDefaultMerchantId() {
  */
 export function validateEnvironment() {
   const partnerType = getPartnerType(); // Will throw if invalid
+  if (partnerType === 'payer') {
+    // A payer has no partner ID and no key: it talks to the public link host only.
+    console.log('✅ Environment configuration validated');
+    console.log('   Partner Type: payer (no keys needed)');
+    console.log(`   Links URL: ${getLinksUrl()}`);
+    return;
+  }
   getPartnerId(); // Will throw if missing
   getPrivateKey(true); // Will throw if missing or unreadable (check sandbox key)
 

@@ -5,6 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { getMerchantTools } from '../src/merchant/index.js';
 import { getISVTools } from '../src/isv/index.js';
 import { getPaymentInstitutionTools } from '../src/payment-institution/index.js';
+import { getPayerTools } from '../src/payer/index.js';
 
 /**
  * Structural checks on every tool this server exposes.
@@ -17,7 +18,8 @@ import { getPaymentInstitutionTools } from '../src/payment-institution/index.js'
 const ROLES = [
   { name: 'merchant', tools: getMerchantTools(), registry: 'src/merchant/index.js' },
   { name: 'isv', tools: getISVTools(), registry: 'src/isv/index.js' },
-  { name: 'payment_institution', tools: getPaymentInstitutionTools(), registry: 'src/payment-institution/index.js' }
+  { name: 'payment_institution', tools: getPaymentInstitutionTools(), registry: 'src/payment-institution/index.js' },
+  { name: 'payer', tools: getPayerTools(), registry: 'src/payer/index.js' }
 ];
 
 describe('tool contract', () => {
@@ -115,7 +117,10 @@ describe('tool contract', () => {
       // deferredAllowed (the deferred Merchant Leg opt-in, server docs/execution-lock.md) is a
       // merchant's choice, made on its own call or an ISV's call for it. The institution tool must
       // never get it: a bank-created transaction is always instant or internal.
-      merchant_only: ['shop', 'deferredAllowed'],
+      //
+      // items (the lines the payer's bank shows) is the merchant's too: a bank-created payment with
+      // items is refused (400 ERR_INVALID_ITEMS), so the institution tool must never offer it.
+      merchant_only: ['shop', 'deferredAllowed', 'items'],
       payment_institution: ['role']
     },
     payware_operations_process_transaction: {
@@ -127,9 +132,21 @@ describe('tool contract', () => {
       // afterwards from GET /transactions-history/{id}, which is why it left the callback.
       // paymentMethod is the institution's to state: the server stores it on a bank's process only
       // (TransactionService), so the merchant and ISV tools no longer offer it.
-      payment_institution: ['deliveryAddress', 'paymentMethod']
+      //
+      // quantity (trData.quantity) is the institution's: it builds the lines of a product, placement
+      // or soundbite offer for the payer. A merchant's process takes the amount the payer chose.
+      payment_institution: ['deliveryAddress', 'paymentMethod', 'quantity']
+    },
+    payware_operations_get_transaction_status: {
+      // An institution reads an offer (pr, pl, ps) for a delivery country and a quantity, to show the
+      // payer the lines and the total. A merchant reads its own transaction, which has neither.
+      payment_institution: ['deliveryCountry', 'quantity']
     },
     payware_operations_simulate_callback: {
+      // The merchant and ISV simulators model the callback enrichment of payments that came from a
+      // product, a placement or an agent purchase session, and of payments with lines. The institution
+      // simulator builds the institution's own payloads and has not been taught them.
+      merchant_only: ['productId', 'placementId', 'sessionId', 'items'],
       // Merchants receive TRANSACTION_FINALIZED only. Financial institutions receive that AND
       // TRANSACTION_PROCESSED, which carries the participants, the reason lines and the processing
       // window - so the FI simulator needs the fields to build both payloads, and a callbackType to
@@ -216,9 +233,17 @@ describe('surface coverage', () => {
   // These are the tools whose absence was a real gap. Naming them keeps a future refactor from
   // dropping one back out without anybody noticing.
   const EXPECTED = {
-    merchant: ['payware_shops_list'],
+    merchant: [
+      'payware_shops_list',
+      'payware_shops_get_delivery', 'payware_shops_set_delivery',
+      'payware_products_get_delivery', 'payware_products_set_delivery'
+    ],
+    payment_institution: ['payware_fi_quote'],
+    payer: ['payware_payer_read_link', 'payware_payer_check_price', 'payware_payer_create_session', 'payware_payer_watch'],
     isv: [
       'payware_shops_list',
+      'payware_shops_get_delivery', 'payware_shops_set_delivery',
+      'payware_products_get_delivery', 'payware_products_set_delivery',
       'payware_poi_create',
       'payware_poi_create_batch',
       'payware_reference_lookup',

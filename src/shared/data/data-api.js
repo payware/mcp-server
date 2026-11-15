@@ -7,30 +7,65 @@ import { describeApiError } from '../api-errors.js';
 
 /**
  * The report ids in the server's registry. The list endpoint returns each as a `path`
- * ('/processedTransactionsMTD'); a run takes the bare id, which DataRetrievalRequest checks against
+ * ('/monthlyStatement'); a run takes the bare id, which DataRetrievalRequest checks against
  * ^[A-Za-z0-9_-]{1,64}$. These were sent with the slash, so every run answered 400.
  */
 export const REPORT_TYPES = {
-  // Standard reports
-  CURRENT_WEEK_TRANSACTIONS: 'processedTransactionsWTD',
-  CURRENT_MONTH_TRANSACTIONS: 'processedTransactionsMTD',
-  CURRENT_YEAR_TRANSACTIONS: 'processedTransactionsYTD',
-  PRODUCTS_LIST: 'productsList',
-  SHOPS_LIST: 'shopsList',
-  SALES_PER_PRODUCT: 'salesPerProduct',
-  PAYMENT_PROFILES: 'paymentProfiles',
-  TRANSACTIONS_PER_WEBPOS: 'transactionsPerWebPOS',
-  PARTNER_PROFILE: 'partnerProfile',
-
-  // Premium reports
+  // The catalogue of 2026-11 (kb tech/details/data-api.md, "Data sets and reports"). Which of these a caller
+  // may run is what payware_data_list_reports returns: it depends on partner type and plan. The YTD, MTD, WTD
+  // and per-product transaction lists are gone; the transactions report takes a period preset instead.
   PROCESSED_TRANSACTIONS: 'processedTransactions',
+  // Statements
+  FEE_STATEMENT: 'settlementFeeStatement',
+  MONTHLY_STATEMENT: 'monthlyStatement',
+  BANK_RECONCILIATION: 'bankReconciliation',
+  FEE_INVOICE_REGISTER: 'feeInvoiceRegister',
+  DISPUTES_AND_ADJUSTMENTS: 'disputesAndAdjustments',
+  REVENUE_SHARE_STATEMENT: 'partnerShareStatement',
+  PARTNER_MONTHLY_REPORT: 'partnerMonthlyReport',
+  SUB_COMMISSION_STATEMENT: 'subCommissionStatement',
+  DAILY_RECONCILIATION: 'dailyReconciliation',
+  QUARTERLY_REVIEW: 'institutionQuarterlyReview',
+  SHARE_ACCRUAL: 'institutionShareAccrual',
+  INSTITUTION_STATEMENT: 'institutionStatement',
+  // Reports
+  SALES_PER_PRODUCT: 'salesPerProduct',
+  TRANSACTIONS_PER_WEBPOS: 'transactionsPerWebPOS',
+  GROWTH_PROGRAM: 'growthProgram',
+  MERCHANT_PORTFOLIO: 'isvPortfolio',
+  VOLUME_BY_MERCHANT: 'mediatedVolume',
+  TERMINAL_FLEET: 'producerFleet',
+  EXCEPTIONS: 'institutionExceptions',
+  // Analytics
+  SALES_ANALYTICS: 'salesAnalytics',
+  PAYMENT_ACCEPTANCE: 'paymentAcceptance',
+  CAMPAIGN_RESULTS: 'campaignResults',
+  // Profile and exports
+  PARTNER_PROFILE: 'partnerProfile',
+  PAYMENT_PROFILES: 'paymentProfiles',
+  PRODUCTS_LIST: 'productsList',
   SCHEDULES_LIST: 'schedulesList',
-  TRANSACTIONS_PER_PRODUCT: 'processedTransactionsPerProduct'
+  SHOPS_LIST: 'shopsList'
+};
+
+/**
+ * Period presets (server ReportPeriods). Which ones a report takes depends on its `period` in the list:
+ * RANGE takes all, DAY TODAY/YESTERDAY, MONTH THIS_MONTH/LAST_MONTH, QUARTER THIS_QUARTER/LAST_QUARTER, each with
+ * CUSTOM. Every preset is open on every plan; a custom range needs Standard or above.
+ */
+export const REPORT_PERIODS = ['TODAY', 'YESTERDAY', 'THIS_WEEK', 'LAST_WEEK', 'THIS_MONTH', 'LAST_MONTH',
+  'THIS_QUARTER', 'LAST_QUARTER', 'THIS_YEAR', 'LAST_YEAR', 'CUSTOM'];
+
+/** The period input every report tool takes. */
+export const PERIOD_PROPERTY = {
+  type: "string",
+  description: "Period preset: TODAY, YESTERDAY, THIS_WEEK, LAST_WEEK, THIS_MONTH, LAST_MONTH, THIS_QUARTER, LAST_QUARTER, THIS_YEAR, LAST_YEAR, or CUSTOM with dateFrom (and dateTo for a range). Which presets a report takes is its `period` in payware_data_list_reports. Omitted with dates is CUSTOM; omitted without dates is today, or the last closed month or quarter for a statement. Every preset is open on every plan; a custom range needs Standard or above (ERR_REPORT_CUSTOM_RANGE_NOT_IN_PLAN).",
+  enum: REPORT_PERIODS
 };
 
 /**
  * A report id as the server takes it: the last segment of a path such as the list endpoint returns
- * ('/processedTransactionsMTD' or '/reports/x' -> 'processedTransactionsMTD', 'x'), as the portal does.
+ * ('/monthlyStatement' or '/reports/x' -> 'monthlyStatement', 'x'), as the portal does.
  */
 export function reportUnitIdOf(value) {
   return String(value ?? '').split('/').filter(Boolean).pop() ?? '';
@@ -125,6 +160,7 @@ export async function generateReport({
   locale = LOCALES.ENGLISH_US,
   dateFrom,
   dateTo,
+  period,
   timeZone = 'GMT',
   partnerType,
   ...authParams
@@ -148,6 +184,12 @@ export async function generateReport({
     timeZone
   };
 
+  if (period) {
+    if (!REPORT_PERIODS.includes(period)) {
+      throw new Error(`Invalid period "${period}". Supported: ${REPORT_PERIODS.join(', ')}`);
+    }
+    requestBody.period = period;
+  }
   // Add date range if provided
   if (dateFrom) requestBody.dateFrom = dateFrom;
   if (dateTo) requestBody.dateTo = dateTo;

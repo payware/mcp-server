@@ -14,7 +14,9 @@ export const updateProductTool = {
 **Product Structure:**
 📦 **PRODUCT METADATA**: name, shortDescription, longDescription, sku, upc, shippable, active, shop
 💰 **PRODUCT DATA** (prData object): type, regularPrice, currency, overlapPriority, timeToLive, activeFrom, activeTo, timeZone
-⚙️ **PRODUCT OPTIONS** (prOptions object): imageUrl, termsUrl, termsText`,
+⚙️ **PRODUCT OPTIONS** (prOptions object): imageUrl, termsUrl, termsText
+
+**Changing \`currency\`** of a product with delivery settings is refused, and nothing changes, rather than quietly changing what delivery costs (VG 2026-11-15): 409 \`ERR_PRODUCT_CURRENCY_HAS_SURCHARGES\` while the product has delivery surcharges (they are amounts in its current currency: clear them with \`payware_products_set_delivery\`, keeping the exclusions, change the currency, then enter them again in the new one), checked first; and 409 \`ERR_NO_DELIVERY_IN_CURRENCY\` for a shippable product whose shop's delivery table has no rows in the new currency, which would leave it deliverable nowhere (add them with \`payware_shops_set_delivery\` first).`,
 
   inputSchema: {
     type: "object",

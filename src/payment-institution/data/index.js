@@ -15,6 +15,7 @@ import {
   getReportRequests,
   getExportList,
   REPORT_TYPES,
+  PERIOD_PROPERTY,
   EXPORT_FORMATS,
   LOCALES
 } from '../../shared/data/data-api.js';
@@ -94,14 +95,15 @@ export const generateReportTool = {
       },
       dateFrom: {
         type: "string",
-        description: "Start date (YYYY-MM-DD). Optional: defaults to today; the WTD, MTD and YTD reports compute their own start.",
+        description: "Start date (YYYY-MM-DD), with period CUSTOM or no period. Ignored with any other preset.",
         pattern: "^\\d{4}-\\d{2}-\\d{2}$"
       },
       dateTo: {
         type: "string",
-        description: "End date (YYYY-MM-DD). Optional: defaults to today.",
+        description: "End date (YYYY-MM-DD), with period CUSTOM or no period. Only an end date covers that one day; no end on a range is today.",
         pattern: "^\\d{4}-\\d{2}-\\d{2}$"
       },
+      period: PERIOD_PROPERTY,
       ignorePagination: {
         type: "boolean",
         description: "If true, return report as single continuous document. If false, paginate results.",
@@ -136,6 +138,7 @@ export const generateReportTool = {
       reportUnitId,
       dateFrom,
       dateTo,
+      period,
       ignorePagination = false,
       locale = LOCALES.ENGLISH_US,
       timeZone = 'GMT',
@@ -149,15 +152,15 @@ export const generateReportTool = {
 
     // Check for required date range on premium reports
 
-    // No local date requirement: the server defaults an absent date to today, and the WTD, MTD and YTD
-    // reports compute their own start (DataRetrievalService). The tool refused premium reports without
-    // dates, which the server accepts.
+    // No local date requirement: the server turns a period preset into dates in the caller's zone, and no
+    // period and no dates is today, or the last closed month or quarter for a statement (ReportPeriods).
 
     try {
       const result = await generateReport({
         reportUnitId,
         dateFrom,
         dateTo,
+        period,
         ignorePagination,
         locale,
         timeZone,

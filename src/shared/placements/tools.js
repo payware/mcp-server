@@ -187,11 +187,11 @@ function pick(args, fields) {
   return Object.fromEntries(Object.keys(fields).filter(k => args[k] !== undefined).map(k => [k, args[k]]));
 }
 
-function json(title, data) {
+export function json(title, data) {
   return [{ type: 'text', text: `**${title}**\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\`` }];
 }
 
-function failure(toolName, result) {
+export function failure(toolName, result) {
   const e = result.error;
   const rows = Array.isArray(e.details?.rows) && e.details.rows.length > 0
     ? `\n\n**Refused rules (nothing was saved):**\n${e.details.rows.map(r => `- #${r.index}: ${r.errorCode} - ${r.message}`).join('\n')}`

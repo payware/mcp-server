@@ -1,4 +1,4 @@
-import { generateReport, REPORT_TYPES, LOCALES } from '../../shared/data/data-api.js';
+import { generateReport, REPORT_TYPES, LOCALES, PERIOD_PROPERTY } from '../../shared/data/data-api.js';
 import { getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { CREATES } from '../../shared/tool-annotations.js';
 
@@ -38,14 +38,15 @@ are outside the Basic plan entirely.`,
       },
       dateFrom: {
         type: "string",
-        description: "Start date (YYYY-MM-DD). Optional: defaults to today; the WTD, MTD and YTD reports compute their own start.",
+        description: "Start date (YYYY-MM-DD), with period CUSTOM or no period. Ignored with any other preset.",
         pattern: "^\\d{4}-\\d{2}-\\d{2}$"
       },
       dateTo: {
         type: "string",
-        description: "End date (YYYY-MM-DD). Optional: defaults to today.",
+        description: "End date (YYYY-MM-DD), with period CUSTOM or no period. Only an end date covers that one day; no end on a range is today.",
         pattern: "^\\d{4}-\\d{2}-\\d{2}$"
       },
+      period: PERIOD_PROPERTY,
       ignorePagination: {
         type: "boolean",
         description: "If true, return report as single continuous document. If false, paginate results.",
@@ -80,6 +81,7 @@ are outside the Basic plan entirely.`,
       reportUnitId,
       dateFrom,
       dateTo,
+      period,
       ignorePagination = false,
       locale = LOCALES.ENGLISH_US,
       timeZone = 'GMT',
@@ -91,15 +93,15 @@ are outside the Basic plan entirely.`,
       throw new Error("Partner ID and private key are required. Set PAYWARE_PARTNER_ID and PAYWARE_PRODUCTION_PRIVATE_KEY_PATH environment variables or provide them as parameters.");
     }
 
-    // No local date requirement: the server defaults an absent date to today, and the WTD, MTD and YTD
-    // reports compute their own start (DataRetrievalService). The tool refused some reports without
-    // dates, which the server accepts.
+    // No local date requirement: the server turns a period preset into dates in the caller's zone, and no
+    // period and no dates is today, or the last closed month or quarter for a statement (ReportPeriods).
 
     try {
       const result = await generateReport({
         reportUnitId,
         dateFrom,
         dateTo,
+        period,
         ignorePagination,
         locale,
         timeZone,
@@ -123,6 +125,7 @@ are outside the Basic plan entirely.`,
 - Generated: ${result.data.generatedAt}
 
 **Report Parameters:**
+- Period: ${period || (dateFrom || dateTo ? 'CUSTOM' : 'Default')}
 - Date Range: ${dateFrom || 'Default'} to ${dateTo || 'Default'}
 - Timezone: ${timeZone}
 - Locale: ${locale}
@@ -133,22 +136,7 @@ are outside the Basic plan entirely.`,
 2. Use "Get Report Status" tool to monitor progress
 3. When status is "READY", use "Export Report" tool to get the data
 
-**Available Report Types:**
-- **Standard Reports** (no date range required):
-  - Current Week Transactions: ${REPORT_TYPES.CURRENT_WEEK_TRANSACTIONS}
-  - Current Month Transactions: ${REPORT_TYPES.CURRENT_MONTH_TRANSACTIONS}
-  - Current Year Transactions: ${REPORT_TYPES.CURRENT_YEAR_TRANSACTIONS}
-  - Products List: ${REPORT_TYPES.PRODUCTS_LIST}
-  - Shops List: ${REPORT_TYPES.SHOPS_LIST}
-  - Payment Profiles: ${REPORT_TYPES.PAYMENT_PROFILES}
-  - Partner Profile: ${REPORT_TYPES.PARTNER_PROFILE}
-
-- **Premium Reports** (date range required):
-  - Processed Transactions: ${REPORT_TYPES.PROCESSED_TRANSACTIONS}
-  - Schedules List: ${REPORT_TYPES.SCHEDULES_LIST}
-  - Transactions per Product: ${REPORT_TYPES.TRANSACTIONS_PER_PRODUCT}
-  - Sales per Product: ${REPORT_TYPES.SALES_PER_PRODUCT}
-  - Transactions per WebPOS: ${REPORT_TYPES.TRANSACTIONS_PER_WEBPOS}
+**Which reports you may run:** payware_data_list_reports returns them for this account, with each report's \`period\` (which presets it takes) and the plan it needs.
 
 **⚠️ Production Only:**
 This feature is only available in the production environment, not in sandbox.`

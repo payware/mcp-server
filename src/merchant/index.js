@@ -31,6 +31,9 @@ import { merchantPOITools } from './poi/index.js';
 // Campaigns, placements and airings - one definition shared by merchants and ISVs
 import { placementTools } from '../shared/placements/tools.js';
 
+// Delivery settings of shops and products - shared by merchants and ISVs
+import { deliveryTools } from '../shared/delivery/tools.js';
+
 // Shared utility tools
 import { getServerInfoTool } from '../utils/server-info.js';
 
@@ -71,7 +74,10 @@ export const merchantTools = [
   ...merchantShopTools,
 
   // Campaigns, placements and airings
-  ...placementTools('merchant')
+  ...placementTools('merchant'),
+
+  // Delivery settings (shops and products)
+  ...deliveryTools('merchant')
 ];
 
 /**

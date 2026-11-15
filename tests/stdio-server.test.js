@@ -18,7 +18,7 @@ import { toolsetOf } from '../src/config/toolsets.js';
  * handshake, and `tools/list` exactly as it goes over the wire.
  */
 
-const ROLES = ['merchant', 'isv', 'payment_institution'];
+const ROLES = ['merchant', 'isv', 'payment_institution', 'payer'];
 
 const sandbox = generateTestKeyPair();
 const production = generateTestKeyPair();
@@ -90,6 +90,20 @@ describe('tools/call', () => {
     assert.equal(call.error, undefined, `tools/call failed: ${JSON.stringify(call.error)}`);
     assert.equal(call.result.content[0].type, 'text');
     assert.match(call.result.content[0].text, /\{"a":2,"b":1\}/, 'keys must come back sorted');
+  });
+});
+
+describe('payer', () => {
+  test('starts with no partner ID and no key at all, and serves the four payer tools', async () => {
+    // A buying agent has no credentials. env holds none here (and cwd is an empty directory, so no
+    // .env is read): the server must still start and list its tools.
+    const responses = await stdioExchange({
+      cwd: dir,
+      env: { PAYWARE_PARTNER_TYPE: 'payer' },
+      messages: session({ jsonrpc: '2.0', id: 'list', method: 'tools/list' })
+    });
+    const names = responses.get('list').result.tools.map(t => t.name).sort();
+    assert.deepEqual(names, ['payware_payer_check_price', 'payware_payer_create_session', 'payware_payer_read_link', 'payware_payer_watch']);
   });
 });
 

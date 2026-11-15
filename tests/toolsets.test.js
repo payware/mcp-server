@@ -6,6 +6,7 @@ import { TOOLSETS, toolsetOf, filterToolsets } from '../src/config/toolsets.js';
 import { getMerchantTools } from '../src/merchant/index.js';
 import { getISVTools } from '../src/isv/index.js';
 import { getPaymentInstitutionTools } from '../src/payment-institution/index.js';
+import { getPayerTools } from '../src/payer/index.js';
 
 /**
  * PAYWARE_MCP_TOOLSETS: which tools a client is offered.
@@ -15,7 +16,7 @@ import { getPaymentInstitutionTools } from '../src/payment-institution/index.js'
  */
 
 const merchant = getMerchantTools();
-const ROLES = { merchant, isv: getISVTools(), payment_institution: getPaymentInstitutionTools() };
+const ROLES = { merchant, isv: getISVTools(), payment_institution: getPaymentInstitutionTools(), payer: getPayerTools() };
 
 describe('toolset membership', () => {
   test('every tool belongs to a toolset', () => {
@@ -34,6 +35,22 @@ describe('toolset membership', () => {
     assert.equal(toolsetOf('payware_products_get_airing_calendar'), 'placements');
     assert.equal(toolsetOf('payware_campaigns_get_campaign_stats'), 'placements');
     assert.equal(toolsetOf('payware_products_create_schedule'), 'products');
+  });
+
+  test('the agentic commerce tools land in the toolsets they belong to', () => {
+    assert.equal(toolsetOf('payware_shops_get_delivery'), 'shops');
+    assert.equal(toolsetOf('payware_shops_set_delivery'), 'shops');
+    assert.equal(toolsetOf('payware_products_get_delivery'), 'products');
+    assert.equal(toolsetOf('payware_products_set_delivery'), 'products');
+    assert.equal(toolsetOf('payware_fi_quote'), 'transactions');
+    for (const name of ['read_link', 'check_price', 'create_session', 'watch']) assert.equal(toolsetOf(`payware_payer_${name}`), 'payer');
+  });
+
+  test('only the payer role has payer tools, and every payer tool is in the payer toolset', () => {
+    assert.ok(ROLES.payer.length > 0 && ROLES.payer.every(t => toolsetOf(t.name) === 'payer'));
+    for (const role of ['merchant', 'isv', 'payment_institution']) {
+      assert.deepEqual(ROLES[role].filter(t => toolsetOf(t.name) === 'payer'), [], role);
+    }
   });
 });
 

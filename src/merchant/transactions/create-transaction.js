@@ -4,6 +4,7 @@ import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
 import { QR_OPTION_PROPERTIES, BARCODE_OPTION_PROPERTIES, buildQrOptions, buildBarOptions } from '../../shared/media-options.js';
 import { CREATES } from '../../shared/tool-annotations.js';
+import { ITEMS_PROPERTY, ITEMS_DESCRIPTION, buildItems } from '../../shared/transaction-items.js';
 import { checkDeferredAllowed, deferredAllowedOption, DEFERRED_ALLOWED_DESCRIPTION } from '../../shared/deferred-transfer.js';
 
 /**
@@ -17,6 +18,7 @@ export async function createTransaction({
   currency = 'EUR',
   reasonL1,
   reasonL2,
+  items,
   callbackUrl,
   account,
   friendlyName,
@@ -96,6 +98,8 @@ export async function createTransaction({
     }
   }
 
+  const lines = buildItems(items, amount);
+
   const qrOptions = buildQrOptions(type, { qrFormat, qrBorder, qrErrorCorrection, qrScale, qrVersion });
   
   const barOptions = buildBarOptions(type, { barFormat, barModuleWidth, barBarHeight, barFontSize, barHumanReadableLocation });
@@ -106,6 +110,7 @@ export async function createTransaction({
     ...(friendlyName && { friendlyName }),
     ...(shop && { shop }),
     ...(callbackUrl && { callbackUrl }),
+    ...(lines && { items: lines }),
     ...(passbackParams && {
       passbackParams: typeof passbackParams === 'string' ? passbackParams : JSON.stringify(passbackParams)
     }),
@@ -238,6 +243,8 @@ export const createTransactionTool = {
 }
 \`\`\`
 
+${ITEMS_DESCRIPTION}
+
 ⏳ **DEFERRED MERCHANT LEG** (optional, \`trOptions.deferredAllowed\`)
 
 By default the payer's institution pays this transaction with an instant or an internal transfer.
@@ -282,6 +289,7 @@ ISV's software is running on that producer's hardware.`,
   inputSchema: {
     type: "object",
     properties: {
+      items: ITEMS_PROPERTY,
       idempotencyKey: {
         type: "string",
         description: "Optional. Sent as the Idempotency-Key header. Use one value per payment (a UUID is typical) and the same value on every retry of it: a retry with the same key and body within 24 hours returns the transaction the first call created instead of a new one, and the result reports replayed: true. The same key with a different body is refused (422 ERR_IDEMPOTENCY_KEY_REUSED); a retry while the first call still runs gets 409 ERR_IDEMPOTENCY_KEY_IN_PROGRESS.",
@@ -294,7 +302,7 @@ ISV's software is running on that producer's hardware.`,
       },
       amount: {
         type: "number", 
-        description: "Amount as currency value (e.g., 25.50 for €25.50 or '15.75' for $15.75). Can be 0 for amount-flexible transactions. Max 36 chars including decimals",
+        description: "Amount as currency value (e.g., 25.50 for €25.50 or '15.75' for $15.75). Can be 0 for amount-flexible transactions. At most 15 significant digits and 15 integer digits (400 ERR_INVALID_AMOUNT_LENGTH)",
         minimum: 0,
         maximum: 9999999999999.99
       },
@@ -389,6 +397,7 @@ ISV's software is running on that producer's hardware.`,
       currency = 'EUR',
       reasonL1,
       reasonL2,
+      items,
       callbackUrl,
       account,
       friendlyName,
@@ -436,6 +445,7 @@ ISV's software is running on that producer's hardware.`,
       currency,
       reasonL1,
       reasonL2,
+      items,
       callbackUrl,
       account,
       friendlyName,

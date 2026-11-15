@@ -4,6 +4,7 @@ import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } 
 import { describeApiError } from '../../shared/api-errors.js';
 import { QR_OPTION_PROPERTIES, BARCODE_OPTION_PROPERTIES, buildQrOptions, buildBarOptions } from '../../shared/media-options.js';
 import { CREATES } from '../../shared/tool-annotations.js';
+import { ITEMS_PROPERTY, ITEMS_DESCRIPTION, buildItems } from '../../shared/transaction-items.js';
 import { checkDeferredAllowed, deferredAllowedOption, DEFERRED_ALLOWED_DESCRIPTION } from '../../shared/deferred-transfer.js';
 
 /**
@@ -21,6 +22,7 @@ export async function createTransaction({
   currency = 'EUR',
   reasonL1,
   reasonL2,
+  items,
   callbackUrl,
   account,
   friendlyName,
@@ -78,6 +80,8 @@ export async function createTransaction({
   // A terminal sale stays instant or internal: the server answers 400 ERR_DEFERRED_TRANSFER_NOT_ALLOWED.
   checkDeferredAllowed(deferredAllowed, { producerPartnerId, terminalId, terminalManufacturer });
 
+  const lines = buildItems(items, amount);
+
   const qrOptions = buildQrOptions(type, { qrFormat, qrBorder, qrErrorCorrection, qrScale, qrVersion });
 
   const barOptions = buildBarOptions(type, { barFormat, barModuleWidth, barBarHeight, barFontSize, barHumanReadableLocation });
@@ -88,6 +92,7 @@ export async function createTransaction({
     ...(friendlyName && { friendlyName }),
     ...(shop && { shop }),
     ...(callbackUrl && { callbackUrl }),
+    ...(lines && { items: lines }),
     ...(passbackParams && {
       passbackParams: typeof passbackParams === 'string' ? passbackParams : JSON.stringify(passbackParams)
     }),
@@ -184,6 +189,8 @@ before sending. **A deferred payment stays ACTIVE, i.e. pending, until the trans
 days**, so it can stay ACTIVE past its \`timeToLive\`: keep polling or wait for the callback, and never treat it
 as expired yourself. Echoed as \`deferredAllowed: true\` when set.
 
+${ITEMS_DESCRIPTION}
+
 **Transaction Types:**
 - PLAIN: Basic transaction without visual codes
 - QR: Transaction with QR code for mobile payments
@@ -199,6 +206,7 @@ as expired yourself. Echoed as \`deferredAllowed: true\` when set.
     type: 'object',
     required: ['merchantPartnerId', 'oauth2Token', 'reasonL1'],
     properties: {
+      items: ITEMS_PROPERTY,
       idempotencyKey: {
         type: "string",
         description: "Optional. Sent as the Idempotency-Key header. Use one value per payment (a UUID is typical) and the same value on every retry of it: a retry with the same key and body within 24 hours returns the transaction the first call created instead of a new one, and the result reports replayed: true. The same key with a different body is refused (422 ERR_IDEMPOTENCY_KEY_REUSED); a retry while the first call still runs gets 409 ERR_IDEMPOTENCY_KEY_IN_PROGRESS.",
@@ -223,7 +231,7 @@ as expired yourself. Echoed as \`deferredAllowed: true\` when set.
       },
       amount: {
         type: ['string', 'number'],
-        description: 'Transaction amount (e.g., "25.50" or 25.50)'
+        description: 'Transaction amount (e.g., "25.50" or 25.50). At most 15 significant digits and 15 integer digits (400 ERR_INVALID_AMOUNT_LENGTH)'
       },
       currency: {
         type: 'string',

@@ -44,6 +44,8 @@ export async function processPITransaction({
   privateKey,
   // Delivery address for SHIPPABLE transactions
   deliveryAddress,
+  // Units of a product, placement or soundbite id (trData.quantity): payware then builds the lines
+  quantity,
   // Payment method for POI transactions (Payment Choice Architecture)
   paymentMethod,
   idempotencyKey,
@@ -82,7 +84,8 @@ export async function processPITransaction({
       amount: amount.toString(),
       currency,
       reasonL1,
-      ...(reasonL2 && { reasonL2 })
+      ...(reasonL2 && { reasonL2 }),
+      ...(quantity !== undefined && { quantity })
     },
     ...(timeToLive && {
       trOptions: {
@@ -147,6 +150,11 @@ export const processPITransactionTool = {
 - amount: above zero (required: the server refuses a process without one)
 - reasonL1: required, except for a product, placement or soundbite code, whose reason the server takes from the product
 
+**Lines, quantity and delivery (\`pr\`, \`pl\`, \`ps\` and \`pa\`).** Read the offer first (\`payware_operations_get_transaction_status\`, or \`payware_fi_quote\` to re-price): it carries \`items\` and \`total\`. Then:
+- \`quantity\` (sent as \`trData.quantity\`, 1-99, pr/pl/ps only; ignored for a \`pa\`) makes payware build the lines for that quantity and for \`deliveryAddress.country\`. **\`amount\` must then equal the offer's \`total\` exactly**, else 409 \`ERR_AMOUNT_NOT_TOTAL\` (re-read, show the payer the new total). \`quantity\` is required (400 \`ERR_QUANTITY_REQUIRED\`) for a shippable product whose shop has a delivery table or that has a delivery surcharge. Without it, today's rule applies: amount at least the sale price (more for a tip), and no lines are stored. A shippable product priced 0.00 (the payer sets the amount) still needs a country the shop and product serve (409 \`ERR_DELIVERY_COUNTRY_NOT_SERVED\`); no delivery amount is added.
+- \`deliveryAddress.country\` is an ISO 3166-1 alpha-2 code, e.g. BG (400 \`ERR_INVALID_DELIVERY_COUNTRY\` otherwise). A country the shop or product does not serve is 409 \`ERR_DELIVERY_COUNTRY_NOT_SERVED\`. Every check runs before the transaction is created.
+- A \`pa\` id (an agent purchase session): \`amount\` = its \`total\` and the \`reasonL1\` you read (this tool requires it for a pa). \`deliveryAddress\` is optional when the read shows \`delivery.addressConfirmed: true\` for an address the payer entered and confirmed on payware's page: leave it out and payware uses the session's address, stores it on the payment and the merchant gets it as usual. An agent's address never stands in for yours, even confirmed: send your own \`deliveryAddress\` for it. Without a confirmed address, a shippable session needs \`deliveryAddress\` (400 \`ERR_MISSING_DELIVERY_ADDRESS\` otherwise). When you do send one: if the payer entered the address on the page and your payer's country differs, payware prices delivery for that country, so re-read with \`payware_fi_quote\` and send that total as \`amount\`; if an agent supplied the address, a different delivery amount is refused with 409 \`ERR_SESSION_DELIVERY_FEE_DIFFERS\`. A bank that cannot capture addresses opens \`https://{link host}/{id}?delivery\` in the browser for a \`pr\` or \`pl\` offer whose read carries \`deliveryDetails: true\` (only then does the page have the form) instead of processing it, and processes the \`pa\` the payer returns with (\`payware:{pa}\`) without an address. The response is the processed \`pw\` with \`items\` and \`total\`: finalize that pw id.
+
 **After processing (as the payer's institution):** take the payer's single approval of both transfers and reserve the amount, then finalize in two calls with \`payware_operations_finalize_transaction\`: EXECUTING immediately before money moves (payware checks everything and locks; a refusal means nothing moves), execute the Merchant Leg, and CONFIRMED only once it has completed (or FAILED). The Fee Leg follows CONFIRMED for INSTANT and INTERNAL transfers and goes together with the Merchant Leg for DEFERRED. Once your institution has sent EXECUTING, the transaction shows as EXECUTING to your institution only; the merchant still sees ACTIVE.
 
 **\`deferredAllowed\` in the response.** Present, and \`true\`, only when the merchant opted this transaction in to a deferred Merchant Leg. Only then may EXECUTING carry \`transferType: DEFERRED\` (an ordinary credit transfer that settles later); otherwise it is refused with ERR_DEFERRED_TRANSFER_NOT_ALLOWED. Absent means instant or internal only.
@@ -178,8 +186,14 @@ export const processPITransactionTool = {
       },
       transactionId: {
         type: "string",
-        description: "The id the payer scanned: 'pw' (a transaction), 'pr' (product), 'pl' (placement: pays as its product, and the payment is attributed to the placement), 'ps' (soundbite) or 'pi' (a POI with a price set). A product, placement, soundbite or POI id creates the pw transaction the response returns; finalize that pw id. Up to 32 characters: identifiers may grow beyond today's 10.",
-        pattern: "^(pw|pr|pl|ps|pi)[0-9A-Za-z]{8,30}$"
+        description: "The id the payer scanned: 'pw' (a transaction), 'pr' (product), 'pl' (placement: pays as its product, and the payment is attributed to the placement), 'ps' (soundbite), 'pi' (a POI with a price set) or 'pa' (an agent purchase session). A product, placement, soundbite, POI or session id creates the pw transaction the response returns; finalize that pw id. Up to 32 characters: identifiers may grow beyond today's 10.",
+        pattern: "^(pw|pr|pl|ps|pi|pa)[0-9A-Za-z]{8,30}$"
+      },
+      quantity: {
+        type: "integer",
+        description: "Units to buy, sent as trData.quantity (1-99), for a pr, pl or ps id; ignored for a pa. When sent, payware builds the lines and amount must equal the offer's total (409 ERR_AMOUNT_NOT_TOTAL). Required (400 ERR_QUANTITY_REQUIRED) for a shippable product whose shop has a delivery table or that has a delivery surcharge.",
+        minimum: 1,
+        maximum: 99
       },
       account: {
         type: "string",
@@ -193,7 +207,7 @@ export const processPITransactionTool = {
       },
       amount: {
         type: ["number", "string"],
-        description: "Amount to process, above zero (required: the server refuses a process without one, ERR_INVALID_AMOUNT). As the payer: at least the requested amount, more for a tip. As the payee: at most what the payer offered. For a merchant's transaction not below its amount.",
+        description: "Amount to process, above zero (required: the server refuses a process without one, ERR_INVALID_AMOUNT). As the payer: at least the requested amount, more for a tip. As the payee: at most what the payer offered. For a merchant's transaction not below its amount. A payment with lines (processed with quantity, a pa, or a merchant's created with items) exactly its total, no tip (409 ERR_AMOUNT_NOT_TOTAL). At most 15 significant and 15 integer digits (400 ERR_INVALID_AMOUNT_LENGTH).",
         minimum: 0.01,
         maximum: 9999999999999.99
       },
@@ -246,7 +260,7 @@ export const processPITransactionTool = {
       // Delivery address for SHIPPABLE transactions
       deliveryAddress: {
         type: "object",
-        description: "Delivery address (required when processing SHIPPABLE transactions)",
+        description: "Delivery address. Required when processing SHIPPABLE transactions, except for a purchase session (pa) whose read shows delivery.addressConfirmed: true for an address the payer entered on payware's page: leave it out and payware uses it (400 ERR_MISSING_DELIVERY_ADDRESS when the session's address is unconfirmed, absent, or the agent's). Sent for a pa whose address the payer entered on the page, another country is priced for that country: re-read with the quote tool and send that total as amount. For an agent's address a different delivery amount is refused with 409 ERR_SESSION_DELIVERY_FEE_DIFFERS.",
         properties: {
           fullName: {
             type: "string",
@@ -280,7 +294,7 @@ export const processPITransactionTool = {
           },
           country: {
             type: "string",
-            description: "Country (required)",
+            description: "ISO 3166-1 alpha-2 code, e.g. BG (required)",
             maxLength: 32
           },
           phoneNumber: {
@@ -323,6 +337,7 @@ export const processPITransactionTool = {
       privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       paymentMethod,
       deliveryAddress,
+      quantity,
       idempotencyKey,
       useSandbox = true
     } = args;
@@ -364,6 +379,7 @@ export const processPITransactionTool = {
       privateKey,
       paymentMethod,
       deliveryAddress,
+      quantity,
       idempotencyKey,
       useSandbox
     });
@@ -383,6 +399,7 @@ ${account ? `- Account: ${account}` : '- Account: not sent (the payer\'s institu
 ${amount ? `- Amount: ${amount} ${currency}` : ''}
 ${reasonL1 ? `- Reason: ${reasonL1}${reasonL2 ? ` (${reasonL2})` : ''}` : ''}
 ${paymentMethod ? `- Payment Method: ${paymentMethod}` : ''}
+${quantity !== undefined ? `- Quantity: ${quantity}` : ''}
 ${timeToLive ? `- Time to Live: ${timeToLive} seconds` : ''}
 ${callbackUrl ? `- Callback URL: ${callbackUrl}` : ''}
 ${passbackParams ? `- Passback Params: ${passbackParams}` : ''}
