@@ -1,6 +1,7 @@
 /**
  * Simulate callback scenarios for testing
  */
+import { LINE_TYPES } from '../../shared/transaction-items.js';
 
 /** The VAT inside a fee, present exactly when the fee is, as the server does: zero at the fee's scale unless given. */
 export function feeVatFor(fee, feeVat) {
@@ -16,12 +17,12 @@ const CALLBACK_ITEM_FIELDS = ['type', 'productId', 'name', 'quantity', 'unitPric
 /** The `items` parameter of both simulate tools, one definition. */
 export const CALLBACK_ITEMS_PROPERTY = {
   type: 'array',
-  description: 'Lines of a payment that has them (a product payment with a quantity, a purchase session, a merchant payment created with items): the callback then carries items and their total (the sum of the lines: what the payer paid). Each line: type (ITEM, SHIPPING, DISCOUNT, TAX or SURCHARGE), name, amount, and for an ITEM productId, quantity and unitPrice, for a SHIPPING line payware priced the country (a merchant\'s own lines carry none). Callback lines carry no images or terms. With items, leave amount out: on CONFIRMED it is worked out as total minus fee, on any other status it is the total.',
+  description: 'Lines of a payment that has them (a product payment with a quantity, a purchase session, a merchant payment created with items): the callback then carries items and their total (the sum of the lines: what was sold). Each line: type (ITEM, SHIPPING, DISCOUNT, TAX or SURCHARGE), name, amount, and for an ITEM productId, quantity and unitPrice, for a SHIPPING line payware priced the country (a merchant\'s own lines carry none). A tip is never a line: give it as tip. Callback lines carry no images or terms. With items, leave amount out: on CONFIRMED it is worked out as total + tip minus fee, on any other status it is total + tip.',
   items: {
     type: 'object',
     additionalProperties: false,
     properties: {
-      type: { type: 'string', enum: ['ITEM', 'SHIPPING', 'DISCOUNT', 'TAX', 'SURCHARGE'], description: 'Kind of line' },
+      type: { type: 'string', enum: LINE_TYPES, description: 'Kind of line' },
       productId: { type: 'string', description: 'ITEM lines of payware products: the product id (pr + 8 characters)' },
       name: { type: 'string', description: 'What the line is. A payware-priced delivery line is named "Delivery"' },
       quantity: { type: 'integer', minimum: 1, maximum: 99, description: 'ITEM lines: how many' },
@@ -31,6 +32,19 @@ export const CALLBACK_ITEMS_PROPERTY = {
     },
     required: ['type', 'name', 'amount']
   }
+};
+
+/** The `tip` parameter of both simulate tools, one definition (server TransactionCallbackPayload.tip, spec 24.1). */
+/** Who entered the tip, sent beside it (server TransactionCallbackPayload.tipEnteredBy, review D15, 2026-11-17). */
+export const CALLBACK_TIP_ENTERED_BY_PROPERTY = {
+  type: 'string',
+  enum: ['MERCHANT', 'PAYER'],
+  description: 'With tip: who entered it, MERCHANT (on create) or PAYER (in the bank app). Default PAYER. The callback carries it only with a tip.'
+};
+
+export const CALLBACK_TIP_PROPERTY = {
+  type: 'string',
+  description: 'The payment\'s tip, a decimal string (e.g. \'2.00\'): the merchant\'s own, sent when it created the payment, or the payer\'s, added in their bank where the shop allows tips. Never a line: the callback carries it as tip, absent without one. With items the payer paid total + tip, so on CONFIRMED amount + fee = total + tip, and on any other status amount = total + tip.'
 };
 
 /** `a - b`, exact, for two decimal strings. */
@@ -87,6 +101,9 @@ export function generateMockCallback(transactionId, status = 'CONFIRMED', option
     placementId = null,
     sessionId = null,
     items = null,
+    // The payment's tip, recorded on it and never a line (spec 24.1): the merchant's own or the payer's.
+    tip = null,
+    tipEnteredBy = null,
     // The fee breakdown the server attaches whenever the transaction has a fee configuration.
     // Before 2026-08-21 a merchant's FINALIZED callback carried the total fee but not the two
     // numbers that produced it, so reconciling a charge meant asking payware. It carries both now.
@@ -100,12 +117,18 @@ export function generateMockCallback(transactionId, status = 'CONFIRMED', option
   } = options;
 
   // A payment's lines decide its money, as on the server (TransactionCallbackEnrichment, TransactionService): total is
-  // the sum of the lines, what the payer paid. On CONFIRMED amount is net of the fee, so amount + fee = total; on any
-  // other status nothing was paid and amount is still the requested amount, the total. Review finding C-M5: amount
-  // used to default to 57.60 beside any lines, a payload the server never sends.
+  // the sum of the lines, what was sold, and the payer paid total + tip (the tip is recorded on the payment, never a
+  // line, spec 24.1). On CONFIRMED amount is net of the fee, so amount + fee = total + tip; on any other status nothing
+  // was paid and amount is the amount asked and processed, total + tip. Review finding C-M5: amount used to default
+  // to 57.60 beside any lines, a payload the server never sends.
+  const tipText = tip === null || tip === undefined ? null : String(tip).trim();
+  if (tipText !== null && (!/^\d+(\.\d+)?$/.test(tipText) || !(Number(tipText) > 0))) {
+    throw new Error('tip must be a plain decimal above zero, e.g. "2.00": the server sends it at the currency\'s scale, and leaves it out without a tip.');
+  }
   const lines = Array.isArray(items) && items.length > 0 ? items : null;
   const total = lines ? sumAmounts(lines) : undefined;
-  let amount = amountOption ?? total ?? '57.60';
+  const gross = lines && tipText !== null ? sumAmounts([{ amount: total }, { amount: tipText }]) : total;
+  let amount = amountOption ?? gross ?? '57.60';
 
   // Calculate fee like the server: |payerAmount - amount| or |payeeAmount - amount|.
   const transactionAmount = parseFloat(amount);
@@ -121,11 +144,12 @@ export function generateMockCallback(transactionId, status = 'CONFIRMED', option
 
   if (lines) {
     const hasFee = fee !== null && fee !== undefined;
-    const expected = status === 'CONFIRMED' && hasFee ? subtractAmount(total, fee) : total;
+    const expected = status === 'CONFIRMED' && hasFee ? subtractAmount(gross, fee) : gross;
+    const withTip = tipText !== null ? ` and tip ${tipText}` : '';
     if (amountOption !== undefined && amountOption !== null && !sameAmount(amountOption, expected)) {
       throw new Error(status === 'CONFIRMED'
-        ? `On a CONFIRMED callback amount is net of the fee: with these lines (total ${total}) and fee ${hasFee ? fee : 'absent'} it is ${expected}, not ${amountOption}. Leave amount out and it is worked out.`
-        : `Nothing was paid on a ${status} callback, so amount is the requested amount, the lines' total ${total}, not ${amountOption}. Leave amount out and it is worked out.`);
+        ? `On a CONFIRMED callback amount is net of the fee: with these lines (total ${total})${withTip} and fee ${hasFee ? fee : 'absent'} it is ${expected}, not ${amountOption}. Leave amount out and it is worked out.`
+        : `Nothing was paid on a ${status} callback, so amount is the amount asked, the lines' total ${total}${tipText !== null ? ` plus the tip ${tipText}` : ''}: ${expected}, not ${amountOption}. Leave amount out and it is worked out.`);
     }
     amount = amountOption ?? expected;
   }
@@ -146,6 +170,7 @@ export function generateMockCallback(transactionId, status = 'CONFIRMED', option
       items: lines.map(line => Object.fromEntries(CALLBACK_ITEM_FIELDS.filter(k => line[k] !== undefined && line[k] !== null).map(k => [k, line[k]]))),
       total
     }),
+    ...(tipText !== null && { tip: tipText, tipEnteredBy: tipEnteredBy === 'MERCHANT' ? 'MERCHANT' : 'PAYER' }),
     ...(passbackParams !== null && passbackParams !== undefined && { passbackParams }),
     amount,
     ...(fee !== null && fee !== undefined && { fee, feeVat: feeVatFor(fee, feeVatOverride) }),
@@ -255,7 +280,7 @@ backing off from about a second to at most 5 minutes between attempts, until the
 2xx. That pair is stable across every retry of the same event, and it is the key payware guarantees.
 A handler that does not deduplicate will eventually process one payment twice.
 
-**Payments with a product, a placement, a session or lines.** The payload also carries, when they apply and absent otherwise: \`productId\` (the product the payment came from), \`placementId\` (the placement it is attributed to, Premium only), \`sessionId\` (the purchase session's pa id) and \`items\` with their \`total\` (type, productId, name, quantity, unitPrice, amount, and country on a delivery line payware priced; no images). \`total\` is the sum of the lines, what the payer paid. On CONFIRMED \`amount\` is net of the fee, so **\`amount\` + \`fee\` = \`total\`**; on any other status nothing was paid and \`amount\` equals \`total\`. Give \`items\` and leave \`amount\` out: the tool works it out, and refuses an \`amount\` the server would never send with those lines.
+**Payments with a product, a placement, a session or lines.** The payload also carries, when they apply and absent otherwise: \`productId\` (the product the payment came from), \`placementId\` (the placement it is attributed to, Premium only), \`sessionId\` (the purchase session's pa id) and \`items\` with their \`total\` (type, productId, name, quantity, unitPrice, amount, and country on a delivery line payware priced; no images). \`total\` is the sum of the lines, what was sold. **A tip is never a line**: the payload carries it as \`tip\` (absent without one), yours, sent when you created the payment, or the payer's, added in their bank where your shop allows tips; the payer paid \`total\` + \`tip\` and the fee applies to the whole of it. On CONFIRMED \`amount\` is net of the fee, so **\`amount\` + \`fee\` = \`total\` + \`tip\`**; on any other status nothing was paid and \`amount\` equals \`total\` + \`tip\`. Give \`items\` (and \`tip\`) and leave \`amount\` out: the tool works it out, and refuses an \`amount\` the server would never send with those lines.
 
 **Not on this payload:** \`deliveryAddress\` (removed 2026-08-07 - fetch it from
 \`payware_operations_get_transaction_history\`, which is authenticated and tenant-scoped),
@@ -332,7 +357,9 @@ TRANSACTION_PROCESSED, which merchants do not receive).`,
         type: "string",
         description: "Set to simulate a payment that came from an agent purchase session: the callback then carries the session's pa id"
       },
-      items: CALLBACK_ITEMS_PROPERTY
+      items: CALLBACK_ITEMS_PROPERTY,
+      tip: CALLBACK_TIP_PROPERTY,
+      tipEnteredBy: CALLBACK_TIP_ENTERED_BY_PROPERTY
     },
     required: ["transactionId"],
     additionalProperties: false
@@ -359,7 +386,9 @@ TRANSACTION_PROCESSED, which merchants do not receive).`,
       productId,
       placementId,
       sessionId,
-      items
+      items,
+      tip,
+      tipEnteredBy
     } = args;
     
     if (!transactionId) {
@@ -382,7 +411,9 @@ TRANSACTION_PROCESSED, which merchants do not receive).`,
         productId,
         placementId,
         sessionId,
-        items
+        items,
+        tip,
+        tipEnteredBy
       });
     } catch (error) {
       return { content: [{ type: "text", text: `❌ **Callback Simulation Refused**\n\n${error.message}` }], isError: true };

@@ -57,14 +57,15 @@ export const quoteTool = {
 
 **Endpoint:** GET /transactions/{id}/quote  (institutions only)
 
-**Works for** \`pr\`, \`pl\`, \`ps\` and \`pa\` ids. \`deliveryCountry\` (ISO 3166-1 alpha-2, e.g. BG) and \`quantity\` (1-99, default 1) are as on the offer read; \`quantity\` is ignored for a \`pa\`, whose lines are fixed. **For a \`pa\` the quote prices the country you give**, while the offer read prices a session that holds an address for that address's country: quote when your payer delivers somewhere else, and send that total. Any other id prefix is 400 \`ERR_INVALID_TRANSACTION_ID\`; an unknown or inactive product 404 \`ERR_MISSING_PRODUCT\`; a session 404 \`ERR_SESSION_NOT_FOUND\` or \`ERR_SESSION_EXPIRED\`.
+**Works for** \`pr\`, \`pl\`, \`ps\` and \`pa\` ids. \`deliveryCountry\` (ISO 3166-1 alpha-2, e.g. BG) and \`quantity\` (1-99, default 1) are as on the offer read; \`quantity\` is ignored for a \`pa\`, whose lines are fixed. **For a \`pa\` the quote prices the country you give**, while the offer read prices a session that holds an address for that address's country: quote when your payer delivers somewhere else, and send that total. A session is re-priced for your payer's country, never refused for its price, whoever entered its address. Any other id prefix is 400 \`ERR_INVALID_TRANSACTION_ID\`; an unknown or inactive product 404 \`ERR_MISSING_PRODUCT\`; a session 404 \`ERR_SESSION_NOT_FOUND\` or \`ERR_SESSION_EXPIRED\`.
 
 **Returns** \`transactionId\`, \`currency\`, \`quantity\` (not for a \`pa\`), \`deliveryCountry\` and \`countryServed\` (when a country was given and something is shipped), \`items\`, \`total\` and, for shippable products, \`delivery\`:
 - \`items\`: ITEM lines (\`productId\`, \`name\`, \`quantity\`, \`unitPrice\`, \`amount\`) and, when the product is shippable and the country is served, a SHIPPING line named "Delivery" with its \`country\` (the amount may be 0.00). Translate lines by \`type\`, never by \`name\`.
-- \`total\`: the sum of the lines: **the amount to send when processing** with the same \`quantity\`. A different amount is 409 \`ERR_AMOUNT_NOT_TOTAL\`.
+- \`total\`: the sum of the lines: **the amount to send when processing** with the same \`quantity\`, plus the payer's tip if you send one (\`tip\`, where \`tipsAllowed\` is true; the quote carries \`tipsAllowed\` and \`deliveryDetails\` as the offer read does). A different amount is 409 \`ERR_AMOUNT_NOT_TOTAL\`.
 - \`countryServed: false\`: the shop or the product does not deliver there; processing for that country is 409 \`ERR_DELIVERY_COUNTRY_NOT_SERVED\`. \`delivery.countries\` lists every country served with its delivery amount for these lines (absent when the shop has no table: any country, no delivery charge).
+- A product priced 0.00 (the payer sets the amount) has no \`items\` or \`total\`: the quote carries only \`delivery\`, whose \`countries\` are the countries served **without amounts**, and \`countryServed\` for the country you gave.
 
-Next: process with \`payware_operations_process_transaction\`, sending the same \`quantity\`, \`deliveryAddress.country\` and \`amount\` = \`total\`.`,
+Next: process with \`payware_operations_process_transaction\`, sending the same \`quantity\`, \`deliveryAddress.country\` and \`amount\` = \`total\` (+ \`tip\`).`,
   inputSchema: {
     type: 'object',
     properties: {

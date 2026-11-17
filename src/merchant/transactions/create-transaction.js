@@ -1,11 +1,12 @@
 import axios from 'axios';
 import { createJWTToken } from '../../core/auth/jwt-token.js';
 import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
-import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
+import { getSandboxUrl, getProductionUrl, getLinksUrl, getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
 import { QR_OPTION_PROPERTIES, BARCODE_OPTION_PROPERTIES, buildQrOptions, buildBarOptions } from '../../shared/media-options.js';
 import { CREATES } from '../../shared/tool-annotations.js';
-import { ITEMS_PROPERTY, ITEMS_DESCRIPTION, buildItems } from '../../shared/transaction-items.js';
+import { ITEMS_PROPERTY, ITEMS_DESCRIPTION, buildItems, MERCHANT_TIP_PROPERTY, MERCHANT_TIP_DESCRIPTION, checkMerchantTip } from '../../shared/transaction-items.js';
 import { checkDeferredAllowed, deferredAllowedOption, DEFERRED_ALLOWED_DESCRIPTION } from '../../shared/deferred-transfer.js';
+import { checkTimeToLive, TIME_TO_LIVE_DESCRIPTION, TIME_TO_LIVE_PARAGRAPH } from '../../shared/transaction-options.js';
 
 /**
  * Create a transaction via payware API
@@ -19,6 +20,8 @@ export async function createTransaction({
   reasonL1,
   reasonL2,
   items,
+  // The merchant's own tip inside amount (trData.tip, spec 24.1, D2): a till that asked the payer first.
+  tip,
   callbackUrl,
   account,
   friendlyName,
@@ -87,6 +90,9 @@ export async function createTransaction({
   // after a round trip.
   checkDeferredAllowed(deferredAllowed, { producerPartnerId, terminalId, terminalManufacturer });
 
+  // 60 to 30 days: the widest range any merchant may have. payware refuses more than this merchant's own ceiling.
+  checkTimeToLive(timeToLive);
+
   for (const [field, value] of [['terminalId', terminalId], ['terminalManufacturer', terminalManufacturer]]) {
     if (value === undefined || value === null) continue;
     if (String(value).length > 64) {
@@ -98,6 +104,7 @@ export async function createTransaction({
     }
   }
 
+  const tipText = checkMerchantTip(tip, amount);
   const lines = buildItems(items, amount);
 
   const qrOptions = buildQrOptions(type, { qrFormat, qrBorder, qrErrorCorrection, qrScale, qrVersion });
@@ -121,7 +128,8 @@ export async function createTransaction({
       amount: amount !== undefined ? amount.toString() : '0.00',
       currency,
       reasonL1,
-      ...(reasonL2 && { reasonL2 })
+      ...(reasonL2 && { reasonL2 }),
+      ...(tipText !== undefined && { tip: tipText })
     },
     trOptions: {
       type,
@@ -207,10 +215,10 @@ export const createTransactionTool = {
 - producerPartnerId, terminalId, terminalManufacturer (POS terminal producer attribution - see below)
 
 💰 **TRANSACTION DATA** (trData object):
-- amount, currency, reasonL1, reasonL2
+- amount, currency, reasonL1, reasonL2, tip (your own tip inside amount - see below)
 
 ⚙️ **TRANSACTION OPTIONS** (trOptions object):
-- type, timeToLive, deferredAllowed (deferred Merchant Leg opt-in - see below)
+- type, timeToLive (see below), deferredAllowed (deferred Merchant Leg opt-in - see below)
 
 📱 **QR OPTIONS** (qrOptions object - only when type=QR):
 - qrFormat, qrBorder, qrErrorCorrection, qrScale, qrVersion
@@ -244,6 +252,10 @@ export const createTransactionTool = {
 \`\`\`
 
 ${ITEMS_DESCRIPTION}
+
+${MERCHANT_TIP_DESCRIPTION}
+
+${TIME_TO_LIVE_PARAGRAPH}
 
 ⏳ **DEFERRED MERCHANT LEG** (optional, \`trOptions.deferredAllowed\`)
 
@@ -290,6 +302,7 @@ ISV's software is running on that producer's hardware.`,
     type: "object",
     properties: {
       items: ITEMS_PROPERTY,
+      tip: MERCHANT_TIP_PROPERTY,
       idempotencyKey: {
         type: "string",
         description: "Optional. Sent as the Idempotency-Key header. Use one value per payment (a UUID is typical) and the same value on every retry of it: a retry with the same key and body within 24 hours returns the transaction the first call created instead of a new one, and the result reports replayed: true. The same key with a different body is refused (422 ERR_IDEMPOTENCY_KEY_REUSED); a retry while the first call still runs gets 409 ERR_IDEMPOTENCY_KEY_IN_PROGRESS.",
@@ -338,9 +351,9 @@ ISV's software is running on that producer's hardware.`,
       },
       timeToLive: {
         type: "number",
-        description: "⚙️ TRANSACTION OPTIONS: Time allowed for payment initiation in seconds. Once the payer's institution has started the payment, the transaction stays ACTIVE past it until the money has moved (seconds for an instant transfer, days with deferredAllowed); never infer EXPIRED from the clock.",
+        description: `⚙️ TRANSACTION OPTIONS: ${TIME_TO_LIVE_DESCRIPTION}`,
         minimum: 60,
-        maximum: 600
+        maximum: 2592000
       },
       deferredAllowed: {
         type: "boolean",
@@ -398,6 +411,7 @@ ISV's software is running on that producer's hardware.`,
       reasonL1,
       reasonL2,
       items,
+      tip,
       callbackUrl,
       account,
       friendlyName,
@@ -446,6 +460,7 @@ ISV's software is running on that producer's hardware.`,
       reasonL1,
       reasonL2,
       items,
+      tip,
       callbackUrl,
       account,
       friendlyName,
@@ -490,7 +505,8 @@ ISV's software is running on that producer's hardware.`,
 - ID: ${result.transaction.transactionId || 'N/A'}
 - Type: ${type}
 - Status: ${statusEmoji} ${status}
-- Amount: ${amount} ${currency}
+- Amount: ${amount !== undefined ? amount : '0.00'} ${currency}${tip !== undefined && tip !== null ? ` (tip included: ${tip} ${currency})` : ''}${amount === undefined ? '\n- ⚠️ No amount was sent: the payer sets the amount (0.00). Create a new payment with \`amount\` if that was not meant.' : ''}
+- Payment link (send it to the payer): ${result.transaction.transactionId ? `${getLinksUrl(useSandbox)}/${result.transaction.transactionId}` : 'N/A'}
 - Description: ${reasonL1}${reasonL2 ? ` (${reasonL2})` : ''}
 ${callbackUrl ? `- Callback URL: ${callbackUrl}` : ''}
 ${result.transaction.deferredAllowed === true ? '- Deferred Merchant Leg allowed: yes - the payment may stay ACTIVE until the transfer settles, which can take days' : ''}
@@ -510,7 +526,8 @@ ${JSON.stringify(result.transaction, null, 2)}
 1. Save the transaction ID: \`${result.transaction.transactionId || 'N/A'}\`
 2. Use \`payware_operations_get_transaction_status\` to check status
 3. Wait for callback notification (if callback URL provided)
-4. Process payment through payware interface`
+4. Send the payer the payment link: on a phone it opens their banking app, on a computer it shows a QR to scan. It works until the payment's timeToLive runs out.
+5. A payment you create is a money request: collect any delivery address in your own checkout or chat (payware collects addresses only for its own products and purchase sessions).`
         }]
       };
     } else {

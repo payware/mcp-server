@@ -39,6 +39,8 @@ import { generateTestKeyPair } from './keys.js';
 
 export const IDS = {
   TX: 'pw12345678',
+  // A merchant's open payment of 22.00 with its own 2.00 tip inside (spec 24.1, D2), in a shop that allows tips.
+  TIPPED: 'pwTipped01',
   PRODUCT: 'pr12345678',
   SCHEDULE: 11,
   AUDIO: 7,
@@ -53,10 +55,15 @@ export const IDS = {
   RECOGNITION: 'rc12345678'
 };
 
-/** Partners by partner id, as the server resolves the JWT's iss. */
+/**
+ * Partners by partner id, as the server resolves the JWT's iss. maxTransactionTtl is a merchant's ceiling on the
+ * timeToLive it may create a payment with (MerchantValidationService.maxTransactionTtl, spec 24.3): 600 when unset,
+ * raised by the merchant in the portal profile up to 2,592,000. PZAYNMVE has raised it to 30 days, so an ISV acting for
+ * it gets that ceiling, while TESTMRCH keeps the default.
+ */
 export const PARTNERS = {
   TESTMRCH: { type: 'merchant', plan: 'PRM' },
-  PZAYNMVE: { type: 'merchant', plan: 'PRM' },
+  PZAYNMVE: { type: 'merchant', plan: 'PRM', maxTransactionTtl: 2592000 },
   TESTISV1: { type: 'isv' },
   TESTBANK: { type: 'payment_institution' }
 };
@@ -214,7 +221,9 @@ function offerQueryRefusal(query) {
 /**
  * Merchant `items` (spec 22.6): 1-50 lines, ITEM with quantity 1-99 and amount = quantity x unitPrice,
  * DISCOUNT below zero and everything else not, summing exactly to trData.amount; a bank-created payment
- * with items is refused (ERR_INVALID_ITEMS), as is an amount of 0.00.
+ * with items is refused (ERR_INVALID_ITEMS), as is an amount of 0.00. No TIP (spec 24.1,
+ * TransactionItemsValidationService.TYPES): a tip is never a line, so a TIP line is refused like any unknown type.
+ * With the merchant's own tip the lines add up to the amount before it, which the caller passes as `amount`.
  */
 function itemsRefusal(items, amount, currency, bank) {
   const TYPES = ['ITEM', 'SHIPPING', 'DISCOUNT', 'TAX', 'SURCHARGE'];
@@ -373,11 +382,15 @@ export class PaywareModel {
   }
 
   /**
-   * Back to the seeded state: one processed, ACTIVE transaction (IDS.TX), and no report requests but the
+   * Back to the seeded state: one processed, ACTIVE transaction (IDS.TX), one open one carrying the merchant's own
+   * tip (IDS.TIPPED), and no report requests but the
    * seeded IDS.REQUEST and IDS.EXPORT, which answer every caller.
    */
   reset() {
-    this.transactions = new Map([[IDS.TX, { status: 'ACTIVE', processed: true, amount: '10.00', currency: 'EUR' }]]);
+    this.transactions = new Map([
+      [IDS.TX, { status: 'ACTIVE', processed: true, amount: '10.00', currency: 'EUR', tipsAllowed: false }],
+      [IDS.TIPPED, { status: 'ACTIVE', processed: false, amount: '22.00', tip: '2.00', currency: 'EUR', tipsAllowed: true }]
+    ]);
     /** Report requests run against the model: requestId -> { partner, onBehalf, reportUnitId }. */
     this.reportRequests = new Map();
     /** Exports of those requests: exportId -> requestId. */
@@ -508,14 +521,27 @@ export class PaywareModel {
         if (present(tr.amount) && exceedsAmountDigits(tr.amount)) return err(400, 'ERR_INVALID_AMOUNT_LENGTH');
         if (amountOf(tr.amount, tr.currency) === null) return err(400, 'ERR_INVALID_AMOUNT');
         if (!bank && !present(tr.reasonL1)) return err(400, 'ERR_MISSING_REASON');
+        // The merchant's own tip (spec 24.1, D2; TransactionService.generateTransaction, TipService.merchantTipOf):
+        // inside amount, a plain decimal above zero at the currency's scale and at most the amount before it. An
+        // institution creates no merchant payment: its tip is 409.
+        let beforeTip = tr.amount;
+        if (present(tr.tip)) {
+          if (bank) return err(409, 'ERR_TIPS_NOT_ALLOWED');
+          const tip = String(tr.tip).trim();
+          if (!/^\d{1,12}(\.\d{1,8})?$/.test(tip) || amountOf(tip, tr.currency, { positive: true }) === null) return err(400, 'ERR_INVALID_TIP');
+          if (!(Number(tip) * 2 <= Number(tr.amount))) return err(400, 'ERR_INVALID_TIP');
+          beforeTip = Number(tr.amount) - Number(tip);
+        }
         if (present(body.items)) {
-          const refusal = itemsRefusal(body.items, tr.amount, tr.currency, bank);
+          const refusal = itemsRefusal(body.items, beforeTip, tr.currency, bank);
           if (refusal) return refusal;
         }
         if (present(tr.reasonL1) && tr.reasonL1.length > 100) return err(400, 'ERR_INVALID_REASONL1_LENGTH');
         if (present(tr.reasonL2) && tr.reasonL2.length > 100) return err(400, 'ERR_INVALID_REASONL2_LENGTH');
+        // 60 up to the merchant's own ceiling, 600 unless raised (spec 24.3); on behalf, the merchant's (caller.partnerId).
         const ttl = body.trOptions?.timeToLive;
-        if (!bank && present(ttl) && !inRange(ttl, 60, 600)) return err(400, 'ERR_INVALID_TTL');
+        const ceiling = PARTNERS[caller.partnerId]?.maxTransactionTtl ?? 600;
+        if (!bank && present(ttl) && !inRange(ttl, 60, ceiling)) return err(400, 'ERR_INVALID_TTL');
         return qrRefusal(body.qrOptions) || barRefusal(body.barOptions);
       }
       case 'processTransaction': {
@@ -527,6 +553,27 @@ export class PaywareModel {
         const reasonRequired = bank ? !/^(pr|pl|ps)/.test(id) : true;
         if (reasonRequired && !present(tr.reasonL1)) return err(400, 'ERR_MISSING_REASON');
         if (present(tr.quantity) && !(Number.isInteger(tr.quantity) && tr.quantity >= 1 && tr.quantity <= 99)) return err(400, 'ERR_INVALID_QUANTITY');
+        // One tip rule for every payment (spec 24.1, TipService, FIValidationService). The tip: an institution's, a
+        // plain decimal at the currency's scale above zero (400 ERR_INVALID_TIP); a merchant processing a payer's code
+        // sends none (409). The amount: a payment the model knows (seeded) asks its amount and is paid exactly that,
+        // never less (400 ERR_INVALID_AMOUNT), plus a tip only where the payer may tip (409 ERR_TIPS_NOT_ALLOWED: the
+        // seeded pw's shop takes none, and IDS.TIPPED carries the merchant's tip already), at most the amount asked (400
+        // ERR_INVALID_TIP), and exactly asked + tip (409 ERR_AMOUNT_NOT_TOTAL: no paying more without a tip). Offers,
+        // sessions, POI sales and unseeded pw ids are taken to be in a shop that allows tips, with or without lines or
+        // quantity; the model does not price them, so their amount is not checked here.
+        if (present(tr.tip)) {
+          if (!bank) return err(409, 'ERR_TIPS_NOT_ALLOWED');
+          if (!/^\d{1,12}(\.\d{1,8})?$/.test(String(tr.tip).trim()) || amountOf(String(tr.tip).trim(), tr.currency, { positive: true }) === null) return err(400, 'ERR_INVALID_TIP');
+        }
+        const known = this.transactions.get(id);
+        if (bank && known && Number(known.amount) > 0) {
+          const asked = Number(known.amount);
+          const tip = present(tr.tip) ? Number(String(tr.tip).trim()) : null;
+          if (Number(tr.amount) < asked) return err(400, 'ERR_INVALID_AMOUNT');
+          if (tip !== null && !(known.tipsAllowed && !present(known.tip))) return err(409, 'ERR_TIPS_NOT_ALLOWED');
+          if (tip !== null && tip > asked) return err(400, 'ERR_INVALID_TIP');
+          if (Math.abs(Number(tr.amount) - (asked + (tip ?? 0))) > 1e-9) return err(409, 'ERR_AMOUNT_NOT_TOTAL');
+        }
         if (body.deliveryAddress) {
           const a = body.deliveryAddress;
           if (!present(a.fullName) || a.fullName.length > 200) return err(400, 'ERR_INVALID_DELIVERY_ADDRESS');
@@ -659,6 +706,8 @@ export class PaywareModel {
           return JSON.stringify(lockOf(body)) === JSON.stringify(tx.lock) ? null : err(409, 'ERR_EXECUTION_MISMATCH');
         }
         if (tx.status !== 'ACTIVE' || !tx.processed) return err(409, 'ERR_ALREADY_PROCESSED');
+        // Review S1 (FIValidationService.validateExecutionStart): the lock carries exactly the processed amount.
+        if (Math.abs(Number(body.amount) - Number(tx.amount)) > 1e-9) return err(400, 'ERR_SPECIFYING_AMOUNT_NOT_ALLOWED');
         return null;
       }
       case 'CONFIRMED':
@@ -681,8 +730,14 @@ export class PaywareModel {
     switch (req.route) {
       case 'createTransaction':
         return { status: 200, body: transactionDto('pw87654321', { amount: req.json?.trData?.amount, currency: req.json?.trData?.currency }) };
-      case 'getTransaction':
-        return { status: 200, body: transactionDto(a, { status: this.transactions.get(a)?.status === 'EXECUTING' && req.caller.type === 'payment_institution' ? 'EXECUTING' : 'ACTIVE' }) };
+      case 'getTransaction': {
+        // A merchant's tip is on the read, inside amount, and leaves no tipsAllowed (TipService.markTipsAllowed).
+        const known = this.transactions.get(a);
+        return { status: 200, body: transactionDto(a, {
+          status: known?.status === 'EXECUTING' && req.caller.type === 'payment_institution' ? 'EXECUTING' : 'ACTIVE',
+          ...(known?.tip && { amount: known.amount, tip: known.tip })
+        }) };
+      }
       case 'processTransaction':
         // Processing a product, placement, soundbite or POI id answers with the pw transaction it made.
         return { status: 200, body: transactionDto(a.startsWith('pw') ? a : IDS.TX, { amount: req.json?.trData?.amount, currency: req.json?.trData?.currency }) };

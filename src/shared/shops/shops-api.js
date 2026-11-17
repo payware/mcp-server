@@ -61,7 +61,11 @@ reasonable guess for a single-outlet merchant and the wrong outlet for everyone 
 against the wrong shop, and nothing about the response says so.
 
 **Returned per shop** (server ShopDTO): \`code\` (the value to pass as \`shop\` / \`shopCode\`), \`name\`,
-\`isDefault\`, \`ecommerce\`, \`country\` and the shop's label, image and terms URLs.
+\`isDefault\`, \`ecommerce\`, \`country\`, \`tipsAllowed\` and the shop's label, image and terms URLs.
+\`tipsAllowed: true\` means the payer's bank may add a tip to this shop's payments, with or without lines: the payer
+pays the amount plus the tip, and payware records it on the payment as \`tip\` (never a line), in the callback and
+the history. Without it the payer pays exactly the amount. The merchant switches it in the portal's shop form; it is
+off by default. A merchant's own tip (\`tip\` on create) needs no such setting.
 ${isIsv ? `
 ⚠️ **ISVs see only their assigned shops.** This returns the shops the merchant put in your scope, not
 every shop the merchant owns. That is deliberate and it is the same rule the write paths enforce:
@@ -135,7 +139,7 @@ ${result.error.guidance ? `\n${result.error.guidance}` : ''}
       // ShopDTO calls the code `code`; reading `shopCode` and `city`, which it does not have, listed every
       // shop as `undefined`.
       const list = shops.map(shop => {
-        const flags = [shop.isDefault && 'default', shop.ecommerce && 'e-commerce', shop.country].filter(Boolean).join(', ');
+        const flags = [shop.isDefault && 'default', shop.ecommerce && 'e-commerce', shop.tipsAllowed === true && 'tips allowed', shop.country].filter(Boolean).join(', ');
         return `🏬 **${shop.name || '(unnamed)'}** - \`${shop.code}\`${flags ? ` (${flags})` : ''}`;
       }).join('\n');
 

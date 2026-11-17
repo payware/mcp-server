@@ -31,7 +31,8 @@ const { getISVTools } = await import('../src/isv/index.js');
 const { getPaymentInstitutionTools } = await import('../src/payment-institution/index.js');
 const { getPayerTools } = await import('../src/payer/index.js');
 const { extractLinkId, sandboxFor, watchLink, sessionBody, FINAL_STATUSES, retryAfterSeconds } = await import('../src/payer/links-api.js');
-const { ITEMS_PROPERTY, ITEMS_DESCRIPTION } = await import('../src/shared/transaction-items.js');
+const { ITEMS_PROPERTY, ITEMS_DESCRIPTION, ITEM_TYPES, LINE_TYPES, MERCHANT_TIP_PROPERTY, MERCHANT_TIP_DESCRIPTION } = await import('../src/shared/transaction-items.js');
+const { CALLBACK_ITEMS_PROPERTY, CALLBACK_TIP_PROPERTY } = await import('../src/merchant/transactions/simulate-callback.js');
 const { getLinksUrl } = await import('../src/config/env.js');
 
 const tool = (tools, name) => tools.find(t => t.name === name);
@@ -206,12 +207,120 @@ describe('items on a merchant-created payment', () => {
       assert.match(text(empty), /ERR_ITEMS_EMPTY/);
       assert.equal(payware.requests().length, 0);
     });
+
+    test(`${role}: a TIP line is refused before anything is sent: a tip is never a line (spec 24.1)`, async () => {
+      payware.reset();
+      const result = await as(role, () => tool(registry(), 'payware_operations_create_transaction').handler({
+        ...extra, currency: 'EUR', reasonL1: 'x', amount: 12,
+        items: [{ type: 'ITEM', name: 'Coffee', quantity: 1, unitPrice: '10.00', amount: '10.00' }, { type: 'TIP', name: 'Tip', amount: '2.00' }]
+      }));
+      assert.equal(result.isError, true);
+      assert.match(text(result), /items\[1\]: a tip is never a line/);
+      assert.match(text(result), /ERR_INVALID_ITEMS/);
+      assert.equal(payware.requests().length, 0);
+    });
+
+    test(`${role}: the merchant's own tip goes as trData.tip, inside amount, and the lines add up to amount minus tip (spec 24.1, D2)`, async () => {
+      payware.reset();
+      const create = args => as(role, () => tool(registry(), 'payware_operations_create_transaction').handler({ ...extra, currency: 'EUR', reasonL1: 'Table 4', ...args }));
+      const coffee = [{ type: 'ITEM', name: 'Coffee', quantity: 1, unitPrice: '10.00', amount: '10.00' }];
+      const result = await create({ amount: 12, tip: 2, items: coffee });
+      assert.notEqual(result.isError, true, text(result));
+      assert.deepEqual([payware.sandbox.lastRequest.json.trData.amount, payware.sandbox.lastRequest.json.trData.tip], ['12', '2'], 'a number goes as its plain decimal');
+      assert.match(text(result), /tip included: 2 EUR/);
+
+      payware.reset();
+      await create({ amount: '12.00' });
+      assert.ok(!('tip' in payware.sandbox.lastRequest.json.trData), 'no tip, no key');
+
+      // Lines that add up to the amount with the tip in it: payware's ERR_ITEMS_DO_NOT_SUM.
+      payware.reset();
+      const wrongSum = await create({ amount: '12.00', tip: '2.00', items: [{ type: 'ITEM', name: 'Coffee', quantity: 1, unitPrice: '12.00', amount: '12.00' }] });
+      assert.equal(wrongSum.isError, true);
+      assert.match(JSON.stringify(payware.sandbox.lastRequest.response.body), /ERR_ITEMS_DO_NOT_SUM/);
+
+      // What the server would refuse for the tip alone is refused before sending.
+      payware.reset();
+      for (const [args, why] of [
+        [{ amount: '12.00', tip: '0' }, /plain decimal above zero/],
+        [{ amount: '12.00', tip: '1e2' }, /plain decimal above zero/],
+        [{ amount: '12.00', tip: '6.01' }, /at most half of amount/],
+        [{ tip: '1.00' }, /at most half of amount/]
+      ]) {
+        const refused = await create(args);
+        assert.equal(refused.isError, true, JSON.stringify(args));
+        assert.match(text(refused), why, JSON.stringify(args));
+      }
+      assert.equal(payware.requests().length, 0);
+      assert.deepEqual(tool(registry(), 'payware_operations_create_transaction').inputSchema.properties.tip, MERCHANT_TIP_PROPERTY);
+    });
   }
 
-  test('the line schema has no country, and the description names ERR_ITEMS_EMPTY, the country rule and the no-tip rule', () => {
+  test('the line schema has no country and no TIP, and the descriptions name ERR_ITEMS_EMPTY, the country rule and the one tip rule', () => {
     assert.ok(!('country' in ITEMS_PROPERTY.items.properties));
     assert.equal(ITEMS_PROPERTY.items.additionalProperties, false);
-    for (const part of ['ERR_ITEMS_EMPTY', 'ERR_INVALID_ITEMS', 'country', 'ERR_AMOUNT_NOT_TOTAL']) assert.ok(ITEMS_DESCRIPTION.includes(part), part);
+    assert.deepEqual(ITEMS_PROPERTY.items.properties.type.enum, ['ITEM', 'SHIPPING', 'DISCOUNT', 'TAX', 'SURCHARGE']);
+    assert.deepEqual(LINE_TYPES, ITEM_TYPES, 'a tip is never a line, so payware returns the same line types');
+    for (const part of ['ERR_ITEMS_EMPTY', 'ERR_INVALID_ITEMS', 'country', 'ERR_AMOUNT_NOT_TOTAL', 'TIP', 'minus \`tip\`', 'never a line']) assert.ok(ITEMS_DESCRIPTION.includes(part), part);
+    assert.match(ITEMS_PROPERTY.description, /No TIP line/);
+    for (const part of ['trData.tip', 'tipsAllowed', 'ERR_INVALID_TIP', 'no paying more without a tip', 'offers no second tip']) assert.ok(MERCHANT_TIP_DESCRIPTION.includes(part), part);
+    assert.deepEqual(MERCHANT_TIP_PROPERTY.type, ['string', 'number']);
+  });
+});
+
+describe('payment lifetime on a merchant-created payment (spec 24.3)', () => {
+  const ROLES = [
+    ['merchant', getMerchantTools, {}],
+    ['isv', getISVTools, { merchantPartnerId: 'PZAYNMVE', oauth2Token: OAUTH2_TOKEN }]
+  ];
+  const create = (role, registry, extra, args) => as(role, () => tool(registry(), 'payware_operations_create_transaction').handler({
+    ...extra, amount: 10, currency: 'EUR', reasonL1: 'Order 17', ...args
+  }));
+
+  for (const [role, registry, extra] of ROLES) {
+    test(`${role}: timeToLive outside 60 to 2592000 is refused before sending, naming ERR_INVALID_TTL`, async () => {
+      payware.reset();
+      for (const timeToLive of [59, 0, 2592001, 120.5, 'soon']) {
+        const result = await create(role, registry, extra, { timeToLive });
+        assert.equal(result.isError, true, String(timeToLive));
+        assert.match(text(result), /60 to 2592000/, String(timeToLive));
+        assert.match(text(result), /ERR_INVALID_TTL/, String(timeToLive));
+      }
+      assert.equal(payware.requests().length, 0, 'nothing outside the widest ceiling reaches payware');
+    });
+
+    test(`${role}: timeToLive within the range goes as trOptions.timeToLive, and 120 when left out`, async () => {
+      for (const timeToLive of [60, 600]) {
+        payware.reset();
+        const result = await create(role, registry, extra, { timeToLive });
+        assert.equal(payware.sandbox.lastRequest.json.trOptions.timeToLive, timeToLive);
+        assert.notEqual(result.isError, true, text(result));
+      }
+      payware.reset();
+      await create(role, registry, extra, {});
+      assert.equal(payware.sandbox.lastRequest.json.trOptions.timeToLive, 120);
+    });
+
+    test(`${role}: the schema allows 60 to 2592000 and says the ceiling is the merchant's, 600 by default, and that plugins keep 60-600`, () => {
+      const { timeToLive } = tool(registry(), 'payware_operations_create_transaction').inputSchema.properties;
+      assert.deepEqual([timeToLive.minimum, timeToLive.maximum], [60, 2592000]);
+      for (const part of ['600 by default', 'Longest payment lifetime', '2592000', 'ERR_INVALID_TTL', '60-600', 'cannot change it']) {
+        assert.ok(timeToLive.description.includes(part), `${role} timeToLive does not say "${part}"`);
+      }
+      assert.match(tool(registry(), 'payware_operations_create_transaction').description, /PAYMENT LIFETIME/);
+    });
+  }
+
+  test('payware enforces the merchant\'s own ceiling: 600 by default, the raised one on behalf', async () => {
+    payware.reset();
+    const merchant = await create('merchant', getMerchantTools, {}, { timeToLive: 3600 });
+    assert.equal(merchant.isError, true, 'TESTMRCH keeps the default ceiling of 600');
+    assert.match(JSON.stringify(payware.sandbox.lastRequest.response.body), /ERR_INVALID_TTL/);
+
+    payware.reset();
+    const isv = await create('isv', getISVTools, { merchantPartnerId: 'PZAYNMVE', oauth2Token: OAUTH2_TOKEN }, { timeToLive: 2592000 });
+    assert.notEqual(isv.isError, true, text(isv));
+    assert.equal(payware.sandbox.lastRequest.json.trOptions.timeToLive, 2592000, 'PZAYNMVE raised its ceiling to 30 days, and the ISV gets it');
   });
 });
 
@@ -276,6 +385,42 @@ describe('simulate callback: product, placement, session and items', () => {
       for (const key of ['productId', 'placementId', 'sessionId', 'items']) assert.ok(key in properties, key);
       assert.equal(properties.amount.default, undefined);
     }
+  });
+
+  for (const [role, registry, extra] of [['merchant', getMerchantTools, {}], ['isv', getISVTools, { merchantPartnerId: 'PZAYNMVE' }]]) {
+    test(`${role}: a tip is carried as tip, never a line; total stays what was sold and amount + fee = total + tip (spec 24.1)`, async () => {
+      const simulate = args => tool(registry(), 'payware_operations_simulate_callback').handler({ ...extra, transactionId: 'pw12345678', items: LINES, ...args });
+      const payload = payloadOf(await simulate({ tip: '2.00', fee: '1.29' }));
+      assert.equal(payload.tip, '2.00');
+      assert.ok(payload.items.every(line => line.type !== 'TIP'));
+      assert.deepEqual([payload.total, payload.amount], ['85.00', '85.71'], 'total is what was sold; amount is total + tip net of the fee');
+      const declined = payloadOf(await simulate({ tip: '2.00', status: 'DECLINED' }));
+      assert.equal(declined.amount, '87.00', 'nothing was paid: amount is total + tip');
+      assert.ok(!('tip' in payloadOf(await simulate({}))), 'no tip, no key');
+      const wrong = await simulate({ tip: '2.00', fee: '1.29', amount: '83.71' });
+      assert.equal(wrong.isError, true);
+      assert.match(text(wrong), /tip 2\.00/);
+      assert.equal((await simulate({ tip: 'abc' })).isError, true);
+      assert.match(tool(registry(), 'payware_operations_simulate_callback').description, /A tip is never a line/i);
+      assert.deepEqual(tool(registry(), 'payware_operations_simulate_callback').inputSchema.properties.tip, CALLBACK_TIP_PROPERTY);
+    });
+  }
+
+  for (const [role, registry, extra] of [['merchant', getMerchantTools, {}], ['isv', getISVTools, { merchantPartnerId: 'PZAYNMVE' }]]) {
+    test(`${role}: tipEnteredBy comes with the tip, PAYER unless MERCHANT is given, and never without a tip (review D15)`, async () => {
+      const simulate = args => tool(registry(), 'payware_operations_simulate_callback').handler({ ...extra, transactionId: 'pw12345678', ...args });
+      assert.equal(payloadOf(await simulate({ amount: '22.00', tip: '2.00' })).tipEnteredBy, 'PAYER');
+      assert.equal(payloadOf(await simulate({ amount: '22.00', tip: '2.00', tipEnteredBy: 'MERCHANT' })).tipEnteredBy, 'MERCHANT');
+      assert.ok(!('tipEnteredBy' in payloadOf(await simulate({ amount: '22.00', tipEnteredBy: 'MERCHANT' }))), 'no tip, no tipEnteredBy');
+      assert.deepEqual(tool(registry(), 'payware_operations_simulate_callback').inputSchema.properties.tipEnteredBy.enum, ['MERCHANT', 'PAYER']);
+    });
+  }
+
+  test('the callback line schema has no TIP: a tip is never a line', () => {
+    assert.deepEqual(CALLBACK_ITEMS_PROPERTY.items.properties.type.enum, LINE_TYPES);
+    assert.ok(!LINE_TYPES.includes('TIP'));
+    assert.match(CALLBACK_ITEMS_PROPERTY.description, /A tip is never a line: give it as tip/);
+    assert.match(CALLBACK_TIP_PROPERTY.description, /amount \+ fee = total \+ tip/);
   });
 
   test('without items the amount is still 57.60 by default', async () => {
@@ -391,8 +536,8 @@ describe('institution tools', () => {
     const process = fi('payware_operations_process_transaction');
     assert.match(process.description, /has a delivery surcharge/);
     assert.match(process.description, /deliveryDetails: true/);
-    assert.match(process.description, /An agent's address never stands in/);
-    assert.match(process.inputSchema.properties.amount.description, /exactly its total, no tip/);
+    assert.match(process.description, /An agent's own address never stands in/);
+    assert.match(process.inputSchema.properties.amount.description, /exactly the amount the payment asks \(its total when it has lines, else its amount\), or that \+ tip when you send tip/);
     assert.match(process.inputSchema.properties.amount.description, /15 integer digits/);
     assert.match(fi('payware_fi_quote').description, /prices the country you give/);
     for (const registry of [getMerchantTools, getISVTools]) {
@@ -401,6 +546,157 @@ describe('institution tools', () => {
       assert.match(update, /ERR_NO_DELIVERY_IN_CURRENCY/);
       assert.match(tool(registry(), 'payware_operations_create_transaction').inputSchema.properties.amount.description, /15 integer digits/);
     }
+  });
+});
+
+describe('institution tools: tip and re-pricing (spec 24.1, 24.2)', () => {
+  const fi = name => tool(getPaymentInstitutionTools(), name);
+  const BASE = { friendlyName: 'Jane Doe', currency: 'EUR', reasonL1: 'Test Merchant - Main store' };
+  const process = args => as('payment_institution', () => fi('payware_operations_process_transaction').handler({ ...BASE, ...args }));
+
+  test('a tip goes as trData.tip, as given, beside amount = total + tip', async () => {
+    payware.reset();
+    const result = await process({ transactionId: 'pa12345678', amount: '87.00', tip: '2.00' });
+    const req = payware.sandbox.lastRequest;
+    assert.equal(`${req.method} ${req.path}`, 'POST /api/transactions/pa12345678');
+    assert.deepEqual([req.json.trData.amount, req.json.trData.tip], ['87.00', '2.00']);
+    assert.equal(req.contentHashMatches, true);
+    assert.notEqual(result.isError, true, text(result));
+    assert.match(text(result), /Tip: 2\.00 EUR/);
+
+    payware.reset();
+    await process({ transactionId: PRODUCT, quantity: 2, amount: 82, tip: 2 });
+    assert.deepEqual([payware.sandbox.lastRequest.json.trData.quantity, payware.sandbox.lastRequest.json.trData.tip], [2, '2'], 'a number goes as its plain decimal');
+
+    // One tip rule (spec 24.1): a product without quantity and a POI sale take a tip too.
+    for (const transactionId of [PRODUCT, IDS.POI]) {
+      payware.reset();
+      const result = await process({ transactionId, amount: '42.00', tip: '2.00' });
+      assert.notEqual(result.isError, true, `${transactionId}: ${text(result)}`);
+      assert.equal(payware.sandbox.lastRequest.json.trData.tip, '2.00');
+    }
+
+    payware.reset();
+    await process({ transactionId: 'pa12345678', amount: '85.00' });
+    assert.ok(!('tip' in payware.sandbox.lastRequest.json.trData), 'no tip, no key');
+  });
+
+  test('what the server would refuse for the tip alone is refused before sending', async () => {
+    payware.reset();
+    for (const [args, why] of [
+      [{ transactionId: 'pa12345678', amount: '85.00', tip: '0' }, /plain decimal above zero/],
+      [{ transactionId: 'pa12345678', amount: '85.00', tip: '-1.00' }, /plain decimal above zero/],
+      [{ transactionId: 'pa12345678', amount: '85.00', tip: '1e2' }, /plain decimal above zero/],
+      [{ transactionId: 'pa12345678', amount: '2.00', tip: '2.00' }, /at most half of amount/],
+      [{ transactionId: 'pa12345678', amount: '3.99', tip: '2.00' }, /at most half of amount/]
+    ]) {
+      const result = await process(args);
+      assert.equal(result.isError, true, JSON.stringify(args));
+      assert.match(text(result), why, JSON.stringify(args));
+    }
+    assert.equal(payware.requests().length, 0);
+  });
+
+  test('a tip where the shop takes none, or on the merchant\'s own tip, comes back as payware\'s 409 ERR_TIPS_NOT_ALLOWED', async () => {
+    payware.reset();
+    const result = await process({ transactionId: IDS.TX, amount: '12.00', tip: '2.00' });
+    assert.equal(result.isError, true);
+    assert.match(text(result), /ERR_TIPS_NOT_ALLOWED/);
+    const onTipped = await process({ transactionId: IDS.TIPPED, amount: '24.00', tip: '2.00' });
+    assert.equal(onTipped.isError, true);
+    assert.match(text(onTipped), /ERR_TIPS_NOT_ALLOWED/);
+    // The merchant's tip is inside the amount: the payer's bank pays exactly it.
+    assert.notEqual((await process({ transactionId: IDS.TIPPED, amount: '22.00' })).isError, true);
+  });
+
+  test('paying more without a tip is gone: payware answers 409 ERR_AMOUNT_NOT_TOTAL, less is 400 ERR_INVALID_AMOUNT', async () => {
+    payware.reset();
+    const more = await process({ transactionId: IDS.TX, amount: '12.00' });
+    assert.equal(more.isError, true);
+    assert.match(text(more), /ERR_AMOUNT_NOT_TOTAL/);
+    const less = await process({ transactionId: IDS.TX, amount: '9.99' });
+    assert.equal(less.isError, true);
+    assert.match(text(less), /ERR_INVALID_AMOUNT/);
+    assert.notEqual((await process({ transactionId: IDS.TX, amount: '10.00' })).isError, true);
+  });
+
+  test('EXECUTING carries exactly the processed amount (review S1): another one is 400 ERR_SPECIFYING_AMOUNT_NOT_ALLOWED', async () => {
+    payware.reset();
+    const finalize = args => as('payment_institution', () => fi('payware_operations_finalize_transaction').handler({ transactionId: IDS.TX, status: 'EXECUTING', fee: '0.10', currency: 'EUR', transferType: 'INSTANT', ...args }));
+    const higher = await finalize({ amount: '12.00' });
+    assert.equal(higher.isError, true);
+    assert.match(text(higher), /ERR_SPECIFYING_AMOUNT_NOT_ALLOWED/);
+    assert.notEqual((await finalize({ amount: '10.00' })).isError, true);
+    payware.reset();
+    const description = fi('payware_operations_finalize_transaction').description;
+    assert.match(description, /exactly the amount you processed, tip included/);
+    assert.match(description, /ERR_SPECIFYING_AMOUNT_NOT_ALLOWED/);
+  });
+
+  test('the process tool says how to tip, when it is refused, and what payware writes', () => {
+    const { description, inputSchema } = fi('payware_operations_process_transaction');
+    for (const part of ['trData.tip', 'tipsAllowed: true', 'the amount asked + tip', 'ERR_INVALID_TIP', 'ERR_TIPS_NOT_ALLOWED', 'ERR_AMOUNT_NOT_TOTAL', 'never as a line', 'tip included', 'same tip', 'no paying more without a tip']) {
+      assert.ok(description.includes(part), `process does not say "${part}"`);
+    }
+    assert.ok(!description.includes('"type":"TIP"'), 'no TIP line any more');
+    assert.deepEqual(inputSchema.properties.tip.type, ['string', 'number']);
+    for (const part of ['ERR_INVALID_TIP', 'ERR_TIPS_NOT_ALLOWED', 'the amount asked + tip', 'with or without lines']) assert.ok(inputSchema.properties.tip.description.includes(part), part);
+  });
+
+  test('a session in another country is re-priced, never refused for its price: ERR_SESSION_DELIVERY_FEE_DIFFERS is gone from every tool', () => {
+    const process = fi('payware_operations_process_transaction');
+    assert.match(process.description, /re-priced, never refused for its price/);
+    assert.match(process.inputSchema.properties.deliveryAddress.description, /re-priced for that country, never refused/);
+    assert.match(fi('payware_operations_get_transaction_status').description, /re-priced, never refused for its price/);
+    assert.match(fi('payware_fi_quote').description, /re-priced for your payer's country/);
+    for (const registry of [getMerchantTools, getISVTools, getPaymentInstitutionTools, getPayerTools]) {
+      for (const t of registry()) {
+        assert.ok(!JSON.stringify({ d: t.description, s: t.inputSchema }).includes('ERR_SESSION_DELIVERY_FEE_DIFFERS'), t.name);
+      }
+    }
+  });
+
+  test('a session paid with the page\'s address sends deliveryAddressVersion at the root, and only when given (review C4)', async () => {
+    payware.reset();
+    const result = await process({ transactionId: 'pa12345678', amount: '85.00', deliveryAddressVersion: '3f9a1c7e0b2d4a65' });
+    const req = payware.sandbox.lastRequest;
+    assert.equal(req.json.deliveryAddressVersion, '3f9a1c7e0b2d4a65');
+    assert.ok(!('deliveryAddressVersion' in req.json.trData));
+    assert.equal(req.contentHashMatches, true);
+    assert.notEqual(result.isError, true, text(result));
+    payware.reset();
+    await process({ transactionId: 'pa12345678', amount: '85.00' });
+    assert.ok(!('deliveryAddressVersion' in payware.sandbox.lastRequest.json), 'no version, no key');
+
+    const tool_ = fi('payware_operations_process_transaction');
+    assert.match(tool_.description, /ERR_SESSION_ADDRESS_CHANGED/);
+    assert.match(tool_.inputSchema.properties.deliveryAddressVersion.description, /delivery\.addressVersion/);
+    assert.match(fi('payware_operations_get_transaction_status').description, /delivery\.addressVersion/);
+  });
+
+  test('a 0.00 product lists its countries without amounts, on the read and the quote', () => {
+    assert.match(fi('payware_operations_get_transaction_status').description, /countries served \*\*without amounts\*\*/);
+    assert.match(fi('payware_fi_quote').description, /countries served \*\*without amounts\*\*/);
+  });
+
+  test('a bank without an address screen may send the payer to the page for a shippable pa; a merchant\'s pw never asks for an address', () => {
+    const status = fi('payware_operations_get_transaction_status').description;
+    assert.match(status, /\?delivery\` for a shippable session without a confirmed address/);
+    const process = fi('payware_operations_process_transaction');
+    assert.match(process.inputSchema.properties.deliveryAddress.description, /a shippable product, or a session with a shippable line/);
+    // #441 (trOptions.collectDeliveryAddress) was removed before release on 2026-11-17: no tool offers or mentions it.
+    for (const registry of [getMerchantTools, getISVTools, getPaymentInstitutionTools, getPayerTools]) {
+      for (const t of registry()) {
+        assert.ok(!JSON.stringify({ d: t.description, s: t.inputSchema }).includes('collectDeliveryAddress'), t.name);
+      }
+    }
+  });
+
+  test('the reads name tipsAllowed and the tip field, with no TIP line, and the quote says the tip comes on top of its total', () => {
+    const status = fi('payware_operations_get_transaction_status').description;
+    for (const part of ['tipsAllowed: true', 'TAX or SURCHARGE', '\`tip\` (absent otherwise)', 'merchant\'s own', 'offer no second tip', 'with or without lines']) assert.ok(status.includes(part), part);
+    assert.ok(!status.includes('"type":"TIP"'));
+    assert.match(fi('payware_fi_quote').description, /plus the payer's tip/);
   });
 });
 
@@ -515,6 +811,20 @@ describe('the payer role', () => {
     assert.match(text(await payer('payware_payer_read_link', { link: 'pa87654321' })), /- Delivery: 5\.00 EUR/);
   });
 
+  test('read_link and create_session: a session lists the delivery price per country (review C3)', async () => {
+    reset();
+    const withCountries = { ...SESSION, delivery: { country: 'BG', countryServed: true, countries: [{ country: 'BG', amount: '5.00' }, { country: 'RO', amount: '12.00' }] } };
+    script('GET /links/pa87654321', { status: 200, body: withCountries });
+    assert.match(text(await payer('payware_payer_read_link', { link: 'pa87654321' })), /Delivers to 2 countries: BG 5\.00, RO 12\.00 EUR/);
+    script('POST /links/pr12345678/sessions', { status: 201, body: withCountries });
+    assert.match(text(await payer('payware_payer_create_session', { link: 'pr12345678', quantity: 2 })), /Delivers to 2 countries: BG 5\.00, RO 12\.00 EUR/);
+    script('GET /links/pa87654321', { status: 200, body: SESSION });
+    assert.ok(!/Delivers to/.test(text(await payer('payware_payer_read_link', { link: 'pa87654321' }))), 'no countries, no line');
+    for (const name of ['payware_payer_read_link', 'payware_payer_create_session']) {
+      assert.match(tool(getPayerTools(), name).description, /delivery\.countries/, name);
+    }
+  });
+
   test('extractLinkId reads ids out of every accepted form', () => {
     assert.equal(extractLinkId('pa12345678'), 'pa12345678');
     assert.equal(extractLinkId('  https://go.payware.eu/pa12345678  '), 'pa12345678');
@@ -591,6 +901,24 @@ describe('the payer role', () => {
     for (const part of ['go.payware.eu', 'paywa.re', 'own banking app', 'bank credentials', 'Nothing is created', 'indicative', 'ERR_DELIVERY_COUNTRY_NOT_SERVED']) {
       assert.ok(description.includes(part), `the description does not say "${part}"`);
     }
+  });
+
+  test('every payer tool keeps the agent off the page\'s address calls, and says the bank re-prices instead of refusing', () => {
+    for (const t of getPayerTools()) {
+      for (const part of ['PUT /links/{pa}/address', 'POST /links/{pa}/address-confirmation', 'enteredBy']) {
+        assert.ok(t.description.includes(part), `${t.name} does not say "${part}"`);
+      }
+      assert.ok(!t.description.includes('ERR_SESSION_DELIVERY_FEE_DIFFERS'), t.name);
+    }
+    for (const name of ['payware_payer_read_link', 'payware_payer_create_session', 'payware_payer_watch']) {
+      const { description } = tool(getPayerTools(), name);
+      assert.match(description, /re-priced, never refused for the price/, name);
+      assert.match(description, /records it on the payment as `tip`, never as a line/, name);
+      assert.match(description, /Never add a tip yourself/, name);
+    }
+    assert.match(tool(getPayerTools(), 'payware_payer_create_session').description, /re-priced, not refused/);
+    assert.match(tool(getPayerTools(), 'payware_payer_read_link').description, /may replace the address on payware's page/);
+    assert.match(tool(getPayerTools(), 'payware_payer_check_price').description, /may add a tip there/);
   });
 
   test('a full link on a public link host names its environment; a bare id or an explicit base URL keeps the configured one', () => {

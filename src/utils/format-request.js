@@ -77,8 +77,10 @@ export function formatTransactionRequest(data) {
     errors.push('Shop code cannot exceed 10 characters');
   }
   
-  if (timeToLive && (timeToLive < 60 || timeToLive > 600)) {
-    errors.push('Time to live must be between 60 and 600 seconds');
+  // 60 seconds up to the merchant's own ceiling, which is 600 unless the merchant raised it in the portal profile, up
+  // to 30 days (spec 24.3). The ceiling is payware's to check (ERR_INVALID_TTL); this checks the widest range.
+  if (timeToLive && (timeToLive < 60 || timeToLive > 2592000)) {
+    errors.push('Time to live must be between 60 and 2592000 seconds (30 days), and at most the merchant\'s own ceiling: 600 unless raised in the portal profile');
   }
   
   if (errors.length > 0) {

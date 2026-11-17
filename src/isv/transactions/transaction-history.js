@@ -86,9 +86,13 @@ callbacks you received. (This tool previously advertised \`limit\`, \`offset\`, 
 
 📦 **This is the only source of the delivery address.** For a SHIPPABLE transaction,
 \`deliveryAddress\` is returned here and nowhere else - it was removed from the finalized callback on
-2026-08-07, because a callback goes to whatever certificate the merchant's endpoint presents and a
-shopper's home address does not belong on that channel. The callback tells you the shipment is
-ready; this call gives you the address.
+2026-08-07: a callback is pushed to whatever URL is registered and its body stays in request logs
+and retry queues, so a shopper's home address does not belong on it. The callback tells you the
+shipment is ready; this call gives you the address.
+
+🧾 **Lines and tip.** A payment with lines carries \`items\` and \`total\`: what was sold. A tip is never
+a line: \`tip\` (absent without one) is the merchant's own, sent when the payment was created, or the
+payer's, added in their bank where the merchant's shop allows tips; \`tipEnteredBy\` (\`MERCHANT\` or \`PAYER\`) says which. The payer paid \`total\` + \`tip\`.
 
 ⚠️ **The MERCHANT's plan governs, and this endpoint is now gated.** It was ungated until 2026-08-21
 and now requires Standard or Premium, so acting for a **Basic** merchant answers **403**.`,

@@ -373,12 +373,13 @@ describe('finalize transaction: the execution lock', () => {
   test('EXECUTING sends the amount, fee, currency and transfer type', async () => {
     server.respondWith(200, { transactionId: 'pw12345678', status: 'EXECUTING', transferType: 'INSTANT', fee: '1.34', feeVat: '0.22' });
 
-    const result = await finalize({ status: 'EXECUTING', amount: '112.00', fee: '1.34', currency: 'EUR', transferType: 'INSTANT' });
+    // Exactly the processed amount (review S1): the seeded pw12345678 was processed at 10.00.
+    const result = await finalize({ status: 'EXECUTING', amount: '10.00', fee: '1.34', currency: 'EUR', transferType: 'INSTANT' });
 
     const req = server.lastRequest;
     assert.equal(req.method, 'PATCH');
     assert.equal(req.path, '/api/transactions/pw12345678');
-    assert.deepEqual(req.json, { status: 'EXECUTING', amount: '112.00', fee: '1.34', currency: 'EUR', transferType: 'INSTANT' });
+    assert.deepEqual(req.json, { status: 'EXECUTING', amount: '10.00', fee: '1.34', currency: 'EUR', transferType: 'INSTANT' });
     assert.equal(req.contentHashMatches, true);
     assert.equal(result.success, true);
   });

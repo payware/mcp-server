@@ -1,11 +1,12 @@
 import axios from 'axios';
 import { createJWTForPartner } from '../../core/auth/jwt-factory.js';
-import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
+import { getSandboxUrl, getProductionUrl, getLinksUrl, getPartnerIdSafe, getPrivateKeySafe } from '../../config/env.js';
 import { describeApiError } from '../../shared/api-errors.js';
 import { QR_OPTION_PROPERTIES, BARCODE_OPTION_PROPERTIES, buildQrOptions, buildBarOptions } from '../../shared/media-options.js';
 import { CREATES } from '../../shared/tool-annotations.js';
-import { ITEMS_PROPERTY, ITEMS_DESCRIPTION, buildItems } from '../../shared/transaction-items.js';
+import { ITEMS_PROPERTY, ITEMS_DESCRIPTION, buildItems, MERCHANT_TIP_PROPERTY, MERCHANT_TIP_DESCRIPTION, checkMerchantTip } from '../../shared/transaction-items.js';
 import { checkDeferredAllowed, deferredAllowedOption, DEFERRED_ALLOWED_DESCRIPTION } from '../../shared/deferred-transfer.js';
+import { checkTimeToLive, TIME_TO_LIVE_DESCRIPTION, TIME_TO_LIVE_PARAGRAPH } from '../../shared/transaction-options.js';
 
 /**
  * Create a transaction via payware API on behalf of a merchant (ISV)
@@ -23,6 +24,8 @@ export async function createTransaction({
   reasonL1,
   reasonL2,
   items,
+  // The merchant's own tip inside amount (trData.tip, spec 24.1, D2): a till that asked the payer first.
+  tip,
   callbackUrl,
   account,
   friendlyName,
@@ -80,6 +83,11 @@ export async function createTransaction({
   // A terminal sale stays instant or internal: the server answers 400 ERR_DEFERRED_TRANSFER_NOT_ALLOWED.
   checkDeferredAllowed(deferredAllowed, { producerPartnerId, terminalId, terminalManufacturer });
 
+  // 60 to 30 days: the widest range any merchant may have. payware refuses more than the merchant's own ceiling,
+  // which an ISV acting for it gets and cannot change.
+  checkTimeToLive(timeToLive);
+
+  const tipText = checkMerchantTip(tip, amount);
   const lines = buildItems(items, amount);
 
   const qrOptions = buildQrOptions(type, { qrFormat, qrBorder, qrErrorCorrection, qrScale, qrVersion });
@@ -100,7 +108,8 @@ export async function createTransaction({
       amount: amount !== undefined ? amount.toString() : '0.00',
       currency,
       reasonL1,
-      ...(reasonL2 && { reasonL2 })
+      ...(reasonL2 && { reasonL2 }),
+      ...(tipText !== undefined && { tip: tipText })
     },
     trOptions: {
       type,
@@ -191,6 +200,10 @@ as expired yourself. Echoed as \`deferredAllowed: true\` when set.
 
 ${ITEMS_DESCRIPTION}
 
+${MERCHANT_TIP_DESCRIPTION}
+
+${TIME_TO_LIVE_PARAGRAPH}
+
 **Transaction Types:**
 - PLAIN: Basic transaction without visual codes
 - QR: Transaction with QR code for mobile payments
@@ -207,6 +220,7 @@ ${ITEMS_DESCRIPTION}
     required: ['merchantPartnerId', 'oauth2Token', 'reasonL1'],
     properties: {
       items: ITEMS_PROPERTY,
+      tip: MERCHANT_TIP_PROPERTY,
       idempotencyKey: {
         type: "string",
         description: "Optional. Sent as the Idempotency-Key header. Use one value per payment (a UUID is typical) and the same value on every retry of it: a retry with the same key and body within 24 hours returns the transaction the first call created instead of a new one, and the result reports replayed: true. The same key with a different body is refused (422 ERR_IDEMPOTENCY_KEY_REUSED); a retry while the first call still runs gets 409 ERR_IDEMPOTENCY_KEY_IN_PROGRESS.",
@@ -267,7 +281,9 @@ ${ITEMS_DESCRIPTION}
       timeToLive: {
         type: 'number',
         default: 120,
-        description: "Time allowed for payment initiation in seconds. Once the payer's institution has started the payment, the transaction stays ACTIVE past it until the money has moved (seconds for an instant transfer, days with deferredAllowed); never infer EXPIRED from the clock."
+        minimum: 60,
+        maximum: 2592000,
+        description: TIME_TO_LIVE_DESCRIPTION
       },
       deferredAllowed: {
         type: 'boolean',
@@ -303,7 +319,7 @@ ${ITEMS_DESCRIPTION}
 - **Transaction ID**: ${result.transactionId || 'N/A'}
 - **Status**: ${result.status || 'CREATED'}
 - **Type**: ${params.type}
-- **Amount**: ${params.amount || 'N/A'} ${params.currency || 'EUR'}
+- **Amount**: ${params.amount || 'N/A'} ${params.currency || 'EUR'}${params.tip !== undefined && params.tip !== null ? ` (tip included: ${params.tip} ${params.currency || 'EUR'})` : ''}
 - **Reason**: ${params.reasonL1}
 - **TTL**: ${params.timeToLive || 120} seconds
 ${result.deferredAllowed === true ? '- **Deferred Merchant Leg allowed**: yes - the payment may stay ACTIVE until the transfer settles, which can take days\n' : ''}
@@ -314,7 +330,9 @@ ${result.deferredAllowed === true ? '- **Deferred Merchant Leg allowed**: yes - 
 
 ${result.qrCodeUrl ? `🔲 **QR Code**: ${result.qrCodeUrl}` : ''}
 ${result.barcodeUrl ? `📊 **Barcode**: ${result.barcodeUrl}` : ''}
-${result.paymentUrl ? `💳 **Payment URL**: ${result.paymentUrl}` : ''}
+${result.transactionId ? `💳 **Payment link** (send it to the payer; on a phone it opens their banking app, on a computer it shows a QR): ${getLinksUrl(params.useSandbox !== false)}/${result.transactionId}` : ''}
+${params.amount === undefined ? '⚠️ No amount was sent: the payer sets the amount (0.00). Create a new payment with `amount` if that was not meant.' : ''}
+A payment you create is a money request: collect any delivery address in your own checkout or chat (payware collects addresses only for its own products and purchase sessions).
 
 **Raw Response:**
 \`\`\`json

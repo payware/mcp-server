@@ -147,7 +147,7 @@ ${Object.entries(config.headers).map(([key, value]) => `- ${key}: ${value}`).joi
 - trData.reasonL2: Continuation, max 100 chars (optional)
 - trData.amount: decimal string at the currency's minor unit, zero or more (required by the server; the create tool sends 0.00 when you give none)
 - trOptions.type: PLAIN, QR, or BARCODE (default: PLAIN)
-- trOptions.timeToLive: 60-600 seconds unless payware raised your ceiling (default: 120)
+- trOptions.timeToLive: 60 seconds up to your own ceiling, 600 unless you raised it in the portal profile (at most 2592000, 30 days; default: 120)
 
 **Next Steps:**
 1. Generate RSA key pair (2048-bit minimum)

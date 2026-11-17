@@ -13,6 +13,16 @@ Releases are published to npm as `@payware/mcp-server` and to the official [MCP 
 - **Payment Institutions** - Process A2A transfers, handle Payment Choice Architecture with multiple payment methods
 - **Payers** - A buying agent acting for a person: read a payment link, open a purchase session and follow the payment, with no keys at all
 
+## What's New in 2.4.0
+
+- **Payment lifetime up to 30 days** - `timeToLive` on `payware_operations_create_transaction` is checked from 60 to 2592000 seconds; payware accepts up to the merchant's own ceiling, 600 by default, which the merchant raises in the portal profile (`ERR_INVALID_TTL` above it). An ISV gets the merchant's ceiling. The e-commerce plugins keep 60-600
+- **One tip rule for every payment** - every payment, with lines or without, is paid exactly the amount it asks (`ERR_AMOUNT_NOT_TOTAL` for more, `ERR_INVALID_AMOUNT` for less), plus a tip where one is allowed: there is no paying more without a tip. A payer's bank may add a tip where the shop allows tips (`tipsAllowed`, shown by `payware_shops_list`): the institution process tool takes `tip` (`trData.tip`, `amount` = the amount asked + tip, `ERR_INVALID_TIP`, `ERR_TIPS_NOT_ALLOWED`) on any id, and the reads mention `tipsAllowed` and `tip`. A merchant, or an ISV for it, may put its own tip on a payment it creates (`tip` on `payware_operations_create_transaction`, inside `amount`, for a till that asks the payer first). payware records the tip on the payment as `tip`, never as a line, which the simulate (`tip` parameter), history and payer tools describe; the create tools refuse a `TIP` line before sending (`ERR_INVALID_ITEMS`)
+- **EXECUTING carries the processed amount** - the finalize tool says it: any other amount is 400 `ERR_SPECIFYING_AMOUNT_NOT_ALLOWED`
+- **Sessions are re-priced, not refused** - a payer's bank that delivers to another country than an agent's session re-reads with `payware_fi_quote` and pays the new total; `ERR_SESSION_DELIVERY_FEE_DIFFERS` is gone. The payer tools tell agents never to call the page's address and confirmation endpoints
+- **A session's page address carries a version** - an institution paying a purchase session without its own address, with the one the payer confirmed on payware's page, sends `deliveryAddressVersion` (the read's `delivery.addressVersion`) on `payware_operations_process_transaction`; a missing or older one is 409 `ERR_SESSION_ADDRESS_CHANGED`
+- **Delivery per country on a session** - `payware_payer_read_link` and `payware_payer_create_session` print the delivery amount per country from the session's `delivery.countries`, so an agent can say what delivery costs before anyone gives an address. A product priced 0.00 lists its countries without amounts on the institution read and quote
+- **Who entered the tip** - `tipEnteredBy` (`MERCHANT` or `PAYER`) beside `tip` on reads, history and callbacks; the simulate tools take it (default `PAYER`)
+
 ## What's New in 2.3.0
 
 - **Delivery pricing** - Merchants, and ISVs for them, set what a shop charges for delivery per country (`payware_shops_get_delivery` and `payware_shops_set_delivery`) and per product which countries are excluded or cost extra (`payware_products_get_delivery` and `payware_products_set_delivery`). A PUT replaces the whole table; an empty list means deliver anywhere with no fee
@@ -214,7 +224,7 @@ The payware MCP server transforms flat parameter inputs into the proper nested J
   // TRANSACTION OPTIONS - Transaction behavior settings
   "trOptions": {
     "type": "QR",                   // PLAIN, QR, or BARCODE (default: PLAIN)
-    "timeToLive": 300               // Seconds: 60-600 (default: 120)
+    "timeToLive": 300               // Seconds: 60 up to your ceiling, 600 unless raised in the portal, at most 2592000 (default: 120)
   },
   
   // QR OPTIONS - Only included when type=QR
@@ -337,7 +347,7 @@ Create a new transaction with full API structure support.
 - `privateKey` (required): RSA private key for JWT signing
 - `amount` (optional): Currency value (default: "0.00" for flexible amounts)
 - `type` (optional): PLAIN, QR, or BARCODE (default: PLAIN)
-- `timeToLive` (optional): Payment timeout in seconds, 60-600 (default: 120)
+- `timeToLive` (optional): Payment timeout in seconds (default: 120), 60 up to the merchant's own ceiling: 600 unless the merchant raised it in the portal profile, at most 2592000 (30 days). The tool checks 60-2592000; payware refuses more than the ceiling with `ERR_INVALID_TTL`
 - `deferredAllowed` (optional): `true` lets the payer's institution pay by a credit transfer that settles later; refused with producer or terminal fields (`ERR_DEFERRED_TRANSFER_NOT_ALLOWED`). A deferred payment stays ACTIVE until it settles, which can take days
 
 **QR Options** (when type=QR):

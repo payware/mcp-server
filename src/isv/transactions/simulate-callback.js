@@ -1,5 +1,5 @@
 import { getPartnerIdSafe } from '../../config/env.js';
-import { generateMockCallback, simulateCallbackDelivery, CALLBACK_ITEMS_PROPERTY } from '../../merchant/transactions/simulate-callback.js';
+import { generateMockCallback, simulateCallbackDelivery, CALLBACK_ITEMS_PROPERTY, CALLBACK_TIP_PROPERTY, CALLBACK_TIP_ENTERED_BY_PROPERTY } from '../../merchant/transactions/simulate-callback.js';
 import { LOCAL } from '../../shared/tool-annotations.js';
 
 /**
@@ -48,7 +48,7 @@ pair is stable across retries and is the key payware guarantees.
 
 A POI sale's callback also carries \`poiId\`, the POI that created the transaction.
 
-A payment from a product, a placement, a purchase session, or one created with lines also carries (absent otherwise) \`productId\`, \`placementId\` (Premium only), \`sessionId\` (the session's pa id) and \`items\` with their \`total\` (type, productId, name, quantity, unitPrice, amount, and country on a delivery line payware priced; no images). \`total\` is the sum of the lines, what the payer paid. On CONFIRMED \`amount\` is net of the fee, so \`amount\` + \`fee\` = \`total\`; on any other status \`amount\` equals \`total\`. With \`items\`, leave \`amount\` out: it is worked out, and an \`amount\` the server would never send with those lines is refused.
+A payment from a product, a placement, a purchase session, or one created with lines also carries (absent otherwise) \`productId\`, \`placementId\` (Premium only), \`sessionId\` (the session's pa id) and \`items\` with their \`total\` (type, productId, name, quantity, unitPrice, amount, and country on a delivery line payware priced; no images). \`total\` is the sum of the lines, what was sold. A tip is never a line: the payload carries it as \`tip\` (absent without one), the merchant's own or the payer's, added in their bank where the shop allows tips; the payer paid \`total\` + \`tip\` and the fee applies to the whole of it. On CONFIRMED \`amount\` is net of the fee, so \`amount\` + \`fee\` = \`total\` + \`tip\`; on any other status \`amount\` equals \`total\` + \`tip\`. With \`items\`, leave \`amount\` out: it is worked out, and an \`amount\` the server would never send with those lines is refused.
 
 **Not on this payload:** \`deliveryAddress\` (removed 2026-08-07 - fetch it from
 \`payware_operations_get_transaction_history\`), \`producerPartnerId\`, \`transactionType\` and
@@ -127,6 +127,8 @@ A payment from a product, a placement, a purchase session, or one created with l
         description: "Set to simulate a payment that came from an agent purchase session: the callback then carries the session's pa id"
       },
       items: CALLBACK_ITEMS_PROPERTY,
+      tip: CALLBACK_TIP_PROPERTY,
+      tipEnteredBy: CALLBACK_TIP_ENTERED_BY_PROPERTY,
       merchantPartnerId: {
         type: 'string',
         description: 'Partner ID of the merchant whose callback this simulates. Used for labelling only - no call is made on their behalf.'
@@ -158,6 +160,8 @@ A payment from a product, a placement, a purchase session, or one created with l
       placementId,
       sessionId,
       items,
+      tip,
+      tipEnteredBy,
       merchantPartnerId
     } = args;
 
@@ -169,7 +173,7 @@ A payment from a product, a placement, a purchase session, or one created with l
     try {
       payload = generateMockCallback(transactionId, status, {
         amount, currency, fee, feeVat, feeFixed, feeRate, statusMessage, paymentMethod, poiId,
-        productId, placementId, sessionId, items
+        productId, placementId, sessionId, items, tip, tipEnteredBy
       });
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ **Callback Simulation Refused**\n\n${error.message}` }], isError: true };

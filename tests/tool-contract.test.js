@@ -120,7 +120,10 @@ describe('tool contract', () => {
       //
       // items (the lines the payer's bank shows) is the merchant's too: a bank-created payment with
       // items is refused (400 ERR_INVALID_ITEMS), so the institution tool must never offer it.
-      merchant_only: ['shop', 'deferredAllowed', 'items'],
+      //
+      // tip (trData.tip, spec 24.1, D2) is the merchant's own tip inside amount, for a till that asked the
+      // payer first. An institution creating a transaction with one is refused (409 ERR_TIPS_NOT_ALLOWED).
+      merchant_only: ['shop', 'deferredAllowed', 'items', 'tip'],
       payment_institution: ['role']
     },
     payware_operations_process_transaction: {
@@ -135,7 +138,13 @@ describe('tool contract', () => {
       //
       // quantity (trData.quantity) is the institution's: it builds the lines of a product, placement
       // or soundbite offer for the payer. A merchant's process takes the amount the payer chose.
-      payment_institution: ['deliveryAddress', 'paymentMethod', 'quantity']
+      //
+      // tip (trData.tip, spec 24.1) is the payer's tip, which the payer's bank sends and payware records
+      // on the payment, never as a line. A merchant processing a payer's code sends none (409).
+      //
+      // deliveryAddressVersion goes with a purchase session the institution pays with the address the
+      // payer confirmed on payware's page (review C4): only an institution pays a session.
+      payment_institution: ['deliveryAddress', 'deliveryAddressVersion', 'paymentMethod', 'quantity', 'tip']
     },
     payware_operations_get_transaction_status: {
       // An institution reads an offer (pr, pl, ps) for a delivery country and a quantity, to show the
@@ -146,7 +155,9 @@ describe('tool contract', () => {
       // The merchant and ISV simulators model the callback enrichment of payments that came from a
       // product, a placement or an agent purchase session, and of payments with lines. The institution
       // simulator builds the institution's own payloads and has not been taught them.
-      merchant_only: ['productId', 'placementId', 'sessionId', 'items'],
+      // tip is the payment's tip, carried beside items (spec 24.1): the merchant's own or the payer's,
+      // and tipEnteredBy says which (review D15, 2026-11-17).
+      merchant_only: ['productId', 'placementId', 'sessionId', 'items', 'tip', 'tipEnteredBy'],
       // Merchants receive TRANSACTION_FINALIZED only. Financial institutions receive that AND
       // TRANSACTION_PROCESSED, which carries the participants, the reason lines and the processing
       // window - so the FI simulator needs the fields to build both payloads, and a callbackType to

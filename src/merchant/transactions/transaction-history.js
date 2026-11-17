@@ -102,10 +102,14 @@ export const getTransactionHistoryTool = {
 📦 **This is where the delivery address lives.** For a SHIPPABLE transaction, \`deliveryAddress\`
 (fullName, streetAddressLine1/2, zipCode, city, region, country, phoneNumber, email) is returned
 here and **only** here. It was removed from the finalized callback on 2026-08-07: a callback is
-delivered to whatever certificate the merchant's endpoint happens to present, which is an acceptable
-trade for a transaction id and an amount and not one for a shopper's home address. This endpoint is
-JWT-authenticated, tenant-scoped and runs over a verified channel. So the pattern is: the callback
+pushed to whatever URL is registered and its body stays in request logs and retry queues, which is
+acceptable for a transaction id and an amount and not for a shopper's home address. This endpoint is
+JWT-authenticated with your own credentials and tenant-scoped. So the pattern is: the callback
 tells you the shipment is ready, and this call gives you the address to ship to.
+
+🧾 **Lines and tip.** A payment with lines carries \`items\` and \`total\`: what was sold. A tip is never
+a line: \`tip\` (absent without one) is yours, sent when you created the payment, or the payer's,
+added in their bank where your shop allows tips; \`tipEnteredBy\` (\`MERCHANT\` or \`PAYER\`) says which. The payer paid \`total\` + \`tip\`.
 
 ⚠️ **Requires Standard or Premium.** This endpoint was ungated until 2026-08-21 and is now on the
 same plan gate as the rest of the transaction surface, so a **Basic** merchant - or an ISV acting on

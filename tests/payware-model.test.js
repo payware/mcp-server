@@ -195,6 +195,74 @@ describe('the payware model', () => {
     assert.deepEqual((await send(host, { path: `/api/data-retrieval/exports/${forMerchant}`, ...AS.isv })).json, []);
   });
 
+  test('refuses a TIP line in a merchant\'s own items: a tip is never a line (spec 24.1)', async () => {
+    const body = items => ({ trData: { amount: '12.00', currency: 'EUR', reasonL1: 'Test' }, trOptions: { type: 'PLAIN' }, items });
+    const coffee = { type: 'ITEM', name: 'Coffee', quantity: 1, unitPrice: '10.00', amount: '10.00' };
+    const tipped = await send(payware.sandbox, { method: 'POST', path: '/api/transactions', body: body([coffee, { type: 'TIP', name: 'Tip', amount: '2.00' }]) });
+    assert.deepEqual([tipped.status, tipped.json.errorCode], [400, 'ERR_INVALID_ITEMS']);
+    const taxed = await send(payware.sandbox, { method: 'POST', path: '/api/transactions', body: body([coffee, { type: 'TAX', name: 'VAT', amount: '2.00' }]) });
+    assert.equal(taxed.status, 200);
+  });
+
+  test('takes a merchant\'s own tip inside amount, at most the amount before it, with the lines adding up to amount minus tip (spec 24.1, D2)', async () => {
+    const create = (trData, items, who = {}) => send(payware.sandbox, {
+      method: 'POST', path: '/api/transactions', ...who,
+      body: { trData: { currency: 'EUR', reasonL1: 'Table 4', ...trData }, trOptions: { type: 'PLAIN' }, ...(items && { items }) }
+    });
+    const code = r => (r.status === 200 ? 200 : `${r.status} ${r.json.errorCode}`);
+    const coffee = amount => [{ type: 'ITEM', name: 'Coffee', quantity: 1, unitPrice: amount, amount }];
+    assert.equal(code(await create({ amount: '12.00', tip: '2.00' })), 200);
+    assert.equal(code(await create({ amount: '12.00', tip: '2.00' }, coffee('10.00'))), 200);
+    assert.equal(code(await create({ amount: '12.00', tip: '2.00' }, coffee('12.00'))), '400 ERR_ITEMS_DO_NOT_SUM');
+    assert.equal(code(await create({ amount: '12.00', tip: '6.00' })), 200, 'the tip may equal the amount before it');
+    for (const tip of ['6.01', '12.00', '0', 'abc', '2.001']) {
+      assert.equal(code(await create({ amount: '12.00', tip })), '400 ERR_INVALID_TIP', tip);
+    }
+    assert.equal(code(await create({ amount: '12.00', tip: '2.00' }, null, { iss: 'TESTBANK' })), '400 ERR_UNKNOWN_ROLE');
+    const bank = await send(payware.sandbox, { method: 'POST', path: '/api/transactions', iss: 'TESTBANK', body: { role: 'DST', trData: { amount: '12.00', currency: 'EUR', tip: '2.00' } } });
+    assert.equal(code(bank), '409 ERR_TIPS_NOT_ALLOWED', 'an institution creates no merchant payment');
+  });
+
+  test('refuses a timeToLive above the merchant\'s own ceiling: 600 by default, as raised, and the merchant\'s on behalf (spec 24.3)', async () => {
+    const create = (timeToLive, who = {}) => send(payware.sandbox, {
+      method: 'POST', path: '/api/transactions', ...who,
+      body: { trData: { amount: '1.00', currency: 'EUR', reasonL1: 'Test' }, trOptions: { type: 'PLAIN', timeToLive } }
+    });
+    const code = r => (r.status === 200 ? 200 : `${r.status} ${r.json.errorCode}`);
+    assert.equal(code(await create(600)), 200);
+    assert.equal(code(await create(601)), '400 ERR_INVALID_TTL', 'TESTMRCH has the default ceiling');
+    assert.equal(code(await create(59)), '400 ERR_INVALID_TTL');
+    assert.equal(code(await create(2592000, { iss: 'PZAYNMVE' })), 200, 'PZAYNMVE raised its ceiling to 30 days');
+    assert.equal(code(await create(2592001, { iss: 'PZAYNMVE' })), '400 ERR_INVALID_TTL');
+    const onBehalf = { iss: 'TESTISV1', aud: 'PZAYNMVE', sub: IDS.OAUTH2_TOKEN };
+    assert.equal(code(await create(2592000, onBehalf)), 200, 'an ISV gets the merchant\'s ceiling');
+  });
+
+  test('one tip rule for every payment: a malformed tip, a tip the payer may not add, and paying more without a tip are refused (spec 24.1)', async () => {
+    const processing = (id, trData) => send(payware.sandbox, {
+      method: 'POST', path: `/api/transactions/${id}`, iss: 'TESTBANK',
+      body: { friendlyName: 'Jane Doe', trData: { currency: 'EUR', reasonL1: 'Test', ...trData } }
+    });
+    const code = r => (r.status === 200 ? 200 : `${r.status} ${r.json.errorCode}`);
+    for (const tip of ['abc', '0', '0.00', '-1.00', '2.001', '1e2']) {
+      assert.equal(code(await processing('pa12345678', { amount: '87.00', tip })), '400 ERR_INVALID_TIP', tip);
+    }
+    assert.equal(code(await processing('pa12345678', { amount: '87.00', tip: '2.00' })), 200);
+    assert.equal(code(await processing(IDS.PRODUCT, { amount: '42.00', tip: '2.00' })), 200, 'an offer without quantity takes a tip too');
+    assert.equal(code(await processing(IDS.PRODUCT, { amount: '82.00', quantity: 2, tip: '2.00' })), 200);
+    assert.equal(code(await processing(IDS.POI, { amount: '12.00', tip: '2.00' })), 200, 'a POI sale takes a tip too');
+    assert.equal(code(await processing(IDS.TX, { amount: '12.00', tip: '2.00' })), '409 ERR_TIPS_NOT_ALLOWED', 'the seeded pw\'s shop takes no tips');
+    assert.equal(code(await processing(IDS.TIPPED, { amount: '24.00', tip: '2.00' })), '409 ERR_TIPS_NOT_ALLOWED', 'the merchant already put a tip on it');
+    // The amount asked, exactly: no paying more without a tip, never less.
+    assert.equal(code(await processing(IDS.TX, { amount: '10.00' })), 200);
+    assert.equal(code(await processing(IDS.TX, { amount: '12.00' })), '409 ERR_AMOUNT_NOT_TOTAL');
+    assert.equal(code(await processing(IDS.TX, { amount: '9.99' })), '400 ERR_INVALID_AMOUNT');
+    assert.equal(code(await processing(IDS.TIPPED, { amount: '22.00' })), 200, 'the merchant\'s tip is inside the amount');
+    assert.equal(code(await processing(IDS.TIPPED, { amount: '20.00' })), '400 ERR_INVALID_AMOUNT');
+    const read = await send(payware.sandbox, { path: `/api/transactions/${IDS.TIPPED}`, iss: 'TESTBANK' });
+    assert.deepEqual([read.json.amount, read.json.tip, read.json.tipsAllowed], ['22.00', '2.00', undefined]);
+  });
+
   test('refuses a product start date before today, on create and on an update that names one', async () => {
     const r = await send(payware.sandbox, { method: 'PATCH', path: `/api/products/${IDS.PRODUCT}`, body: { prData: { activeFrom: '2020-01-01' } } });
     assert.deepEqual([r.status, r.json.errorCode], [400, 'ERR_INVALID_ACTIVE_FROM_DATE']);

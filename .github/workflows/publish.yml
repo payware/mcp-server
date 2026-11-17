@@ -46,16 +46,19 @@ jobs:
       # The MCP Registry (registry.modelcontextprotocol.io) lists io.github.payware/mcp-server by
       # pointing at the npm package; it checks that the published package.json carries the same
       # mcpName, so it must run after npm publish and see the new version first.
+      # Two minutes was not enough for 2.3.0 (2026-11-15): npm served it between 2 min 11 s and
+      # 3 min 23 s after the publish, so this step failed and the registry publish needed a rerun.
+      # Ten minutes leaves about three times that.
       - name: Wait for the new version on npm
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          for i in $(seq 1 24); do
+          for i in $(seq 1 60); do
             if [ "$(npm view "@payware/mcp-server@$VERSION" mcpName 2>/dev/null)" = "io.github.payware/mcp-server" ]; then
               echo "npm serves $VERSION with mcpName"; exit 0
             fi
-            echo "waiting for npm ($i/24)"; sleep 5
+            echo "waiting for npm ($i/60)"; sleep 10
           done
-          echo "npm did not serve $VERSION with mcpName within 2 minutes"; exit 1
+          echo "npm did not serve $VERSION with mcpName within 10 minutes"; exit 1
 
       - name: Set server.json version from package.json
         run: |

@@ -202,7 +202,7 @@ export const finalizeTransactionTool = {
 
 **Order of operations (mandatory):**
 1. Process the transaction (\`payware_operations_process_transaction\`), run your checks, take the payer's single approval (SCA) of both transfers and reserve the amount.
-2. Immediately before money moves, send **EXECUTING** with \`amount\`, \`fee\`, \`currency\` and \`transferType\`. payware checks everything (processed, sent by the payer's institution, currency, amount, the fee echo, fee configuration and exchange rate, the time to live) and, if it accepts, locks the transaction: it leaves the expiry clock, and payware will not refuse it afterwards for reasons of its own. **A refusal means nothing moves**: release the reservation.
+2. Immediately before money moves, send **EXECUTING** with \`amount\` (exactly the amount you processed, tip included: any other is 400 ERR_SPECIFYING_AMOUNT_NOT_ALLOWED), \`fee\`, \`currency\` and \`transferType\`. payware checks everything (processed, sent by the payer's institution, currency, amount, the fee echo, fee configuration and exchange rate, the time to live) and, if it accepts, locks the transaction: it leaves the expiry clock, and payware will not refuse it afterwards for reasons of its own. **A refusal means nothing moves**: release the reservation.
 3. Execute the Merchant Leg to the payee: the payer amount minus \`fee\`, which is the \`amount\` the EXECUTING response returns (already net; \`payerAmount\` there is the gross).
 4. Send **CONFIRMED** only once the Merchant Leg has completed (INSTANT: the receiving bank's confirmation under Article 5a(4)(c) of Regulation (EU) No 260/2012; INTERNAL: credited; DEFERRED: settled to the merchant's account), or **FAILED** if it was rejected. CONFIRMED after EXECUTING may be sent with just the status; an \`amount\`, \`fee\`, \`currency\` or \`transferType\` you repeat must equal the locked value (409 ERR_EXECUTION_MISMATCH).
 5. Fee Leg (\`fee\`, to payware's fee account \`feeAccount\` from the process response): after payware has accepted CONFIRMED, for every transfer type. For DEFERRED, keep the Fee Amount reserved on the payer's account from EXECUTING until then; if the Merchant Leg is rejected, release it and send FAILED.
@@ -261,7 +261,7 @@ then, once the Merchant Leg has completed:
       },
       amount: {
         type: ["number", "string"],
-        description: "The payer amount, the same value sent at the process step. Required for EXECUTING. Optional for CONFIRMED, where it must equal the locked value (409 ERR_EXECUTION_MISMATCH).",
+        description: "The payer amount, exactly the value sent at the process step (tip included): EXECUTING with any other amount is refused with 400 ERR_SPECIFYING_AMOUNT_NOT_ALLOWED, so the payer pays what they approved and a payment's lines and tip add up to it. Required for EXECUTING. Optional for CONFIRMED, where it must equal the locked value (409 ERR_EXECUTION_MISMATCH).",
         minimum: 0.01,
         maximum: 9999999999999.99
       },
@@ -279,7 +279,7 @@ then, once the Merchant Leg has completed:
       transferType: {
         type: "string",
         enum: TRANSFER_TYPES,
-        description: "How the Merchant Leg moves. Required with EXECUTING (400 ERR_MISSING_TRANSFER_TYPE). INSTANT: an instant credit transfer, complete on the receiving bank's confirmation. INTERNAL: the payee's account is with your institution, complete when credited. DEFERRED: a credit transfer that settles later, which can take days; allowed only when the process response carries deferredAllowed: true, otherwise 400 ERR_DEFERRED_TRANSFER_NOT_ALLOWED. With DEFERRED the Fee Leg goes together with the Merchant Leg; with INSTANT and INTERNAL it goes after CONFIRMED. Optional with CONFIRMED, where it must equal the locked value."
+        description: "How the Merchant Leg moves. Required with EXECUTING (400 ERR_MISSING_TRANSFER_TYPE). INSTANT: an instant credit transfer, complete on the receiving bank's confirmation. INTERNAL: the payee's account is with your institution, complete when credited. DEFERRED: a credit transfer that settles later, which can take days; allowed only when the process response carries deferredAllowed: true, otherwise 400 ERR_DEFERRED_TRANSFER_NOT_ALLOWED. The Fee Leg goes after CONFIRMED for every transfer type; with DEFERRED keep the Fee Amount reserved on the payer's account from EXECUTING until then. Optional with CONFIRMED, where it must equal the locked value."
       },
       feeLegOutcome: {
         type: "string",
@@ -432,7 +432,7 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 1. **ERR_MISSING_TRANSACTION**: Transaction ID not found. **ERR_TRANSACTION_EXPIRED** (also 404): the time to live ran out before EXECUTING arrived, and the transaction is closed as unpaid
 2. **ERR_TRANSACTION_NOT_PROCESSED**: Transaction hasn't been processed yet
 3. **ERR_NOT_EXECUTING** (409): CONFIRMED or FAILED sent while the transaction is still ACTIVE - send EXECUTING first, before any money moves
-4. **ERR_EXECUTION_MISMATCH** (409): a repeated EXECUTING with a different body, or a CONFIRMED whose amount, fee, currency or transferType differs from the lock
+4. **ERR_EXECUTION_MISMATCH** (409): a repeated EXECUTING with a different body, or a CONFIRMED whose amount, fee, currency or transferType differs from the lock. **ERR_SPECIFYING_AMOUNT_NOT_ALLOWED** (400): EXECUTING with another amount than the one processed (send exactly the processed amount; it used to accept any amount at least the payee amount)
 5. **ERR_ALREADY_PROCESSED** (409): already final, or DECLINED/CANCELLED after EXECUTING. **ERR_PAYEE_UNAVAILABLE** (409): EXECUTING refused because the merchant being paid can no longer accept payments; nothing is locked and no money may move
 6. **ERR_MISSING_TRANSFER_TYPE** / **ERR_INVALID_TRANSFER_TYPE**: EXECUTING needs transferType INSTANT, INTERNAL or DEFERRED
 7. **ERR_DEFERRED_TRANSFER_NOT_ALLOWED**: DEFERRED on a transaction without deferredAllowed: true
