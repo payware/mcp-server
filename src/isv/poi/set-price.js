@@ -9,7 +9,7 @@ import { CHANGES } from '../../shared/tool-annotations.js';
  * @param {Object} params - Parameters for set price request
  * @returns {Object} Set price response
  */
-export async function setPOIPrice({ poiId, amount, currency, ttlSeconds, merchantPartnerId, oauth2Token, useSandbox = true }) {
+export async function setPOIPrice({ poiId, amount, currency, ttlSeconds, tip, merchantPartnerId, oauth2Token, useSandbox = true }) {
   if (!poiId) {
     throw new Error('POI ID is required');
   }
@@ -27,7 +27,7 @@ export async function setPOIPrice({ poiId, amount, currency, ttlSeconds, merchan
   const isvPartnerId = getPartnerIdSafe();
   const privateKey = getPrivateKeySafe(useSandbox);
 
-  // amount, currency and ttlSeconds are the only fields the server reads (POIPriceRequest); anything
+  // amount, currency, ttlSeconds and tip are the only fields the server reads (POIPriceRequest); anything
   // else is ignored without an error. This used to send reasonL1 (and demand it), reasonL2,
   // timeToLive, callbackUrl and passbackParams - none of which the server has - so a caller relying
   // on the per-price callbackUrl got no callbacks at all. The callback URL belongs to the POI.
@@ -37,6 +37,9 @@ export async function setPOIPrice({ poiId, amount, currency, ttlSeconds, merchan
   };
 
   if (ttlSeconds) requestBody.ttlSeconds = ttlSeconds;
+  // The merchant's tip inside amount (server V126), sent only with one: without it the payer may add a tip in the
+  // bank app where the shop allows tips.
+  if (tip !== undefined && tip !== null && tip !== '') requestBody.tip = String(tip);
 
   const jwtData = await createJWTForPartner({
     partnerId: isvPartnerId,
@@ -82,9 +85,13 @@ export const setPOIPriceTool = {
 The POI moves to READY and waits for a scan until the TTL expires. The scan creates the transaction and
 the POI is BUSY until the sale is final.
 
-**Only amount, currency and ttlSeconds are accepted.** There is no description, callback URL or passback
+**Only amount, currency, ttlSeconds and tip are accepted.** There is no description, callback URL or passback
 field on a price - the callback URL is set on the POI when it is created, and a POI without one sends no
 callbacks.
+
+**Tip (optional):** the merchant's tip, INSIDE amount (amount = bill + tip), e.g. a waiter's tip on a table's
+QR or NFC tag. The payment created at the scan records it as the merchant's tip, and the payer's bank offers no
+second one. Leave it out to let the payer add a tip in the bank app, where the shop allows tips.
 
 **Keep the returned sessionToken** until the sale has a final status: pass it to
 payware_poi_get_status to read that sale's transaction and outcome.
@@ -111,6 +118,10 @@ payware_poi_get_status to read that sale's transaction and outcome.
         type: "integer",
         description: "Seconds until the price expires if nobody scans it (60-600). Defaults to the POI's own ttlSeconds."
       },
+      tip: {
+        type: "string",
+        description: "Optional merchant tip, included in amount (e.g. amount '22.00' with tip '2.00' for a 20.00 bill). Above 0, at the currency's scale, at most the amount before it."
+      },
       merchantPartnerId: {
         type: "string",
         description: "Partner ID of the target merchant (8 alphanumeric characters)"
@@ -128,14 +139,14 @@ payware_poi_get_status to read that sale's transaction and outcome.
   },
 
   async handler(args) {
-    const { poiId, amount, currency, ttlSeconds, merchantPartnerId, oauth2Token, useSandbox = true } = args;
+    const { poiId, amount, currency, ttlSeconds, tip, merchantPartnerId, oauth2Token, useSandbox = true } = args;
 
     if (!poiId) throw new Error("POI ID is required");
     if (!amount) throw new Error("Amount is required");
     if (!currency) throw new Error("Currency is required");
 
     const result = await setPOIPrice({
-      poiId, amount, currency, ttlSeconds, merchantPartnerId, oauth2Token, useSandbox
+      poiId, amount, currency, ttlSeconds, tip, merchantPartnerId, oauth2Token, useSandbox
     });
 
     if (result.success) {
@@ -148,7 +159,7 @@ payware_poi_get_status to read that sale's transaction and outcome.
 
 **POI ID:** ${data.poiId || poiId}
 **Status:** 🟡 ${data.status || 'READY'}
-**Amount:** ${amount} ${currency.toUpperCase()}
+**Amount:** ${amount} ${currency.toUpperCase()}${tip ? ` (tip ${tip} included)` : ''}
 
 **Session:**
 - Token: ${data.sessionToken || 'N/A'} - keep it until the sale is final
@@ -185,6 +196,7 @@ ${merchantPartnerId ? `**ISV -> Merchant:** ${getPartnerIdSafe()} -> ${merchantP
 - ERR_POI_DISABLED (409): POI is disabled
 - ERR_POI_ALREADY_HAS_PENDING_PRICE (409): POI already has a pending price (cancel it first)
 - ERR_INVALID_AMOUNT (400): amount finer than the currency's smallest unit
+- ERR_INVALID_TIP (400): tip not above 0, finer than the currency's smallest unit, or more than the amount before it
 - ERR_MISSING_CURRENCY (400): currency missing or unknown
 - ERR_VALIDATION_FAILED (400): amount missing or not positive, or ttlSeconds outside 60-600
 

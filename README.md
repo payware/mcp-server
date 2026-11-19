@@ -13,6 +13,10 @@ Releases are published to npm as `@payware/mcp-server` and to the official [MCP 
 - **Payment Institutions** - Process A2A transfers, handle Payment Choice Architecture with multiple payment methods
 - **Payers** - A buying agent acting for a person: read a payment link, open a purchase session and follow the payment, with no keys at all
 
+## What's New in 2.5.0
+
+- **The merchant's tip on a POI price** - `payware_poi_set_price` takes an optional `tip`, inside `amount` (amount = bill + tip), for a waiter's tip on a table's QR code or NFC tag. payware records it on the payment created at the scan as the merchant's tip (`tipEnteredBy` `MERCHANT`), and the payer's bank offers no second one; without it the payer may still tip in the bank app where the shop allows tips. A tip that is not above 0, is finer than the currency allows or is more than the amount before it is `ERR_INVALID_TIP`. The POI reads show it as `pendingTip`
+
 ## What's New in 2.4.0
 
 - **Payment lifetime up to 30 days** - `timeToLive` on `payware_operations_create_transaction` is checked from 60 to 2592000 seconds; payware accepts up to the merchant's own ceiling, 600 by default, which the merchant raises in the portal profile (`ERR_INVALID_TTL` above it). An ISV gets the merchant's ceiling. The e-commerce plugins keep 60-600

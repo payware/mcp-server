@@ -603,6 +603,28 @@ describe('POI creation', () => {
   });
 });
 
+describe('POI price', () => {
+  test("sends the merchant's tip inside the amount, and no tip field without one (server V126)", async () => {
+    const { getMerchantTools } = await import('../src/merchant/index.js');
+    const tool = getMerchantTools().find(t => t.name === 'payware_poi_set_price');
+    assert.ok(tool.inputSchema.properties.tip, 'the tool offers the tip');
+
+    server.respondWith(200, { poiId: 'piABC12345', status: 'READY', sessionToken: 'st_1' });
+    await asMerchant(() => tool.handler({ poiId: 'piABC12345', amount: '22.00', currency: 'eur', tip: '2.00' }));
+    let req = server.lastRequest;
+    assert.equal(req.method, 'PUT');
+    assert.equal(req.path, '/api/poi/piABC12345/price');
+    assert.equal(req.json.amount, '22.00');
+    assert.equal(req.json.tip, '2.00');
+    assert.equal(req.contentHashMatches, true);
+
+    server.respondWith(200, { poiId: 'piABC12345', status: 'READY', sessionToken: 'st_2' });
+    await asMerchant(() => tool.handler({ poiId: 'piABC12345', amount: '20.00', currency: 'EUR' }));
+    req = server.lastRequest;
+    assert.equal(Object.prototype.hasOwnProperty.call(req.json, 'tip'), false);
+  });
+});
+
 describe('reference data', () => {
   test('requires jurisdictionCode for legal-forms, and says why it matters', async () => {
     // An unknown code is NOT rejected by the server - it falls back to a generic jurisdiction - so a
