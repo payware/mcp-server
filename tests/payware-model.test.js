@@ -143,6 +143,47 @@ describe('the payware model', () => {
     assert.deepEqual([process.status, process.json.errorCode], [400, 'ERR_INVALID_AMOUNT']);
   });
 
+  // kb FI API, Payer pseudonym (optional, VG 2026-11-22): a value the payer's institution sends must be well formed,
+  // in every environment; none at all is accepted; the payee's is ignored. authorisedAt goes with EXECUTING.
+  test('takes a payer pseudonym or none, refuses a malformed or IBAN-shaped one from the payer\'s institution', async () => {
+    const code = r => (r.status === 200 || r.status === 201 ? 'ok' : `${r.status} ${r.json.errorCode}`);
+    const create = (host, extra) => send(host, { method: 'POST', path: '/api/transactions', iss: 'TESTBANK',
+      key: host === payware.production ? payware.privateKeys.production : payware.privateKeys.sandbox,
+      body: { role: 'SRC', friendlyName: 'Jane Doe', trData: { amount: '0.00', currency: 'EUR' }, ...extra } });
+    const process = extra => send(payware.sandbox, { method: 'POST', path: `/api/transactions/${IDS.PRODUCT}`, iss: 'TESTBANK',
+      body: { friendlyName: 'Jane Doe', trData: { amount: '2.50', currency: 'EUR' }, ...extra } });
+    for (const host of [payware.sandbox, payware.production]) {
+      assert.equal(code(await create(host, {})), 'ok', 'optional: none is accepted');
+      assert.equal(code(await create(host, { payerPseudonym: 'c2f7e1a94b0d3e86a5f1c7d2e9b4a083' })), 'ok');
+      for (const bad of ['too-short', 'BG80BNBG96611020345678', 'jane@example.com-12345', 'x'.repeat(65)]) {
+        assert.equal(code(await create(host, { payerPseudonym: bad })), '400 ERR_INVALID_PAYER_PSEUDONYM', bad);
+      }
+    }
+    assert.equal(code(await create(payware.sandbox, { role: 'DST', account: 'BG80BNBG96611020345678', payerPseudonym: 'too-short' })), 'ok', 'the payee\'s is ignored');
+    assert.equal(code(await process({ payerPseudonym: 'BG80BNBG96611020345678' })), '400 ERR_INVALID_PAYER_PSEUDONYM');
+    assert.equal(code(await process({ payerPseudonym: 'bank:cust.0042_x-9f3a' })), 'ok');
+    // The IBAN shape alone is not refused, only an IBAN whose check digits are valid (PayerPseudonymService.looksLikeIban).
+    assert.equal(code(await process({ payerPseudonym: 'BG81BNBG96611020345678' })), 'ok', 'IBAN shape, wrong check digits');
+  });
+
+  test('refuses an authorisedAt it cannot read, or one more than 5 seconds ahead, on EXECUTING', async () => {
+    const patch = body => send(payware.sandbox, { method: 'PATCH', path: `/api/transactions/${IDS.TX}`, iss: 'TESTBANK', body });
+    const lock = { status: 'EXECUTING', amount: '10.00', fee: '0.10', currency: 'EUR', transferType: 'INSTANT' };
+    for (const bad of ['yesterday', '2026-11-22 10:15:30Z', new Date(Date.now() + 60000).toISOString()]) {
+      const r = await patch({ ...lock, authorisedAt: bad });
+      assert.deepEqual([r.status, r.json.errorCode], [400, 'ERR_INVALID_AUTHORISED_AT'], bad);
+    }
+    assert.equal((await patch({ ...lock, authorisedAt: new Date(Date.now() - 1000).toISOString() })).status, 200);
+    // What java.time's ISO_OFFSET_DATE_TIME also reads (checked against Java 17, 2026-11-22).
+    for (const good of ['2026-01-02T10:15Z', '2026-01-02t10:15:30z', '2026-01-02T12:15+02', '2026-01-02T12:15:30+02:00:00']) {
+      assert.equal((await patch({ ...lock, authorisedAt: good })).status, 200, good);
+    }
+    for (const bad of ['2026-01-02T10:15:30', '2026-02-30T10:15Z', '2026-01-02T10:15+0200']) {
+      const r = await patch({ ...lock, authorisedAt: bad });
+      assert.deepEqual([r.status, r.json.errorCode], [400, 'ERR_INVALID_AUTHORISED_AT'], bad);
+    }
+  });
+
   test('holds the execution lock', async () => {
     const patch = body => send(payware.sandbox, { method: 'PATCH', path: `/api/transactions/${IDS.TX}`, iss: 'TESTBANK', body });
     assert.equal((await patch({ status: 'CONFIRMED' })).json.errorCode, 'ERR_NOT_EXECUTING');

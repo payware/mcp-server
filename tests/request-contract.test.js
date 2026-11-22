@@ -496,6 +496,96 @@ describe('institution account', () => {
   });
 });
 
+describe('payer pseudonym and authorisation time', () => {
+  // kb FI API, Payer pseudonym (optional, VG 2026-11-22): the payer's institution may send its reference for the
+  // customer on the process and on a create as the payer (SRC); the payee's institution sends none, and nothing goes
+  // on finalize. The tools send one derived from payerReference with the institution's key: the same for the same
+  // customer whatever the merchant and the payment.
+  const HEX64 = /^[0-9a-f]{64}$/;
+  const createPI = async args => {
+    const { createPITransaction } = await import('../src/payment-institution/transactions/create-pi-transaction.js');
+    return asInstitution(() => createPITransaction({ ...BANK_AUTH, friendlyName: 'Jane Doe', amount: '10.00', currency: 'EUR', reasonL1: 'Test', ...args }));
+  };
+  const processPI = async args => {
+    const { processPITransaction } = await import('../src/payment-institution/transactions/process-pi-transaction.js');
+    return asInstitution(() => processPITransaction({ ...BANK_AUTH, transactionId: 'pr12345678', friendlyName: 'Jane Doe', amount: '2.50', currency: 'EUR', reasonL1: 'Test', ...args }));
+  };
+
+  test('the payer creating (SRC) sends a derived pseudonym, stable for its reference; the payee (DST) sends none', async () => {
+    server.respondWith(200, { transactionId: 'pw12345678' });
+    await createPI({ role: 'SRC' });
+    const first = server.lastRequest.json.payerPseudonym;
+    assert.match(first, HEX64);
+    assert.equal(server.lastRequest.contentHashMatches, true);
+
+    server.respondWith(200, { transactionId: 'pw12345678' });
+    await createPI({ role: 'SRC' });
+    assert.equal(server.lastRequest.json.payerPseudonym, first, 'the same payer every time');
+
+    server.respondWith(200, { transactionId: 'pw12345678' });
+    await createPI({ role: 'SRC', payerReference: 'customer-2' });
+    assert.match(server.lastRequest.json.payerPseudonym, HEX64);
+    assert.notEqual(server.lastRequest.json.payerPseudonym, first, 'another reference is another customer');
+
+    server.respondWith(200, { transactionId: 'pw12345678' });
+    await createPI({ role: 'DST', account: 'BG80BNBG96611020345678', payerPseudonym: 'c2f7e1a94b0d3e86a5f1c7d2e9b4a083' });
+    assert.ok(!('payerPseudonym' in server.lastRequest.json), 'the payee sends none');
+  });
+
+  test('the payer institution sends the same pseudonym whatever it pays; processing as the payee sends none', async () => {
+    server.respondWith(200, { transactionId: 'pw12345678' });
+    await processPI({});
+    const sent = server.lastRequest.json.payerPseudonym;
+    assert.match(sent, HEX64);
+    assert.equal(server.lastRequest.contentHashMatches, true);
+
+    server.respondWith(200, { transactionId: 'pw12345678' });
+    await processPI({ transactionId: 'pw12345678', amount: '10.00' });
+    assert.equal(server.lastRequest.json.payerPseudonym, sent, 'nothing about the merchant or the payment goes into it');
+
+    server.respondWith(200, { transactionId: 'pw87654321' });
+    await processPI({ transactionId: 'pw87654321', account: 'BG80BNBG96611020345678', callbackUrl: 'https://callback.example/payee' });
+    assert.ok(!('payerPseudonym' in server.lastRequest.json), 'with an account the institution is the payee and sends none');
+  });
+
+  test('a pseudonym of the caller\'s own is sent as is; a malformed or IBAN-shaped one, or one with payerReference, is refused before sending', async () => {
+    server.respondWith(200, { transactionId: 'pw12345678' });
+    await processPI({ payerPseudonym: 'bank:cust.0042_x-9f3a' });
+    assert.equal(server.lastRequest.json.payerPseudonym, 'bank:cust.0042_x-9f3a');
+
+    server.requests.length = 0;
+    for (const bad of ['short-value', 'jane@example.com-12345', 'BG80BNBG96611020345678', 'a'.repeat(65), 'has space in it 1234']) {
+      await assert.rejects(() => processPI({ payerPseudonym: bad }), /ERR_INVALID_PAYER_PSEUDONYM/, bad);
+    }
+    await assert.rejects(() => createPI({ role: 'SRC', payerPseudonym: 'c2f7e1a94b0d3e86a5f1c7d2e9b4a083', payerReference: 'x' }), /not both/);
+    assert.equal(server.requests.length, 0, 'nothing should have been sent');
+
+    // The server refuses an IBAN (valid check digits), not the bare shape, which random hex values often have.
+    server.respondWith(200, { transactionId: 'pw12345678' });
+    await processPI({ payerPseudonym: 'BG81BNBG96611020345678' });
+    assert.equal(server.lastRequest.json.payerPseudonym, 'BG81BNBG96611020345678');
+  });
+
+  test('EXECUTING carries authorisedAt when given; another status or a malformed one is refused before sending', async () => {
+    const { finalizeTransaction } = await import('../src/payment-institution/transactions/finalize-transaction.js');
+    const finalize = args => asInstitution(() => finalizeTransaction({ transactionId: 'pw12345678', ...BANK_AUTH, ...args }));
+    const lock = { status: 'EXECUTING', amount: '10.00', fee: '0.10', currency: 'EUR', transferType: 'INSTANT' };
+    const authorisedAt = new Date(Date.now() - 2000).toISOString();
+
+    server.respondWith(200, { transactionId: 'pw12345678', status: 'EXECUTING' });
+    await finalize({ ...lock, authorisedAt });
+    assert.deepEqual(server.lastRequest.json, { ...lock, authorisedAt });
+    assert.equal(server.lastRequest.contentHashMatches, true);
+
+    server.requests.length = 0;
+    for (const bad of ['yesterday', '2026-11-22 10:15:30Z', '2026-11-22T10:15:30', '2026-02-30T10:15Z', '2026-11-22T10:15+0200']) {
+      await assert.rejects(() => finalize({ ...lock, authorisedAt: bad }), /ERR_INVALID_AUTHORISED_AT/, bad);
+    }
+    await assert.rejects(() => finalize({ status: 'CONFIRMED', authorisedAt }), /EXECUTING only/);
+    assert.equal(server.requests.length, 0, 'nothing should have been sent');
+  });
+});
+
 describe('transaction history', () => {
   test('ISV fetches one transaction by id, with no filter query', async () => {
     // Was GET /transactions-history?limit=&offset=&status=&from=&to=. There is no list endpoint -
@@ -873,6 +963,16 @@ describe('as a client sees the tools', () => {
       role: 'SRC', account: 'BG80BNBG96611020345678', friendlyName: 'Jane', currency: 'EUR'
     });
     assert.deepEqual(server.lastRequest.json.trData, { amount: '0.00', currency: 'EUR' });
+    assert.notEqual(result.isError, true);
+  });
+
+  test('an institution says which payer pseudonym it sent, derived from payerReference', async () => {
+    const result = await call('payment_institution', 'payware_operations_create_transaction', {
+      role: 'SRC', friendlyName: 'Jane', currency: 'EUR', payerReference: 'customer-7'
+    });
+    const sent = server.lastRequest.json.payerPseudonym;
+    assert.match(sent, /^[0-9a-f]{64}$/);
+    assert.ok(text(result).includes(`Payer pseudonym: ${sent} (derived with your key from payerReference "customer-7"`), text(result));
     assert.notEqual(result.isError, true);
   });
 

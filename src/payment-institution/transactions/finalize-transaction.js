@@ -14,6 +14,44 @@ export const FEE_LEG_OUTCOMES = ['NOT_EXECUTED'];
 const isBlank = value => value === undefined || value === null || value === '';
 
 /**
+ * authorisedAt (EXECUTING only, optional): when the payer's strong customer authentication for both transfers
+ * succeeded, an ISO 8601 date-time with an offset or Z. The server refuses it with 400 ERR_INVALID_AUTHORISED_AT
+ * when it cannot read it, when it is more than 5 seconds after the call reaches payware, or when it is before the
+ * processing call; payware measures the time from it to CONFIRMED. The shape is checked here as the server reads it
+ * (FIValidationService.parseAuthorisedAt: java.time DateTimeFormatter.ISO_OFFSET_DATE_TIME, after trimming; checked
+ * against Java 17 on 2026-11-22): seconds and their fraction (0 to 9 digits) are optional, T and Z in either case, and the offset is Z or +HH, +HH:MM or +HH:MM:SS with
+ * colons. The times, which need payware's clock and the processing call, are the server's.
+ */
+export const AUTHORISED_AT_PATTERN = '^\\s*\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}(:\\d{2}(\\.\\d{0,9})?)?([Zz]|[+-]\\d{2}(:\\d{2}(:\\d{2})?)?)\\s*$';
+const AUTHORISED_AT = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{0,9}))?)?(?:([Zz])|([+-])(\d{2})(?::(\d{2})(?::(\d{2}))?)?)$/;
+
+/** authorisedAt as epoch milliseconds, or NaN where the server could not read it (strict calendar, offset within 18 hours). */
+export function parseAuthorisedAt(value) {
+  const m = AUTHORISED_AT.exec(String(value).trim());
+  if (!m) return NaN;
+  const [, y, mo, d, h, mi, sec = '0', frac = '', zulu, sign, oh, om = '0', os = '0'] = m;
+  const n = Number;
+  const daysInMonth = new Date(Date.UTC(n(y), n(mo), 0)).getUTCDate();
+  if (n(mo) < 1 || n(mo) > 12 || n(d) < 1 || n(d) > daysInMonth || n(h) > 23 || n(mi) > 59 || n(sec) > 59) return NaN;
+  let offsetSeconds = 0;
+  if (!zulu) {
+    if (n(om) > 59 || n(os) > 59) return NaN;
+    offsetSeconds = (n(oh) * 3600 + n(om) * 60 + n(os)) * (sign === '-' ? -1 : 1);
+    if (Math.abs(offsetSeconds) > 18 * 3600) return NaN;
+  }
+  const millis = n((frac + '000').slice(0, 3));
+  return Date.UTC(n(y), n(mo) - 1, n(d), n(h), n(mi), n(sec), millis) - offsetSeconds * 1000;
+}
+
+export function checkAuthorisedAt(value) {
+  const text = String(value);
+  if (Number.isNaN(parseAuthorisedAt(text))) {
+    throw new Error('authorisedAt must be an ISO 8601 date-time with an offset or Z, e.g. "2026-11-22T10:15:30.120Z" or "2026-11-22T12:15+02:00" (payware refuses one it cannot read with 400 ERR_INVALID_AUTHORISED_AT)');
+  }
+  return text;
+}
+
+/**
  * Refuse a finalize the server would refuse for its shape, before anything is signed or sent.
  *
  * The execution lock (server docs/execution-lock.md, 2026-11-10) splits finalizing in two:
@@ -23,7 +61,7 @@ const isBlank = value => value === undefined || value === null || value === '';
  * What depends on the lock itself (DEFERRED needs the merchant's opt-in) is the server's to decide:
  * this tool cannot see the lock.
  */
-export function checkFinalizeArgs({ transactionId, status, statusMessage, amount, fee, currency, transferType, feeLegOutcome }) {
+export function checkFinalizeArgs({ transactionId, status, statusMessage, amount, fee, currency, transferType, feeLegOutcome, authorisedAt }) {
   if (!transactionId) {
     throw new Error('Transaction ID is required');
   }
@@ -72,14 +110,22 @@ export function checkFinalizeArgs({ transactionId, status, statusMessage, amount
       throw new Error('feeLegOutcome is sent with FAILED only (the server would ignore it on ' + status + ')');
     }
   }
+
+  if (!isBlank(authorisedAt)) {
+    if (status !== 'EXECUTING') {
+      throw new Error('authorisedAt is sent with EXECUTING only: the moment the payer\'s authentication succeeded, before the lock');
+    }
+    checkAuthorisedAt(authorisedAt);
+  }
 }
 
 /**
  * The request body for each status. EXECUTING carries the amount, fee, currency and transfer type;
  * CONFIRMED carries whichever of them the caller repeats (none is needed after the lock); FAILED
- * carries its fee leg outcome when given. CANCELLED and DECLINED carry the status message only.
+ * carries its fee leg outcome when given. CANCELLED and DECLINED carry the status message only. EXECUTING also
+ * carries authorisedAt when given.
  */
-export function finalizeRequestBody({ status, statusMessage, amount, fee, currency, transferType, feeLegOutcome }) {
+export function finalizeRequestBody({ status, statusMessage, amount, fee, currency, transferType, feeLegOutcome, authorisedAt }) {
   const carriesExecution = status === 'EXECUTING' || status === 'CONFIRMED';
   return {
     status,
@@ -88,7 +134,8 @@ export function finalizeRequestBody({ status, statusMessage, amount, fee, curren
     ...(carriesExecution && !isBlank(fee) && { fee: fee.toString() }),
     ...(carriesExecution && currency && { currency }),
     ...(carriesExecution && transferType && { transferType }),
-    ...(status === 'FAILED' && feeLegOutcome && { feeLegOutcome })
+    ...(status === 'FAILED' && feeLegOutcome && { feeLegOutcome }),
+    ...(status === 'EXECUTING' && !isBlank(authorisedAt) && { authorisedAt: String(authorisedAt) })
   };
 }
 
@@ -107,17 +154,18 @@ export async function finalizeTransaction({
   currency,
   transferType,
   feeLegOutcome,
+  authorisedAt,
   partnerId,
   privateKey,
   useSandbox = true
 }) {
-  checkFinalizeArgs({ transactionId, status, statusMessage, amount, fee, currency, transferType, feeLegOutcome });
+  checkFinalizeArgs({ transactionId, status, statusMessage, amount, fee, currency, transferType, feeLegOutcome, authorisedAt });
 
   if (!partnerId || !privateKey) {
     throw new Error('Partner ID and private key are required for proper JWT creation');
   }
 
-  const requestBody = finalizeRequestBody({ status, statusMessage, amount, fee, currency, transferType, feeLegOutcome });
+  const requestBody = finalizeRequestBody({ status, statusMessage, amount, fee, currency, transferType, feeLegOutcome, authorisedAt });
 
   // Convert to deterministic minimized JSON for SHA-256 calculation
   const minimizedBodyString = createMinimizedJSON(requestBody);
@@ -221,6 +269,8 @@ Each transfer goes in full, with the transaction ID as remittance information; n
 - **CANCELLED**: only for a transaction your institution initiated, before the lock (requires statusMessage).
 After EXECUTING, DECLINED and CANCELLED are refused with 409 ERR_ALREADY_PROCESSED.
 
+**authorisedAt** (optional, EXECUTING only): when the payer's strong customer authentication for both transfers succeeded, an ISO 8601 date-time with an offset or Z (e.g. 2026-11-22T10:15:30.120Z). payware refuses it with 400 ERR_INVALID_AUTHORISED_AT when it cannot read it, when it is more than 5 seconds after payware receives the call, or when it is before the processing call (nothing is locked: send EXECUTING again with a correct one, or without it). payware uses it to measure the time from the payer's authorisation to CONFIRMED.
+
 **transferType:** INSTANT (an instant credit transfer), INTERNAL (the payee's account is with your institution) or DEFERRED (a credit transfer that settles later, which can take days). DEFERRED only for a transaction whose process response carries \`deferredAllowed: true\`; otherwise 400 ERR_DEFERRED_TRANSFER_NOT_ALLOWED.
 
 **fee**: the amount of the Fee Leg, payware's fee plus VAT where it applies (\`feeVat\` in the process response shows the VAT part). payware calculates it, the institution transfers it in full to payware's fee account. Echo the \`fee\` from the process response verbatim - do not recompute it from \`feeFixed\`/\`feeRate\` and do not re-round it, or the call is rejected with ERR_FEE_MISMATCH. Currency must match the processing currency of the transaction.
@@ -232,7 +282,8 @@ After EXECUTING, DECLINED and CANCELLED are refused with 409 ERR_ALREADY_PROCESS
   "amount": "112.00",
   "currency": "EUR",
   "fee": "1.34",
-  "transferType": "INSTANT"
+  "transferType": "INSTANT",
+  "authorisedAt": "2026-11-22T10:15:30.120Z"
 }
 \`\`\`
 then, once the Merchant Leg has completed:
@@ -286,6 +337,11 @@ then, once the Merchant Leg has completed:
         enum: FEE_LEG_OUTCOMES,
         description: "With FAILED only, and optional: NOT_EXECUTED, the only value accepted, because no Fee Leg is executed before CONFIRMED whatever the transfer type. Anything else is 400 ERR_INVALID_FEE_LEG_OUTCOME."
       },
+      authorisedAt: {
+        type: "string",
+        description: "With EXECUTING only, and optional: when the payer's strong customer authentication for both transfers succeeded, an ISO 8601 date-time with seconds and an offset or Z, e.g. 2026-11-22T10:15:30.120Z. payware refuses it with 400 ERR_INVALID_AUTHORISED_AT when it cannot read it, when it is more than 5 seconds after payware receives the call, or when it is before the processing call; nothing is locked then. payware uses it to measure the time from the payer's authorisation to CONFIRMED.",
+        pattern: AUTHORISED_AT_PATTERN
+      },
       partnerId: {
         type: "string",
         description: "Partner ID from payware dashboard. Uses PAYWARE_PARTNER_ID env var as default.",
@@ -314,6 +370,7 @@ then, once the Merchant Leg has completed:
       currency,
       transferType,
       feeLegOutcome,
+      authorisedAt,
       partnerId = getPartnerIdSafe(),
       privateKey = getPrivateKeySafe(args.useSandbox ?? true),
       useSandbox = true
@@ -321,7 +378,7 @@ then, once the Merchant Leg has completed:
 
     // The same checks finalizeTransaction runs, here so that a bad status fails before the
     // credential checks below.
-    checkFinalizeArgs({ transactionId, status, statusMessage, amount, fee, currency, transferType, feeLegOutcome });
+    checkFinalizeArgs({ transactionId, status, statusMessage, amount, fee, currency, transferType, feeLegOutcome, authorisedAt });
 
     if (!partnerId) {
       throw new Error("Partner ID is required. Provide via 'partnerId' parameter or set PAYWARE_PARTNER_ID environment variable.");
@@ -340,6 +397,7 @@ then, once the Merchant Leg has completed:
       currency,
       transferType,
       feeLegOutcome,
+      authorisedAt,
       partnerId,
       privateKey,
       useSandbox
@@ -376,6 +434,7 @@ ${amount ? `- Amount: ${amount} ${currency || ''}` : ''}
 ${shownFee !== undefined && shownFee !== null ? `- Fee Leg: ${shownFee} ${shownCurrency}${result.transaction?.feeVat !== undefined ? ` (VAT included: ${result.transaction.feeVat})` : ''}` : ''}
 ${lockedTransferType ? `- Transfer Type: ${lockedTransferType}` : ''}
 ${feeLegOutcome ? `- Fee Leg Outcome: ${feeLegOutcome}` : ''}
+${authorisedAt && status === 'EXECUTING' ? `- Authorised At: ${authorisedAt}` : ''}
 ${result.transaction?.paymentMethod ? `- Payment Method: ${result.transaction.paymentMethod}` : ''}
 
 **Transaction Response:**
@@ -436,7 +495,7 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 5. **ERR_ALREADY_PROCESSED** (409): already final, or DECLINED/CANCELLED after EXECUTING. **ERR_PAYEE_UNAVAILABLE** (409): EXECUTING refused because the merchant being paid can no longer accept payments; nothing is locked and no money may move
 6. **ERR_MISSING_TRANSFER_TYPE** / **ERR_INVALID_TRANSFER_TYPE**: EXECUTING needs transferType INSTANT, INTERNAL or DEFERRED
 7. **ERR_DEFERRED_TRANSFER_NOT_ALLOWED**: DEFERRED on a transaction without deferredAllowed: true
-8. **ERR_INVALID_FEE_LEG_OUTCOME**: a feeLegOutcome other than NOT_EXECUTED (no Fee Leg is executed before CONFIRMED, so none can have been returned)
+8. **ERR_INVALID_FEE_LEG_OUTCOME**: a feeLegOutcome other than NOT_EXECUTED (no Fee Leg is executed before CONFIRMED, so none can have been returned). **ERR_INVALID_AUTHORISED_AT**: authorisedAt unreadable, more than 5 seconds after payware received the call, or before the processing call; nothing is locked, so send EXECUTING again with a correct authorisedAt or without one
 9. **ERR_FEE_MISMATCH**: the fee was recomputed or re-rounded instead of echoed from the process response
 10. **ERR_FEE_CONFIGURATION_UNAVAILABLE** / **ERR_MISSING_EXCHANGE_RATE** (503): payware could not check the fee; nothing was applied, so retrying EXECUTING later is safe
 11. **ERR_INVALID_STATUS**, **ERR_MISSING_STATUS_MESSAGE**, **ERR_SPECIFYING_CURRENCY_NOT_ALLOWED**, **ERR_INVALID_AMOUNT**, **ERR_UNAUTHORIZED_OPERATION**

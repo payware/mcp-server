@@ -124,7 +124,9 @@ describe('tool contract', () => {
       // tip (trData.tip, spec 24.1, D2) is the merchant's own tip inside amount, for a till that asked the
       // payer first. An institution creating a transaction with one is refused (409 ERR_TIPS_NOT_ALLOWED).
       merchant_only: ['shop', 'deferredAllowed', 'items', 'tip'],
-      payment_institution: ['role']
+      // payerPseudonym is the payer's institution's reference for its customer (kb FI API, Payer pseudonym), and
+      // payerReference what the tool derives it from: only an institution creates a payment as the payer (SRC).
+      payment_institution: ['role', 'payerPseudonym', 'payerReference']
     },
     payware_operations_process_transaction: {
       // Same split as create: a merchant processes into one of its outlets, a financial institution
@@ -144,7 +146,10 @@ describe('tool contract', () => {
       //
       // deliveryAddressVersion goes with a purchase session the institution pays with the address the
       // payer confirmed on payware's page (review C4): only an institution pays a session.
-      payment_institution: ['deliveryAddress', 'deliveryAddressVersion', 'paymentMethod', 'quantity', 'tip']
+      //
+      // payerPseudonym (and payerReference, what the tool derives it from) is the payer's institution's reference
+      // for its customer (kb FI API, Payer pseudonym). A merchant processing a payer's code is the payee.
+      payment_institution: ['deliveryAddress', 'deliveryAddressVersion', 'paymentMethod', 'quantity', 'tip', 'payerPseudonym', 'payerReference']
     },
     payware_operations_get_transaction_status: {
       // An institution reads an offer (pr, pl, ps) for a delivery country and a quantity, to show the
@@ -368,6 +373,20 @@ describe('code examples', () => {
       const out = g.generateExample(operation, 'curl', 'payment_institution', { includeComments: false });
       assert.ok(!out.includes('"account"'), `${operation}: payware does not keep the payer account; the payer institution sends none`);
     }
+  });
+
+  // kb FI API, Payer pseudonym (optional, VG 2026-11-22): the payer's institution sends its reference for the customer,
+  // and EXECUTING may carry the moment of the payer's authorisation. A merchant is the payee and sends no pseudonym.
+  test('the payer institution\'s examples carry a payerPseudonym, and its EXECUTING an authorisedAt', async () => {
+    const g = await generator();
+    for (const operation of ['process_transaction', 'create_transaction']) {
+      const out = g.generateExample(operation, 'curl', 'payment_institution', { includeComments: false });
+      assert.ok(out.includes('"payerPseudonym"'), `${operation}: the payer institution's example has no payerPseudonym`);
+      const merchant = g.generateExample(operation, 'curl', 'merchant', { includeComments: false });
+      assert.ok(!merchant.includes('payerPseudonym'), `${operation}: a merchant is the payee and sends no payerPseudonym`);
+    }
+    const finalize = g.generateExample('finalize_transaction', 'curl', 'payment_institution', { includeComments: false });
+    assert.ok(finalize.includes('"authorisedAt"'), 'the EXECUTING example carries no authorisedAt');
   });
 
   test('an ISV signs on behalf of the merchant, except at /oauth2', async () => {

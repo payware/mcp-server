@@ -22,11 +22,19 @@ const TOKEN = { token: 'kTnR5wQ2vYb8sLcH' };
 const REPORT_REQUEST = { requestId: '1a81220c-2e38-4759-b067-c81abf176295' };
 
 /**
+ * An example payerPseudonym (kb FI API, Payer pseudonym), sent on the requests an institution makes for the payer:
+ * what a bank derives on its server with a one-way keyed function (HMAC-SHA-256 with a secret only it holds)
+ * over its own customer identity, the same for the customer whatever the merchant. Never personal data.
+ */
+const PAYER_PSEUDONYM = 'c2f7e1a94b0d3e86a5f1c7d2e9b4a083';
+
+/**
  * The payer institution's process body: no account (payware does not keep the payer's; FIValidationService
- * requires one only from the payee), and the currency and reasonL1 an institution must send.
+ * requires one only from the payee), the payer's pseudonym, and the currency and reasonL1 an institution must send.
  */
 const INSTITUTION_PROCESS_BODY = {
   friendlyName: 'Jane Doe',
+  payerPseudonym: PAYER_PSEUDONYM,
   trData: {
     amount: '112.00',
     currency: 'EUR',
@@ -48,7 +56,7 @@ const FINALIZE_STEPS = [
     path: '/transactions/{transactionId}',
     params: TRANSACTION,
     body: INSTITUTION_PROCESS_BODY,
-    notes: 'The response carries `fee` (the Fee Leg, payware\'s fee plus VAT), `feeVat`, `feeAccount` (payware\'s fee account with your institution) and, only when the merchant allowed a deferred transfer, `deferredAllowed: true`. Present both payees and the total `amount` to the payer, take one strong customer authentication for both transfers, and reserve the amount.'
+    notes: '`payerPseudonym` is your reference for the customer who pays, derived one way on your server from your own customer identity (16 to 64 characters of `A-Z a-z 0-9 . _ : -`, the same every time for the same customer whatever the merchant, never personal data). payware counts the merchant\'s new and returning customers from it, and never returns it. The response carries `fee` (the Fee Leg, payware\'s fee plus VAT), `feeVat`, `feeAccount` (payware\'s fee account with your institution) and, only when the merchant allowed a deferred transfer, `deferredAllowed: true`. Present both payees and the total `amount` to the payer, take one strong customer authentication for both transfers, and reserve the amount.'
   },
   {
     name: 'send_executing',
@@ -62,9 +70,10 @@ const FINALIZE_STEPS = [
       amount: '112.00',
       currency: 'EUR',
       fee: '1.34',
-      transferType: 'INSTANT'
+      transferType: 'INSTANT',
+      authorisedAt: '2026-11-22T10:15:30.120Z'
     },
-    notes: 'Send it within 5 seconds of the payer\'s approval. Echo `amount`, `currency` and `fee` from the process response unchanged (never recompute or re-round `fee`: `ERR_FEE_MISMATCH`), and name the `transferType`: `INSTANT`, `INTERNAL`, or `DEFERRED` only when the process response carried `deferredAllowed: true`. payware runs every check now and locks the transaction: it no longer expires, and payware will not refuse its `CONFIRMED` or `FAILED` for reasons of its own. **If payware refuses, move no money and release the reservation.** Repeating the identical `EXECUTING` after a timeout is answered with the stored result. Then execute the Merchant Leg (`amount` minus `fee`, to the payee, the transaction ID as remittance information); for `DEFERRED`, send the Fee Leg (`fee`, to `feeAccount`) together with it.'
+    notes: 'Send it within 5 seconds of the payer\'s approval. `authorisedAt` is optional: the moment the payer\'s authentication succeeded, ISO 8601 with an offset or `Z`; payware refuses one it cannot read, one more than 5 seconds after it receives the call, or one before your processing call (`400 ERR_INVALID_AUTHORISED_AT`). Echo `amount`, `currency` and `fee` from the process response unchanged (never recompute or re-round `fee`: `ERR_FEE_MISMATCH`), and name the `transferType`: `INSTANT`, `INTERNAL`, or `DEFERRED` only when the process response carried `deferredAllowed: true`. payware runs every check now and locks the transaction: it no longer expires, and payware will not refuse its `CONFIRMED` or `FAILED` for reasons of its own. **If payware refuses, move no money and release the reservation.** Repeating the identical `EXECUTING` after a timeout is answered with the stored result. Then execute the Merchant Leg (`amount` minus `fee`, to the payee, the transaction ID as remittance information); for `DEFERRED`, send the Fee Leg (`fee`, to `feeAccount`) together with it.'
   },
   {
     name: 'send_confirmed',
@@ -109,12 +118,13 @@ const OPERATIONS = {
     },
     byPartner: {
       // FIValidationService.validateGenerateTransactionRequest: role, friendlyName, and an account only as
-      // the payee (DST).
+      // the payee (DST); as the payer (SRC), the payer's pseudonym.
       payment_institution: {
         description: 'Create a transaction as the payer institution (role SRC)',
         body: {
           role: 'SRC',
           friendlyName: 'Jane Doe',
+          payerPseudonym: PAYER_PSEUDONYM,
           trData: { amount: '25.50', currency: 'EUR', reasonL1: 'Payment' },
           trOptions: { type: 'QR', timeToLive: 300 }
         }

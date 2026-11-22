@@ -5,6 +5,7 @@ import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe, p
 import { apiErrorResult } from '../../shared/api-errors.js';
 import { QR_OPTION_PROPERTIES, BARCODE_OPTION_PROPERTIES, buildQrOptions, buildBarOptions } from '../../shared/media-options.js';
 import { CREATES } from '../../shared/tool-annotations.js';
+import { PAYER_PSEUDONYM_PROPERTIES, resolvePayerPseudonym, payerPseudonymLine } from '../../shared/payer-pseudonym.js';
 
 /**
  * Create a payment institution transaction via payware API
@@ -38,6 +39,9 @@ export async function createPITransaction({
   barBarHeight,
   barFontSize,
   barHumanReadableLocation,
+  // The payer's reference (kb FI API, Payer pseudonym): sent as the payer (SRC) only
+  payerPseudonym,
+  payerReference,
   idempotencyKey,
   useSandbox = true
 }) {
@@ -71,6 +75,12 @@ export async function createPITransaction({
     throw new Error('Partner ID and private key are required for proper JWT creation');
   }
 
+  // As the payer (SRC) the institution may send its pseudonymous reference for the payer, and the tool does, so
+  // that the payment counts as the institution's customer does. As the payee (DST) it is ignored, so none is sent.
+  const pseudonym = role === 'SRC'
+    ? resolvePayerPseudonym({ payerPseudonym, payerReference, privateKey, partnerId })
+    : null;
+
   const qrOptions = buildQrOptions(type, { qrFormat, qrBorder, qrErrorCorrection, qrScale, qrVersion });
 
   const barOptions = buildBarOptions(type, { barFormat, barModuleWidth, barBarHeight, barFontSize, barHumanReadableLocation });
@@ -80,6 +90,7 @@ export async function createPITransaction({
     role,
     ...(role === 'DST' && account && { account }),
     friendlyName,
+    ...(pseudonym && { payerPseudonym: pseudonym.value }),
     ...(callbackUrl && { callbackUrl }),
     ...(passbackParams && {
       passbackParams: typeof passbackParams === 'string' ? passbackParams : JSON.stringify(passbackParams)
@@ -130,6 +141,7 @@ export async function createPITransaction({
     return {
       success: true,
       transaction: response.data,
+      payerPseudonym: pseudonym,
       requestId: response.headers['x-correlation-id'],
       replayed: response.headers?.['idempotent-replayed'] === 'true',
       timestamp: new Date().toISOString()
@@ -150,16 +162,17 @@ export const createPITransactionTool = {
 **Payment Institution Features:**
 - **Role**: DST (payee/receiver) or SRC (payer/sender)
 - **Account**: the account the money is paid into, required as the payee (DST); as the payer (SRC) leave it out, payware does not keep the payer's account
-- **FriendlyName**: Required account holder name
+- **FriendlyName**: Required account holder name. As the payer (SRC) it is the name payware shows the merchant, or the person being paid, as the payer: a non-personal value, such as your institution's own name, is accepted
+- **payerPseudonym**: as the payer (SRC), your pseudonymous reference for the customer who pays, from which payware counts the merchant's new and returning customers. The same for the same customer whatever the merchant. The tool sends your \`payerPseudonym\`, or derives one from \`payerReference\` (default: one test payer) with HMAC-SHA-256 keyed with your private key. Not sent as the payee (DST)
 - **P2P Support**: Cross-payment institution transactions
 - **Flexible Amounts**: Support for amount-flexible transactions
 
 **API Request Structure:**
 \`\`\`json
 {
-  "role": "DST",
-  "account": "GB29NWBK60161331926818",
-  "friendlyName": "John Doe",
+  "role": "SRC",
+  "friendlyName": "Jane Doe",
+  "payerPseudonym": "c2f7e1a94b0d3e86a5f1c7d2e9b4a083",
   "callbackUrl": "https://callback.url",
   "passbackParams": "custom data",
   "trData": {
@@ -195,9 +208,11 @@ export const createPITransactionTool = {
       },
       friendlyName: {
         type: "string",
-        description: "Account holder recognizable name (required)",
+        description: "Account holder recognizable name (required). As the payer (SRC), the name payware shows the merchant, or the person being paid, as the payer: a non-personal value, such as your institution's own name, is accepted.",
         maxLength: 100
       },
+      // Sent as the payer (SRC) only (kb FI API, Payer pseudonym)
+      ...PAYER_PSEUDONYM_PROPERTIES,
       type: {
         type: "string",
         enum: ["PLAIN", "QR", "BARCODE"],
@@ -291,6 +306,8 @@ export const createPITransactionTool = {
       barBarHeight,
       barFontSize,
       barHumanReadableLocation,
+      payerPseudonym,
+      payerReference,
       idempotencyKey,
       useSandbox = true
     } = args;
@@ -341,6 +358,8 @@ export const createPITransactionTool = {
       barBarHeight,
       barFontSize,
       barHumanReadableLocation,
+      payerPseudonym,
+      payerReference,
       idempotencyKey,
       useSandbox
     });
@@ -364,6 +383,7 @@ export const createPITransactionTool = {
 - Status: ${statusEmoji} ${status}
 ${account && role === 'DST' ? `- Account: ${account}` : '- Account: not sent (the payer sends none)'}
 - Friendly Name: ${friendlyName}
+${role === 'SRC' ? payerPseudonymLine(result.payerPseudonym) : '- Payer pseudonym: not sent (the payee sends none)'}
 ${amount ? `- Amount: ${amount} ${currency}` : '- Amount: Flexible (0.00)'}
 ${reasonL1 ? `- Description: ${reasonL1}${reasonL2 ? ` (${reasonL2})` : ''}` : ''}
 ${callbackUrl ? `- Callback URL: ${callbackUrl}` : ''}
@@ -412,11 +432,12 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 
 **Troubleshooting:**
 1. Verify role is either "SRC" or "DST"
-2. Ensure account and friendlyName are provided
-3. Check JWT token is valid and not expired
-4. Verify partner ID and API access for payment institutions
-5. Validate currency code (ISO 3-character)
-6. Check sandbox API status`
+2. Ensure friendlyName is provided, and account as the payee (DST)
+3. **ERR_INVALID_PAYER_PSEUDONYM**: as the payer (SRC) a payerPseudonym of 16 to 64 characters of A-Z a-z 0-9 . _ : -, never IBAN-shaped or with @; leave it out and the tool derives one
+4. Check JWT token is valid and not expired
+5. Verify partner ID and API access for payment institutions
+6. Validate currency code (ISO 3-character)
+7. Check sandbox API status`
         }]
       };
     }

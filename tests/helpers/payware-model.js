@@ -274,6 +274,47 @@ function amountOf(value, currency, { positive = false, allowNegative = false } =
 
 const knownCurrency = c => present(c) && String(c).toUpperCase() in CURRENCIES;
 
+/**
+ * payerPseudonym (kb FI API, Payer pseudonym): optional (VG 2026-11-22), sent by the payer's institution. A value it
+ * sends is 16 to 64 characters of A-Z a-z 0-9 . _ : - and is never an IBAN, the IBAN shape with valid check digits (nor an @, which the
+ * characters already exclude), else 400 ERR_INVALID_PAYER_PSEUDONYM and nothing is created. The payee's is ignored.
+ */
+function isIban(text) {
+  if (!/^[A-Za-z]{2}\d{2}[A-Za-z0-9]{11,30}$/.test(text)) return false;
+  const upper = text.toUpperCase();
+  let remainder = 0;
+  for (const c of upper.slice(4) + upper.slice(0, 4)) {
+    for (const d of (c >= '0' && c <= '9' ? c : String(c.charCodeAt(0) - 55))) remainder = (remainder * 10 + Number(d)) % 97;
+  }
+  return remainder === 1;
+}
+
+function payerPseudonymRefusal(value) {
+  const text = String(value);
+  const valid = !text.includes('@') && /^[A-Za-z0-9._:-]{16,64}$/.test(text) && !isIban(text);
+  return valid ? null : err(400, 'ERR_INVALID_PAYER_PSEUDONYM');
+}
+
+/**
+ * authorisedAt (EXECUTING only, optional): an ISO 8601 date-time with an offset or Z as java.time's ISO_OFFSET_DATE_TIME
+ * reads it (seconds optional, T and Z in either case, offset Z, +HH, +HH:MM or +HH:MM:SS), at most 5 seconds after the call
+ * reaches payware, else 400 ERR_INVALID_AUTHORISED_AT. The server also refuses one before the processing call; the
+ * model keeps no processing time, so it does not check that.
+ */
+function authorisedAtRefusal(value) {
+  const text = String(value);
+  const m = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{0,9}))?)?(?:([Zz])|([+-])(\d{2})(?::(\d{2})(?::(\d{2}))?)?)$/.exec(text.trim());
+  if (!m) return err(400, 'ERR_INVALID_AUTHORISED_AT');
+  const [, y, mo, d, h, mi, sec = '0', frac = '', zulu, sign, oh, om = '0', os = '0'] = m.map(v => v ?? undefined);
+  const n = Number;
+  const lastDay = new Date(Date.UTC(n(y), n(mo), 0)).getUTCDate();
+  const offset = zulu ? 0 : (n(oh) * 3600 + n(om) * 60 + n(os)) * (sign === '-' ? -1 : 1);
+  const calendar = n(mo) >= 1 && n(mo) <= 12 && n(d) >= 1 && n(d) <= lastDay && n(h) <= 23 && n(mi) <= 59 && n(sec) <= 59
+    && n(om) <= 59 && n(os) <= 59 && Math.abs(offset) <= 18 * 3600;
+  const at = Date.UTC(n(y), n(mo) - 1, n(d), n(h), n(mi), n(sec), n((frac + '000').slice(0, 3))) - offset * 1000;
+  return calendar && at <= Date.now() + 5000 ? null : err(400, 'ERR_INVALID_AUTHORISED_AT');
+}
+
 const inRange = (v, min, max) => Number.isInteger(Number(v)) && Number(v) >= min && Number(v) <= max;
 
 function qrRefusal(options) {
@@ -517,6 +558,10 @@ export class PaywareModel {
       case 'createTransaction': {
         const tr = body.trData;
         if (bank && !['SRC', 'DST'].includes(body.role)) return err(400, 'ERR_UNKNOWN_ROLE');
+        if (bank && body.role === 'SRC' && present(body.payerPseudonym)) {
+          const refusal = payerPseudonymRefusal(body.payerPseudonym);
+          if (refusal) return refusal;
+        }
         if (!tr || !knownCurrency(tr.currency)) return err(400, 'ERR_UNKNOWN_CURRENCY');
         if (present(tr.amount) && exceedsAmountDigits(tr.amount)) return err(400, 'ERR_INVALID_AMOUNT_LENGTH');
         if (amountOf(tr.amount, tr.currency) === null) return err(400, 'ERR_INVALID_AMOUNT');
@@ -547,6 +592,11 @@ export class PaywareModel {
       case 'processTransaction': {
         const [id] = route.params;
         const tr = body.trData ?? {};
+        // The payer's institution: the one that sends no account (an account is the payee's, FIValidationService).
+        if (bank && !present(body.account) && present(body.payerPseudonym)) {
+          const refusal = payerPseudonymRefusal(body.payerPseudonym);
+          if (refusal) return refusal;
+        }
         if (!knownCurrency(tr.currency)) return err(400, 'ERR_UNKNOWN_CURRENCY');
         if (amountOf(tr.amount, tr.currency, { positive: true }) === null) return err(400, 'ERR_INVALID_AMOUNT');
         // A bank names the grounds unless the id brings its own (a product, placement or soundbite).
@@ -702,6 +752,10 @@ export class PaywareModel {
         // FIValidationService: a known currency, and the transaction's own.
         if (!knownCurrency(body.currency)) return err(400, 'ERR_UNKNOWN_CURRENCY');
         if (body.currency.toUpperCase() !== tx.currency) return err(400, 'ERR_SPECIFYING_CURRENCY_NOT_ALLOWED');
+        if (present(body.authorisedAt)) {
+          const refusal = authorisedAtRefusal(body.authorisedAt);
+          if (refusal) return refusal;
+        }
         if (tx.status === 'EXECUTING') {
           return JSON.stringify(lockOf(body)) === JSON.stringify(tx.lock) ? null : err(409, 'ERR_EXECUTION_MISMATCH');
         }

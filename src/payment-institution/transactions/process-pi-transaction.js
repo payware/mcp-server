@@ -4,6 +4,7 @@ import { createMinimizedJSON } from '../../core/utils/json-serializer.js';
 import { getSandboxUrl, getProductionUrl, getPartnerIdSafe, getPrivateKeySafe, privateKeyVariable } from '../../config/env.js';
 import { apiErrorResult } from '../../shared/api-errors.js';
 import { COMMITS } from '../../shared/tool-annotations.js';
+import { PAYER_PSEUDONYM_PROPERTIES, resolvePayerPseudonym, payerPseudonymLine } from '../../shared/payer-pseudonym.js';
 
 /** Product, placement and soundbite codes: the server takes reasonL1 from the product when it is omitted. */
 const PRODUCT_CODE = /^(pr|pl|ps)/;
@@ -73,6 +74,9 @@ export async function processPITransaction({
   tip,
   // Payment method for POI transactions (Payment Choice Architecture)
   paymentMethod,
+  // The payer's reference (kb FI API, Payer pseudonym): sent as the payer's institution only
+  payerPseudonym,
+  payerReference,
   idempotencyKey,
   useSandbox = true
 }) {
@@ -99,10 +103,19 @@ export async function processPITransaction({
     throw new Error('Partner ID and private key are required for proper JWT creation');
   }
 
+  // The payer's institution may send its pseudonymous reference for the payer on every process: a pw, an offer, a
+  // session, a POI sale, a P2P payment its customer pays. The tool does, so that the payment counts as the
+  // institution's customer does. The payee's institution, the one that sends an account (a transaction its payer
+  // created, FIValidationService.accountIsPayees), sends none: payware ignores it there.
+  const pseudonym = account
+    ? null
+    : resolvePayerPseudonym({ payerPseudonym, payerReference, privateKey, partnerId });
+
   // Build request body according to payment institution API documentation
   const requestBody = {
     ...(account && { account }),
     friendlyName,
+    ...(pseudonym && { payerPseudonym: pseudonym.value }),
     ...(callbackUrl && { callbackUrl }),
     ...(passbackParams && { passbackParams }),
     ...(paymentMethod && { paymentMethod }),
@@ -149,6 +162,7 @@ export async function processPITransaction({
     return {
       success: true,
       transaction: response.data,
+      payerPseudonym: pseudonym,
       requestId: response.headers['x-correlation-id'],
       replayed: response.headers?.['idempotent-replayed'] === 'true',
       timestamp: new Date().toISOString()
@@ -172,7 +186,8 @@ export const processPITransactionTool = {
 - **Cross-PI**: Process transactions from other payment institutions
 
 **Required for Payment Institutions:**
-- friendlyName: Your account holder name
+- friendlyName: Your account holder name. As the payer's institution, the name payware shows the merchant, or the person being paid, as the payer: a non-personal value, such as your institution's own name, is accepted. On a SHIPPABLE transaction the recipient's name goes in deliveryAddress.fullName
+- payerPseudonym: as the payer's institution (every process without \`account\`), your pseudonymous reference for the customer who pays, from which payware counts the merchant's new and returning customers. The same for the same customer whatever the merchant. The tool sends your \`payerPseudonym\`, or derives one from \`payerReference\` (default: one test payer) with HMAC-SHA-256 keyed with your private key. Not sent with \`account\` (processing as the payee), where payware ignores it
 - account: the account the money is paid into, only when processing as the payee (a transaction its payer created, role SRC; otherwise 400 ERR_MISSING_PARTNER_ACCOUNT). As the payer's institution leave it out: payware does not keep the payer's account, and one that is sent is ignored
 - currency: Transaction currency (required)
 - amount: above zero (required: the server refuses a process without one)
@@ -195,6 +210,7 @@ export const processPITransactionTool = {
 \`\`\`json
 {
   "friendlyName": "Jane Doe",
+  "payerPseudonym": "c2f7e1a94b0d3e86a5f1c7d2e9b4a083",
   "callbackUrl": "https://callback.url",
   "passbackParams": "internal-ref-123",
   "trData": {
@@ -239,9 +255,11 @@ export const processPITransactionTool = {
       },
       friendlyName: {
         type: "string",
-        description: "Your account holder recognizable name (required for payment institutions)",
+        description: "Your account holder recognizable name (required for payment institutions). As the payer's institution, the name payware shows the merchant, or the person being paid, as the payer: a non-personal value, such as your institution's own name, is accepted. On a SHIPPABLE transaction the recipient's name goes in deliveryAddress.fullName.",
         maxLength: 100
       },
+      // Sent by the payer's institution only, that is without account (kb FI API, Payer pseudonym)
+      ...PAYER_PSEUDONYM_PROPERTIES,
       amount: {
         type: ["number", "string"],
         description: "Amount to process, above zero (required: the server refuses a process without one, ERR_INVALID_AMOUNT). As the payer: exactly the amount the payment asks (its total when it has lines, else its amount), or that + tip when you send tip; more is 409 ERR_AMOUNT_NOT_TOTAL, less 400 ERR_INVALID_AMOUNT. Only a payer-set amount (0.00) is typed freely. As the payee: at most what the payer offered. EXECUTING then carries exactly this amount. At most 15 significant and 15 integer digits (400 ERR_INVALID_AMOUNT_LENGTH).",
@@ -382,6 +400,8 @@ export const processPITransactionTool = {
       deliveryAddressVersion,
       quantity,
       tip,
+      payerPseudonym,
+      payerReference,
       idempotencyKey,
       useSandbox = true
     } = args;
@@ -427,6 +447,8 @@ export const processPITransactionTool = {
       deliveryAddressVersion,
       quantity,
       tip,
+      payerPseudonym,
+      payerReference,
       idempotencyKey,
       useSandbox
     });
@@ -443,6 +465,7 @@ export const processPITransactionTool = {
 **Your Details:**
 ${account ? `- Account: ${account}` : '- Account: not sent (the payer\'s institution sends none)'}
 - Friendly Name: ${friendlyName}
+${account ? '- Payer pseudonym: not sent (the payee\'s institution sends none)' : payerPseudonymLine(result.payerPseudonym)}
 ${amount ? `- Amount: ${amount} ${currency}` : ''}
 ${reasonL1 ? `- Reason: ${reasonL1}${reasonL2 ? ` (${reasonL2})` : ''}` : ''}
 ${paymentMethod ? `- Payment Method: ${paymentMethod}` : ''}
@@ -506,6 +529,7 @@ ${JSON.stringify(result.error.details || result.error, null, 2)}
 8. **ERR_AMOUNT_NOT_TOTAL** (409): a payment is paid exactly the amount it asks (its amount, or the total payware calculated), plus the tip where one is sent; re-read (or quote) and show the payer the amount to pay
 9. **ERR_SESSION_ADDRESS_CHANGED** (409): a pa paid without deliveryAddress, and deliveryAddressVersion is missing or not the session's current address: read again and show the payer the new destination
 10. **ERR_INVALID_TIP** (400) or **ERR_TIPS_NOT_ALLOWED** (409): the tip is not a plain decimal at the currency's scale, is 0 or above the amount asked, or the read had no tipsAllowed (the shop takes no tips, the payment already carries the merchant's tip, or the payer sets its amount)
+11. **ERR_INVALID_PAYER_PSEUDONYM** (400): as the payer's institution, a payerPseudonym of 16 to 64 characters of A-Z a-z 0-9 . _ : -, never IBAN-shaped or with @; leave it out and the tool derives one. Nothing was created
 
 **Troubleshooting:**
 1. Verify transaction ID is correct: up to 32 characters, starts with 'pw' (standard), 'pr' (product), 'pl' (placement), 'ps' (soundbite), 'pi' (POI) or 'pa' (purchase session)
