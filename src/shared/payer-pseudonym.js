@@ -10,15 +10,18 @@ import { createHmac, createPrivateKey } from 'node:crypto';
  * as the institution's customer does.
  *
  * The server's rules: 16 to 64 characters of A-Z a-z 0-9 . _ : -, the same every time for the same
- * customer of the institution, whatever the merchant and whichever of the customer's accounts pays,
- * derived one way from the institution's own customer identity (not from an account), never a name,
- * account number, phone number, email address or customer number. A malformed value, one with @, or an
+ * customer of the institution, whatever the merchant and whichever of the customer's accounts pays. Yours, and
+ * private to the institution: a reference it already keeps for the customer works as it is (one it assigned at
+ * random, say), as long as no one outside it can link it to the customer; where it has none, it derives one from
+ * its own customer identifier (not from an account) with a one-way keyed function. Never a name, account number,
+ * phone number, email address or customer number. A malformed value, one with @, or an
  * IBAN (the IBAN shape with valid check digits, as the server's PayerPseudonymService.looksLikeIban) is
  * 400 ERR_INVALID_PAYER_PSEUDONYM and nothing is created. The server accepts a call without one. payware never stores or returns
  * it: it keeps only keys derived from it, uses them for statistics, and shows merchants only totals of their
  * own customers, never anything that identifies a payer.
  *
- * A bank derives it on its server, over its own customer identifier, with a secret only the bank holds.
+ * A bank without such a reference derives it on its server, over its own customer identifier, with a secret only
+ * the bank holds.
  * These tools have no customers, so they derive it the same way from what they have: HMAC-SHA-256 keyed
  * with the institution's private key (its PKCS#8 DER bytes, so the key's text format does not matter), the
  * one secret the tool holds, over "payware payer pseudonym", the partner id and a payer reference (by default

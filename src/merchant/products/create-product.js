@@ -113,7 +113,7 @@ export const createProductTool = {
       // Product Options Properties
       imageUrl: {
         type: "string",
-        description: "URL pointing to external product image resource",
+        description: "URL of the product image, fetched and checked by payware on save: JPG or PNG, at most 600 KB, at least 300 px wide and at most four times as wide as it is high (1200 x 630 px, about 300 KB, recommended). Banks, the payment page and chat previews show it.",
         maxLength: 150,
         format: "uri"
       },

@@ -1,6 +1,6 @@
 {
   "name": "@payware/mcp-server",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "mcpName": "io.github.payware/mcp-server",
   "description": "payware A2A payments API for merchants, ISVs, payment institutions and buying agents",
   "main": "src/index.js",
